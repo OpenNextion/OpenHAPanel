@@ -2,7 +2,7 @@
 
 OpenHAPanel allows users to view and control Home Assistant devices from a dedicated ESP32-S3 screen.
 
-Nextion User Guide and FAQ: https://opennextion.github.io/OpenHAPanel/pages/faq.html
+User Guide and FAQ: https://opennextion.github.io/OpenHAPanel/pages/faq.html
 
 <img width="200" height="300" alt="switch-entity" src="https://github.com/user-attachments/assets/5ab38b75-b4b8-48d8-93c4-624169ee1718" />
 <img width="200" height="300" alt="cover-entity" src="https://github.com/user-attachments/assets/f6e59cfc-3f86-466a-8267-137ce49fa986" />
