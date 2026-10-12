@@ -4,10 +4,10 @@ OpenHAPanel allows users to view and control Home Assistant devices from a dedic
 
 Nextion User Guide and FAQ: https://opennextion.github.io/OpenHAPanel/pages/faq.html
 
-<img width="240" height="360" alt="switch-entity" src="https://github.com/user-attachments/assets/5ab38b75-b4b8-48d8-93c4-624169ee1718" />
-<img width="240" height="360" alt="cover-entity" src="https://github.com/user-attachments/assets/f6e59cfc-3f86-466a-8267-137ce49fa986" />
-<img width="240" height="360" alt="light-entity" src="https://github.com/user-attachments/assets/6783a575-07e8-4b1c-99d4-31e98382de44" />
-<img width="240" height="360" alt="button-entity" src="https://github.com/user-attachments/assets/8febc707-cef0-49b2-871b-ad27f57c55b3" />
+<img width="200" height="300" alt="switch-entity" src="https://github.com/user-attachments/assets/5ab38b75-b4b8-48d8-93c4-624169ee1718" />
+<img width="200" height="300" alt="cover-entity" src="https://github.com/user-attachments/assets/f6e59cfc-3f86-466a-8267-137ce49fa986" />
+<img width="200" height="300" alt="light-entity" src="https://github.com/user-attachments/assets/6783a575-07e8-4b1c-99d4-31e98382de44" />
+<img width="200" height="300" alt="button-entity" src="https://github.com/user-attachments/assets/8febc707-cef0-49b2-871b-ad27f57c55b3" />
 
 ## Usage
 
