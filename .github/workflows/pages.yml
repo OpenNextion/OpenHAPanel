@@ -34,11 +34,13 @@ jobs:
           test -d pages/assets
           mkdir -p _site/pages/assets
           cp pages/entity-support.html pages/faq.html _site/pages/
-          # Keep nested asset paths intact and publish only PNG images.
+          # Keep nested asset paths intact and publish supported image assets.
           while IFS= read -r -d '' asset; do
             mkdir -p "_site/$(dirname "${asset}")"
             cp "${asset}" "_site/${asset}"
-          done < <(find pages/assets -type f -iname '*.png' -print0)
+          done < <(find pages/assets -type f \
+            \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) \
+            -print0)
           touch _site/.nojekyll
           cat > _site/index.html <<'HTML'
           <!doctype html>
