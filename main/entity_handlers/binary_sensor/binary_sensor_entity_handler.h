@@ -1,0 +1,8 @@
+#ifndef OPEN_NEXTION_MAIN_ENTITY_HANDLERS_BINARY_SENSOR_ENTITY_HANDLER_H
+#define OPEN_NEXTION_MAIN_ENTITY_HANDLERS_BINARY_SENSOR_ENTITY_HANDLER_H
+
+#include "../entity_handler.h"
+
+extern const entity_handler_t binary_sensor_entity_handler;
+
+#endif // OPEN_NEXTION_MAIN_ENTITY_HANDLERS_BINARY_SENSOR_ENTITY_HANDLER_H

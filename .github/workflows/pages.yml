@@ -1,0 +1,67 @@
+name: Deploy documentation
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  deploy-pages:
+    name: Deploy released documentation to GitHub Pages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Prepare documentation site
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f pages/entity-support.html
+          test -f pages/faq.html
+          test -d pages/assets
+          mkdir -p _site/pages/assets
+          cp pages/entity-support.html pages/faq.html _site/pages/
+          # Keep nested asset paths intact and publish only PNG images.
+          while IFS= read -r -d '' asset; do
+            mkdir -p "_site/$(dirname "${asset}")"
+            cp "${asset}" "_site/${asset}"
+          done < <(find pages/assets -type f -iname '*.png' -print0)
+          touch _site/.nojekyll
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head><meta charset="utf-8"><title>OpenNextion Documentation</title></head>
+          <body>
+            <h1>OpenNextion Documentation</h1>
+            <ul>
+              <li><a href="pages/entity-support.html">Entity support</a></li>
+              <li><a href="pages/faq.html">FAQ</a></li>
+            </ul>
+          </body>
+          </html>
+          HTML
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload documentation site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

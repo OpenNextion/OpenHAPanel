@@ -1,0 +1,192 @@
+name: Build OTA release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Stable firmware version without the v prefix"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  PRODUCT_ID: open-ha-panel
+  DEVICE_MODEL: ONX3248G035
+  DEVICE_MODEL_SLUG: onx3248g035
+  ASSET_PREFIX: open-ha-panel-onx3248g035
+
+concurrency:
+  group: ota-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and validate firmware
+    runs-on: ubuntu-24.04
+    container:
+      image: espressif/idf:v5.5.5
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate stable release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          if [[ "${GITHUB_EVENT_NAME}" = "push" ]]; then
+            release_tag="${GITHUB_REF_NAME}"
+            test "$(git rev-parse "${release_tag}^{commit}")" = "${GITHUB_SHA}"
+          else
+            release_tag="v${{ inputs.version }}"
+          fi
+          if [[ ! "${release_tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Only stable vMAJOR.MINOR.PATCH tags are supported" >&2
+            exit 1
+          fi
+          echo "tag=${release_tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${release_tag#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build production firmware
+        shell: bash
+        run: |
+          set -eo pipefail
+          . "${IDF_PATH:-/opt/esp/idf}/export.sh"
+          set -u
+          idf.py --version
+          idf.py -B build-release \
+            -DSDKCONFIG=build-release/sdkconfig \
+            -DSDKCONFIG_DEFAULTS=sdkconfig.defaults \
+            -DFIRMWARE_VERSION="${{ steps.release.outputs.version }}" \
+            -DFIRMWARE_TYPE=stable \
+            -DDEVICE_MODEL="${DEVICE_MODEL}" \
+            -DOTA_DEFAULT_CHANNEL=stable \
+            -DOTA_RELEASE_REPOSITORY="${GITHUB_REPOSITORY}" \
+            -DOTA_ALLOW_INSECURE_HTTP=0 \
+            -DOTA_AUTO_CHECK_ON_WIFI_CONNECT=1 \
+            -DOTA_INFO_URL="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/${ASSET_PREFIX}.manifest.json" \
+            build
+
+      - name: Package release images
+        shell: bash
+        run: |
+          set -eo pipefail
+          . "${IDF_PATH:-/opt/esp/idf}/export.sh"
+          set -u
+          mkdir -p dist
+          cp "build-release/${PRODUCT_ID}.bin" \
+            "dist/${ASSET_PREFIX}.ota.bin"
+          idf.py -B build-release merge-bin \
+            -o "${GITHUB_WORKSPACE}/dist/${ASSET_PREFIX}.factory.bin" \
+            -f raw
+
+      - name: Generate and validate release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/generate_ota_release.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            --device-model "${DEVICE_MODEL}" \
+            --tag "${{ steps.release.outputs.tag }}" \
+            --git-sha "${GITHUB_SHA}" \
+            --idf-version v5.5.5 \
+            --ota-bin "dist/${ASSET_PREFIX}.ota.bin" \
+            --factory-bin "dist/${ASSET_PREFIX}.factory.bin" \
+            --project-description build-release/project_description.json \
+            --build-metadata build-release/open_ha_panel_build_metadata.json \
+            --partition-table partitions.csv \
+            --output-dir dist
+          cd dist
+          sha256sum --check SHA256SUMS
+
+      - name: Upload validated release bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: ota-release-${{ steps.release.outputs.tag }}
+          path: |
+            dist/${{ env.ASSET_PREFIX }}.ota.bin
+            dist/${{ env.ASSET_PREFIX }}.factory.bin
+            dist/${{ env.ASSET_PREFIX }}.manifest.json
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  draft-release:
+    name: Create draft release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download validated release bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: ota-release-${{ needs.build.outputs.tag }}
+          path: dist
+
+      - name: Verify downloaded bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check SHA256SUMS
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 4
+
+      - name: Create draft GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/${ASSET_PREFIX}.ota.bin" \
+            "dist/${ASSET_PREFIX}.factory.bin" \
+            "dist/${ASSET_PREFIX}.manifest.json" \
+            dist/SHA256SUMS \
+            --verify-tag \
+            --draft \
+            --generate-notes \
+            --title "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}"
+
+      - name: Verify draft assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --json isDraft --jq '.isDraft')" = "true"
+          gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --json assets --jq '.assets[].name' | sort > remote-assets.txt
+          printf '%s\n' \
+            SHA256SUMS \
+            "${ASSET_PREFIX}.factory.bin" \
+            "${ASSET_PREFIX}.manifest.json" \
+            "${ASSET_PREFIX}.ota.bin" | sort > expected-assets.txt
+          diff -u expected-assets.txt remote-assets.txt
+
+          for asset in \
+            SHA256SUMS \
+            "${ASSET_PREFIX}.factory.bin" \
+            "${ASSET_PREFIX}.manifest.json" \
+            "${ASSET_PREFIX}.ota.bin"; do
+            local_size="$(stat -c %s "dist/${asset}")"
+            remote_size="$(gh release view "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json assets \
+              --jq ".assets[] | select(.name == \"${asset}\") | .size")"
+            test "${local_size}" = "${remote_size}"
+          done

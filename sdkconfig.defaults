@@ -1,0 +1,103 @@
+# This file was generated using idf.py save-defconfig. It can be edited manually.
+# Espressif IoT Development Framework (ESP-IDF) 5.5.1 Project Minimal Configuration
+#
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=4096
+
+#
+# Partition Table
+#
+# CONFIG_PARTITION_TABLE_SINGLE_APP is not set
+# CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE is not set
+# CONFIG_PARTITION_TABLE_TWO_OTA is not set
+# CONFIG_PARTITION_TABLE_TWO_OTA_LARGE is not set
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_PARTITION_TABLE_MD5=y
+# end of Partition Table
+
+# OTA rollback is implemented by the bootloader. Devices must receive a full
+# flash containing this bootloader before relying on application rollback.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# HTTP Server WebSocket Support
+CONFIG_HTTPD_WS_SUPPORT=y
+
+# LwIP IP Forward & NAPT Support
+CONFIG_LWIP_IP_FORWARD=y
+CONFIG_LWIP_IPV4_NAPT=y
+CONFIG_LWIP_IPV4_NAPT_PORTMAP=y
+
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
+CONFIG_SYSTEM_EVENT_TASK_STACK_SIZE=4096
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_MAIN_TASK_STACK_SIZE=8192
+CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=6144
+CONFIG_TCPIP_TASK_STACK_SIZE=6144
+
+# Include the standard root CA bundle for GitHub HTTPS OTA. The OTA HTTP client
+# must explicitly attach esp_crt_bundle_attach when it is implemented.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# Let mbedTLS use the normal ESP-IDF heap allocator. With PSRAM enabled, large
+# TLS record buffers can be placed in external RAM instead of exhausting the
+# small contiguous blocks left in internal RAM during certificate validation.
+# CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC is not set
+# CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC is not set
+CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
+# CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC is not set
+
+# Legacy HTTPS clients currently rely on this fallback. OTA must never rely on
+# it and must always configure the CA bundle explicitly.
+CONFIG_ESP_TLS_INSECURE=y
+CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
+
+# Prefer PSRAM for Wi-Fi/lwIP allocations so a larger TCP receive path does not
+# put additional pressure on the already constrained internal heap. Falling
+# back to internal RAM remains supported if a PSRAM allocation fails.
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# Enlarge the TCP receive path for high-latency HTTPS OTA downloads. Keep the
+# send buffer unchanged because OTA is primarily a receive workload. Testing
+# showed that a mailbox of 32 performs better on this device than 96 while also
+# limiting the per-socket memory overhead.
+CONFIG_LWIP_WND_SCALE=y
+CONFIG_LWIP_TCP_RCV_SCALE=2
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=23040
+CONFIG_LWIP_TCP_WND_DEFAULT=131072
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=32
+
+# Socket pool, one global budget shared by everything.
+# Must cover: httpd's 3 internal sockets (1 TCP listen + 2 UDP ctrl) + up to
+# MAX_OPEN_SOCKETS httpd sessions (4 consoles x 2 sessions at peak = 8, plus the
+# over-limit notice and one slot of slack) + the always-on services (mDNS, SNTP,
+# HA WebSocket client, captive portal DNS, and the DHCP server while the AP is
+# up). 3 + 10 + 6 = 19, so 24 leaves a real margin rather than a single spare.
+# Keep LWIP_SOCKET_OFFSET able to hand out this many fds: 64 - 24 = 40,
+# i.e. sockets use fd 40..63.
+CONFIG_LWIP_MAX_SOCKETS=24
+
+# SNTP. The web console exposes a primary and a spare NTP server, but lwIP
+# silently drops any index >= LWIP_SNTP_MAX_SERVERS, and the default of 1 makes
+# the spare a no-op. sys_time.c sets two entries, hence two slots. It also has a
+# compile-time guard so this cannot silently regress.
+CONFIG_LWIP_SNTP_MAX_SERVERS=2
+
+# RFC 4330 startup jitter, re-applied on every (re)start -- including the
+# re-poll that fires as soon as an interface gets its address. Left at the
+# 5000 ms default it keeps the status bar clock at "--:--" for seconds after the
+# network is actually usable, so it is shortened here. Deliberately non-zero:
+# the jitter is what protects the NTP servers from a thundering herd.
+CONFIG_LWIP_SNTP_STARTUP_DELAY=y
+CONFIG_LWIP_SNTP_MAXIMUM_STARTUP_DELAY=500

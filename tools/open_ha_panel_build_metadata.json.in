@@ -1,0 +1,6 @@
+{
+  "product": "open-ha-panel",
+  "deviceModel": "@DEVICE_MODEL@",
+  "deviceModelSlug": "@DEVICE_MODEL_SLUG@",
+  "version": "@FIRMWARE_VERSION@"
+}

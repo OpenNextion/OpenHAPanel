@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Home Assistant 实体支持清单">
+  <title>Home Assistant 实体支持清单</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page-width: 760px;
+      --border: #111;
+      --paper: #fff;
+      --canvas: #f3f4f6;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      background: #f3f4f6;
+      color: #000;
+      font-family: "Times New Roman", "Noto Serif CJK SC", SimSun, serif;
+    }
+
+    body {
+      width: min(calc(100% - 32px), var(--page-width));
+      margin: 28px auto;
+      padding: 30px 34px 42px;
+      background: #fff;
+      box-shadow: 0 2px 16px rgb(0 0 0 / 8%);
+    }
+
+    section + section { margin-top: 34px; }
+
+    h2 {
+      margin: 0 0 8px;
+      font-size: 23px;
+      line-height: 1.15;
+      font-weight: 700;
+    }
+
+    .table-scroll {
+      width: 100%;
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    th,
+    td {
+      border: 1px solid #111;
+      padding: 3px 7px;
+      vertical-align: middle;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      padding-block: 2px;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    td.entity { text-align: center; }
+    td.device { text-align: left; }
+    td.device.center { text-align: center; }
+    td.methods { text-align: left; }
+    td.methods.center { text-align: center; }
+
+    .steps {
+      margin: 0;
+      padding: 0;
+      list-style-position: inside;
+    }
+
+    .steps li { margin: 0 0 2px; }
+    .steps li:last-child { margin-bottom: 0; }
+
+    .supported col:nth-child(1) { width: 18%; }
+    .supported col:nth-child(2) { width: 40%; }
+    .supported col:nth-child(3) { width: 42%; }
+
+    .upcoming col:nth-child(1) { width: 17%; }
+    .upcoming col:nth-child(2) { width: 37%; }
+    .upcoming col:nth-child(3) { width: 46%; }
+
+    @media (max-width: 640px) {
+      html { background: #fff; }
+
+      body {
+        width: 100%;
+        margin: 0;
+        padding: 20px 12px 36px;
+        box-shadow: none;
+      }
+
+      section + section { margin-top: 28px; }
+      h2 { font-size: 20px; }
+
+      table {
+        min-width: 680px;
+        font-size: 13px;
+      }
+
+      .table-scroll {
+        border-right: 1px solid #d1d5db;
+        scrollbar-width: thin;
+      }
+    }
+
+    @media print {
+      html { background: #fff; }
+      body { width: auto; margin: 0; padding: 0; box-shadow: none; }
+      .table-scroll { overflow: visible; }
+      section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section aria-labelledby="supported-title">
+      <h2 id="supported-title">一、Entities supported in v0.0.11</h2>
+      <div class="table-scroll" role="region" aria-label="Entities supported in v0.0.11" tabindex="0">
+        <table class="supported">
+          <colgroup><col><col><col></colgroup>
+          <thead>
+            <tr>
+              <th scope="col">Entity</th>
+              <th scope="col">DeviceClass</th>
+              <th scope="col">Methods / Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="entity" rowspan="2">switch</td>
+              <td class="device">switch</td>
+              <td class="methods" rowspan="2">
+                <ol class="steps"><li>Turn on</li><li>Turn off</li><li>Toggle</li></ol>
+              </td>
+            </tr>
+            <tr><td class="device">outlet</td></tr>
+
+            <tr>
+              <td class="entity">light</td>
+              <td class="device center">/</td>
+              <td class="methods">
+                <ol class="steps"><li>Turn on</li><li>Turn off</li><li>Set brightness</li><li>Set color</li><li>Set color temperature</li><li>Set effect</li></ol>
+              </td>
+            </tr>
+
+            <tr>
+              <td class="entity" rowspan="10">cover</td>
+              <td class="device">awning</td>
+              <td class="methods" rowspan="10">
+                <ol class="steps"><li>open</li><li>close</li><li>Set cover position</li><li>Stop cover</li></ol>
+              </td>
+            </tr>
+            <tr><td class="device">blind</td></tr>
+            <tr><td class="device">curtain</td></tr>
+            <tr><td class="device">damper</td></tr>
+            <tr><td class="device">door</td></tr>
+            <tr><td class="device">garage</td></tr>
+            <tr><td class="device">gate</td></tr>
+            <tr><td class="device">shade</td></tr>
+            <tr><td class="device">shutter</td></tr>
+            <tr><td class="device">window</td></tr>
+
+            <tr>
+              <td class="entity" rowspan="2">sensor</td>
+              <td class="device">temperature</td>
+              <td class="methods">Measurement (℃, ℉, K)</td>
+            </tr>
+            <tr>
+              <td class="device">humidity</td>
+              <td class="methods">Measurement (%)</td>
+            </tr>
+
+            <tr>
+              <td class="entity">button</td>
+              <td class="device center">/</td>
+              <td class="methods">1.Press</td>
+            </tr>
+            <tr>
+              <td class="entity">scene</td>
+              <td class="device center">/</td>
+              <td class="methods">1.Activate</td>
+            </tr>
+
+            <tr><td class="entity" rowspan="29">binary_sensor</td><td class="device">battery</td><td class="methods">On means low, Off means normal.</td></tr>
+            <tr><td class="device">battery_charging</td><td class="methods">On means charging, Off means not charging.</td></tr>
+            <tr><td class="device">co</td><td class="methods">On means carbon monoxide detected, Off means no carbon monoxide.</td></tr>
+            <tr><td class="device">cold</td><td class="methods">On means cold, Off means normal.</td></tr>
+            <tr><td class="device">connectivity</td><td class="methods">On means connected, Off means disconnected.</td></tr>
+            <tr><td class="device">door</td><td class="methods">On means open, Off means closed.</td></tr>
+            <tr><td class="device">garage_door</td><td class="methods">On means open, Off means closed.</td></tr>
+            <tr><td class="device">gas</td><td class="methods">On means gas detected, Off means no gas.</td></tr>
+            <tr><td class="device">glass_break</td><td class="methods">On means glass break detected, Off means no glass break.</td></tr>
+            <tr><td class="device">heat</td><td class="methods">On means hot, Off means normal.</td></tr>
+            <tr><td class="device">light</td><td class="methods">On means light detected, Off means no light.</td></tr>
+            <tr><td class="device">lock</td><td class="methods">On means open (unlocked), Off means closed (locked).</td></tr>
+            <tr><td class="device">moisture</td><td class="methods">On means wet, Off means dry.</td></tr>
+            <tr><td class="device">motion</td><td class="methods">On means motion detected, Off means no motion.</td></tr>
+            <tr><td class="device">moving</td><td class="methods">On means moving, Off means not moving.</td></tr>
+            <tr><td class="device">occupancy</td><td class="methods">On means occupied, Off means not occupied.</td></tr>
+            <tr><td class="device">opening</td><td class="methods">On means open, Off means closed.</td></tr>
+            <tr><td class="device">plug</td><td class="methods">On means plugged in, Off means unplugged.</td></tr>
+            <tr><td class="device">power</td><td class="methods">On means power detected, Off means no power.</td></tr>
+            <tr><td class="device">presence</td><td class="methods">On means home, Off means away.</td></tr>
+            <tr><td class="device">problem</td><td class="methods">On means problem detected, Off means no problem.</td></tr>
+            <tr><td class="device">running</td><td class="methods">On means running, Off means not running.</td></tr>
+            <tr><td class="device">safety</td><td class="methods">On means unsafe, Off means safe.</td></tr>
+            <tr><td class="device">smoke</td><td class="methods">On means smoke detected, Off means no smoke.</td></tr>
+            <tr><td class="device">sound</td><td class="methods">On means sound detected, Off means no sound.</td></tr>
+            <tr><td class="device">tamper</td><td class="methods">On means tampering detected, Off means no tampering.</td></tr>
+            <tr><td class="device">update</td><td class="methods">On means update available, Off means up-to-date.</td></tr>
+            <tr><td class="device">vibration</td><td class="methods">On means vibration detected, Off means no vibration.</td></tr>
+            <tr><td class="device">window</td><td class="methods">On means open, Off means closed.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="upcoming-title">
+      <h2 id="upcoming-title">二、Upcoming entities</h2>
+      <div class="table-scroll" role="region" aria-label="Upcoming entities" tabindex="0">
+        <table class="upcoming">
+          <colgroup><col><col><col></colgroup>
+          <thead>
+            <tr>
+              <th scope="col">Entity</th>
+              <th scope="col">DeviceClass</th>
+              <th scope="col">Methods / Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="entity">climate</td>
+              <td class="device center">/</td>
+              <td class="methods">
+                <ol class="steps"><li>Set HVAC mode</li><li>Turn on</li><li>Turn off</li><li>Toggle</li><li>Set preset mode</li><li>Set fan mode</li><li>Set humidity</li><li>Set swing mode</li><li>Set horizontal swing mode</li><li>Set temperature</li><li>Set target temperature range</li></ol>
+              </td>
+            </tr>
+
+            <tr>
+              <td class="entity" rowspan="3">event</td>
+              <td class="device">button</td>
+              <td class="methods">A button of a remote control has been pressed.</td>
+            </tr>
+            <tr>
+              <td class="device">doorbell</td>
+              <td class="methods">Specifically for buttons that are used as a doorbell.</td>
+            </tr>
+            <tr>
+              <td class="device">motion</td>
+              <td class="methods">For motion events detected by a motion sensor.</td>
+            </tr>
+
+            <tr>
+              <td class="entity">siren</td>
+              <td class="device center">/</td>
+              <td class="methods">
+                <ol class="steps"><li>Turn on</li><li>Turn off</li><li>Set tone</li><li>Set duration</li><li>Set volume</li></ol>
+              </td>
+            </tr>
+
+            <tr>
+              <td class="entity">fan</td>
+              <td class="device center">/</td>
+              <td class="methods">
+                <ol class="steps"><li>Turn on</li><li>Turn off</li><li>Toggle</li><li>Set direction</li><li>Set preset mode</li><li>Set speed percentage</li><li>Set oscillate</li></ol>
+              </td>
+            </tr>
+
+            <tr><td class="entity" rowspan="60">sensor</td><td class="device">absolute_humidity</td><td class="methods">Measurement (g/m³)</td></tr>
+            <tr><td class="device">apparent_power</td><td class="methods">Measurement (VA)</td></tr>
+            <tr><td class="device">aqi</td><td class="methods">Measurement (None)</td></tr>
+            <tr><td class="device">area</td><td class="methods">Measurement (m²)</td></tr>
+            <tr><td class="device">atmospheric_pressure</td><td class="methods">Measurement (hPa)</td></tr>
+            <tr><td class="device">battery</td><td class="methods">Measurement (%)</td></tr>
+            <tr><td class="device">blood_glucose_concentration</td><td class="methods">Measurement (mg/dL)</td></tr>
+            <tr><td class="device">co2</td><td class="methods">Measurement (ppm)</td></tr>
+            <tr><td class="device">co</td><td class="methods">Measurement (ppm)</td></tr>
+            <tr><td class="device">conductivity</td><td class="methods">Measurement (µS/cm)</td></tr>
+            <tr><td class="device">current</td><td class="methods">Measurement (A)</td></tr>
+            <tr><td class="device">data_rate</td><td class="methods">Measurement (bit/s)</td></tr>
+            <tr><td class="device">data_size</td><td class="methods">Measurement (B)</td></tr>
+            <tr><td class="device">date</td><td class="methods">Measurement (None)</td></tr>
+            <tr><td class="device">distance</td><td class="methods">Measurement (m)</td></tr>
+            <tr><td class="device">duration</td><td class="methods">Measurement (s)</td></tr>
+            <tr><td class="device">energy</td><td class="methods">Measurement (kWh)</td></tr>
+            <tr><td class="device">energy_distance</td><td class="methods">Measurement (kWh/100km)</td></tr>
+            <tr><td class="device">energy_storage</td><td class="methods">Measurement (kWh)</td></tr>
+            <tr><td class="device">enum</td><td class="methods">Measurement (None)</td></tr>
+            <tr><td class="device">frequency</td><td class="methods">Measurement (Hz)</td></tr>
+            <tr><td class="device">gas</td><td class="methods">Measurement (m³)</td></tr>
+            <tr><td class="device">illuminance</td><td class="methods">Measurement (lx)</td></tr>
+            <tr><td class="device">irradiance</td><td class="methods">Measurement (W/m²)</td></tr>
+            <tr><td class="device">moisture</td><td class="methods">Measurement (%)</td></tr>
+            <tr><td class="device">monetary</td><td class="methods">Measurement (ISO 4217)</td></tr>
+            <tr><td class="device">nitrogen_dioxide</td><td class="methods">Measurement (µg/m³)</td></tr>
+            <tr><td class="device">nitrogen_monoxide</td><td class="methods">Measurement (µg/m³)</td></tr>
+            <tr><td class="device">nitrous_oxide</td><td class="methods">Measurement (µg/m³)</td></tr>
+            <tr><td class="device">ozone</td><td class="methods">Measurement (µg/m³)</td></tr>
+            <tr><td class="device">ph</td><td class="methods">Measurement (None)</td></tr>
+            <tr><td class="device">pm1</td><td class="methods">Measurement (µg/m³)</td></tr>
+            <tr><td class="device">pm25</td><td class="methods">Measurement (µg/m³)</td></tr>
+            <tr><td class="device">pm4</td><td class="methods">Measurement (µg/m³)</td></tr>
+            <tr><td class="device">pm10</td><td class="methods">Measurement (µg/m³)</td></tr>
+            <tr><td class="device">power</td><td class="methods">Measurement (W)</td></tr>
+            <tr><td class="device">power_factor</td><td class="methods">Measurement (%)</td></tr>
+            <tr><td class="device">precipitation</td><td class="methods">Measurement (mm)</td></tr>
+            <tr><td class="device">precipitation_intensity</td><td class="methods">Measurement (mm/h)</td></tr>
+            <tr><td class="device">pressure</td><td class="methods">Measurement (hPa)</td></tr>
+            <tr><td class="device">radon</td><td class="methods">Measurement (Bq/m³)</td></tr>
+            <tr><td class="device">reactive_energy</td><td class="methods">Measurement (kvarh)</td></tr>
+            <tr><td class="device">reactive_power</td><td class="methods">Measurement (var)</td></tr>
+            <tr><td class="device">signal_strength</td><td class="methods">Measurement (dBm)</td></tr>
+            <tr><td class="device">sound_pressure</td><td class="methods">Measurement (dB)</td></tr>
+            <tr><td class="device">speed</td><td class="methods">Measurement (m/s)</td></tr>
+            <tr><td class="device">sulphur_dioxide</td><td class="methods">Measurement (µg/m³)</td></tr>
+            <tr><td class="device">temperature_delta</td><td class="methods">Measurement (℃, ℉, K)</td></tr>
+            <tr><td class="device">timestamp</td><td class="methods">Timestamp</td></tr>
+            <tr><td class="device">uptime</td><td class="methods">Timestamp</td></tr>
+            <tr><td class="device">volatile_organic_compounds</td><td class="methods">Measurement (µg/m³)</td></tr>
+            <tr><td class="device">volatile_organic_compounds_parts</td><td class="methods">Measurement (ppm)</td></tr>
+            <tr><td class="device">voltage</td><td class="methods">Measurement (V)</td></tr>
+            <tr><td class="device">volume</td><td class="methods">Measurement (L)</td></tr>
+            <tr><td class="device">volume_flow_rate</td><td class="methods">Measurement (m³/h)</td></tr>
+            <tr><td class="device">volume_storage</td><td class="methods">Measurement (L)</td></tr>
+            <tr><td class="device">water</td><td class="methods">Measurement (L)</td></tr>
+            <tr><td class="device">weight</td><td class="methods">Measurement (kg)</td></tr>
+            <tr><td class="device">wind_direction</td><td class="methods">Measurement (°)</td></tr>
+            <tr><td class="device">wind_speed</td><td class="methods">Measurement (m/s)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

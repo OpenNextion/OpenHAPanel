@@ -1,0 +1,42 @@
+{
+  "name": "open-ha-panel-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.app.json"
+  },
+  "devDependencies": {
+    "@rollup/plugin-terser": "^1.0.0",
+    "@sveltejs/vite-plugin-svelte": "^6.1.0",
+    "@tsconfig/svelte": "^5.0.5",
+    "@types/crypto-js": "^4.2.2",
+    "@types/lodash-es": "^4.17.12",
+    "@types/node": "^26.5.1",
+    "sass": "^1.104.0",
+    "svelte": "^5.38.0",
+    "svelte-check": "^4.3.0",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.0",
+    "vite-plugin-compression": "^0.5.1",
+    "vite-plugin-html": "^3.2.2",
+    "vite-plugin-singlefile": "^2.3.3"
+  },
+  "dependencies": {
+    "@mdi/js": "^7.4.47",
+    "@popperjs/core": "^2.11.8",
+    "bootstrap": "^5.3.8",
+    "bootstrap-icons": "^1.13.1",
+    "crypto-js": "^4.1.1",
+    "dayjs": "^1.11.23",
+    "lodash-es": "^4.18.1",
+    "runed": "^0.37.1",
+    "svelte-dnd-action": "^0.9.80",
+    "svelte-i18n": "^4.0.1",
+    "svelte-spa-router": "^5.1.1",
+    "vconsole": "^3.15.1"
+  }
+}
