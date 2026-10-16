@@ -1,8 +1,17 @@
 # OpenHAPanel
 
-OpenHAPanel allows users to view and control Home Assistant devices from a dedicated ESP32-S3 screen.
+OpenHAPanel lets you view and control Home Assistant devices on a dedicated ESP32-S3 touchscreen.
 
-User Guide and FAQ: https://opennextion.github.io/OpenHAPanel/pages/faq.html
+[User Guide and FAQ](https://opennextion.github.io/OpenHAPanel/pages/faq.html)
+
+## Supported hardware
+
+| Model | Display | Processor | Purchase |
+| --- | --- | --- | --- |
+| ONX3248G035 (Open Nextion Genius Series) | 3.5-inch, 320 × 480 capacitive touchscreen | ESP32-S3 | [ITEAD official store](https://itead.cc/product/open-nextion-3-5-genius-series-esp32-s3-lcd-touchscreen-development-board/) |
+
+The firmware currently supports only `ONX3248G035`. Check the model before
+building or flashing; other Open Nextion boards need separate board support.
 
 <img width="200" height="300" alt="switch-entity" src="https://github.com/user-attachments/assets/5ab38b75-b4b8-48d8-93c4-624169ee1718" />
 <img width="200" height="300" alt="cover-entity" src="https://github.com/user-attachments/assets/f6e59cfc-3f86-466a-8267-137ce49fa986" />
@@ -11,13 +20,11 @@ User Guide and FAQ: https://opennextion.github.io/OpenHAPanel/pages/faq.html
 
 ## Usage
 
-
-1. After powering on the device, connect to the device's AP using a smartphone or PC
-2. Once the connection is established, open the device's management page in your browser
-3. Set a login password (this password will also serve as the device's AP password)
-4. Configure Home Assistant authorization on the device's management page
-5. Configure the screen layout on the device's management page
-6. Now you can view and control your Home Assistant devices on the screen
+1. Power on the device and connect a phone or computer to its Wi-Fi access point.
+2. Open the device's management page in a browser.
+3. Set a login password. This also becomes the access point password.
+4. Configure Home Assistant authorization and the screen layout on the management page.
+5. View and control your Home Assistant devices on the screen.
 
 ## Setup
 
@@ -49,9 +56,8 @@ User Guide and FAQ: https://opennextion.github.io/OpenHAPanel/pages/faq.html
 > whenever that happens.
 
 `DEVICE_MODEL` is mandatory release identity even though CMake currently
-defaults it to `ONX3248G035`. Other values are rejected until their board
-support and release assets are added. The device logs the compiled model at
-startup and exposes it in `Device.InfoNotify`.
+defaults it to `ONX3248G035`. Other values are rejected. The device logs the
+compiled model at startup and exposes it in `Device.InfoNotify`.
 
 ## Web UI
 
