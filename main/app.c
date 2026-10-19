@@ -57,9 +57,11 @@
 #include "ha_auth_api.h"
 #include "ha_entity_store.h"
 #include "ha_ws.h"
+#include "ha_screen_light.h"
 #include "login_session.h"
 #include "firmware_update.h"
 #include "firmware_auto_check.h"
+#include "entity_handlers/light/light_favorite_colors_store.h"
 
 static const char *TAG = "main_app";
 
@@ -68,6 +70,8 @@ typedef struct app_ha_registry_removal_job app_ha_registry_removal_job_t;
 static ha_ws_client_t *s_ha_ws_client;
 static ha_entity_store_t *s_ha_entity_store;
 static ha_entity_listener_handle_t *s_ha_entity_listener;
+static ha_ws_client_t *s_ha_ws_cleanup_pending;
+static ha_entity_store_t *s_ha_entity_store_cleanup_pending;
 static QueueHandle_t s_ha_data_reconcile_queue;
 static QueueHandle_t s_ha_registry_removal_queue;
 static SemaphoreHandle_t s_ha_registry_pending_lock;
@@ -85,6 +89,7 @@ static bool s_ha_transport_connected;
  * before that, otherwise the WebSocket handshake fails with EHOSTUNREACH. */
 static volatile bool s_ha_network_ip_ready;
 static bool s_screen_state_ready;
+static volatile bool s_screen_power_ready;
 static bool s_notification_ha_state_initialized;
 static bool s_notification_ha_was_configured;
 static bool s_notification_firmware_staged;
@@ -129,6 +134,7 @@ static void app_lcd_enable_after_first_frame(uint8_t brightness);
 static void app_notification_manager_init(void);
 static bool app_set_notification_active(screen_notification_type_t type, bool active);
 static bool app_set_wifi_connected_toast_pending(bool pending);
+static bool app_set_wifi_status_connected(bool connected);
 static void app_reconcile_ha_notifications(void);
 static void app_reconcile_firmware_ui(void);
 static void app_reconcile_firmware_web_status(const firmware_update_status_t *status);
@@ -196,7 +202,7 @@ typedef struct {
  * @brief Handles various device events including key input, configuration updates, and product test mode actions.
  *
  * This event handler responds to:
- * - KEY_EVENT: Handles single-click (start WPS pairing), double-click (forget password), and long press (factory
+ * - KEY_EVENT: Handles single-click (toggle screen), double-click (forget password), and long press (factory
  * reset).
  * - CONFIG_EVENT: Handles configuration file upload and status reporting to the web server.
  * - PRODUCT_TEST_EVENT: Handles Wi-Fi connection in product test mode and performs Zigbee signal verification.
@@ -233,6 +239,19 @@ static void device_event_handler(void *arg, esp_event_base_t event_base, int32_t
                 lvgl_port_unlock();
             }
             app_screen_state_reconcile();
+            taskENTER_CRITICAL(&s_ha_data_state_guard);
+            ha_ws_client_t *registry_client =
+                s_ha_registry_subscription_client;
+            taskEXIT_CRITICAL(&s_ha_data_state_guard);
+            if (registry_client) {
+                esp_err_t query_err =
+                    app_ha_registry_query_configured_entities(registry_client);
+                if (query_err != ESP_OK) {
+                    ESP_LOGW(TAG,
+                             "Failed to refresh HA entity options after screen config change: %s",
+                             esp_err_to_name(query_err));
+                }
+            }
             break;
         default:
             ESP_LOGE(TAG, "not support screen evt");
@@ -242,9 +261,26 @@ static void device_event_handler(void *arg, esp_event_base_t event_base, int32_t
         switch (event_id) {
         case BUTTON_SINGLE_CLICK: {
             ESP_LOGI(TAG, "BUTTON_SINGLE_CLICK");
-            NetworkState *net = network_get_state();
-            network_enable_ap_internet_connection(net->ap_config.internet_connect);
-            network_wifi_ap_set_active(1);
+            firmware_update_status_t firmware_status = {0};
+            if (firmware_update_get_status(&firmware_status) == ESP_OK &&
+                firmware_status.state != FIRMWARE_UPDATE_STATE_CHECKING &&
+                firmware_update_is_busy()) {
+                ESP_LOGI(TAG, "Ignoring BOOT key while OTA update is in progress");
+                break;
+            }
+            if (webserver_config_forget_password_get_state() !=
+                WEBSERVER_FORGOT_PASSWORD_STATE_DONE) {
+                ESP_LOGI(TAG, "Ignoring BOOT key while password recovery is active");
+                break;
+            }
+            if (!s_screen_power_ready) {
+                ESP_LOGW(TAG, "Ignoring BOOT key before screen initialization");
+                break;
+            }
+            esp_err_t err = screen_toggle_power();
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "BOOT key screen toggle failed: %s", esp_err_to_name(err));
+            }
         }
         break;
         case BUTTON_DOUBLE_CLICK: {
@@ -283,11 +319,13 @@ static void device_event_handler(void *arg, esp_event_base_t event_base, int32_t
             bool wifi_configured = network && network->wifi_params.ssid[0] != '\0';
             bool has_ethernet = network && network->eth_connected;
             app_set_wifi_connected_toast_pending(false);
+            app_set_wifi_status_connected(false);
             app_set_notification_active(SCREEN_NOTIFICATION_WIFI_DISCONNECTED,
                                         wifi_configured && !has_ethernet);
         }
         else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
             s_ha_network_ip_ready = true;
+            app_set_wifi_status_connected(true);
             app_set_notification_active(SCREEN_NOTIFICATION_WIFI_DISCONNECTED, false);
             app_set_wifi_connected_toast_pending(
                 app_screen_state_resolve_target() == SCREEN_PAGE_HA_PROVISIONING);
@@ -297,6 +335,9 @@ static void device_event_handler(void *arg, esp_event_base_t event_base, int32_t
             sys_time_on_network_ready();
             firmware_auto_check_notify_wifi_got_ip();
             app_ha_data_post_request(APP_HA_DATA_REQUEST_RECONCILE);
+        }
+        else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) {
+            app_set_wifi_status_connected(false);
         }
         else if (event_base == IP_EVENT && event_id == IP_EVENT_ETH_GOT_IP) {
             s_ha_network_ip_ready = true;
@@ -337,11 +378,35 @@ static void screen_lock_reset_timer_cb(lv_event_t *e)
     screen_lock_reset_timer();
 }
 
+static lv_indev_read_cb_t s_touch_read_cb;
+static bool s_suppress_wake_touch;
+
+static void app_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    s_touch_read_cb(indev, data);
+
+    if (data->state == LV_INDEV_STATE_PRESSED && screen_is_locked()) {
+        s_suppress_wake_touch = true;
+        screen_lock_reset_timer();
+    }
+
+    if (s_suppress_wake_touch) {
+        if (data->state == LV_INDEV_STATE_RELEASED) {
+            s_suppress_wake_touch = false;
+        }
+        data->state = LV_INDEV_STATE_RELEASED;
+    }
+}
+
 static void screen_press_reset_timer(void)
 {
     lv_indev_t *indev = lv_indev_get_next(NULL);
     while (indev != NULL) {
         if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER) {
+            s_touch_read_cb = lv_indev_get_read_cb(indev);
+            if (s_touch_read_cb) {
+                lv_indev_set_read_cb(indev, app_touch_read_cb);
+            }
             lv_indev_add_event_cb(indev, screen_lock_reset_timer_cb, LV_EVENT_PRESSED, NULL);
             break;
         }
@@ -639,6 +704,7 @@ static void app_ha_connection_cb(ha_ws_client_t *client,
     switch (event) {
     case HA_WS_EVENT_AUTHENTICATED: {
         ESP_LOGI(TAG, "HA data connection authenticated, version=%s", ha_ws_get_ha_version(client));
+        ha_screen_light_start(client);
         taskENTER_CRITICAL(&s_ha_data_state_guard);
         bool subscribe_registry = s_ha_registry_subscription_client != client;
         if (subscribe_registry) {
@@ -833,13 +899,26 @@ static void app_ha_registry_event_cb(ha_ws_client_t *client,
     const cJSON *data = cJSON_GetObjectItemCaseSensitive(event, "data");
     const cJSON *action = cJSON_GetObjectItemCaseSensitive(data, "action");
     const cJSON *entity_id = cJSON_GetObjectItemCaseSensitive(data, "entity_id");
-    /* Registry updates also cover renames and disabled-state changes. Keep
-     * those references; only an actual registry removal invalidates a tile. */
     if (!cJSON_IsString(action) || !action->valuestring ||
-        strcmp(action->valuestring, "remove") != 0 ||
         !cJSON_IsString(entity_id) || !entity_id->valuestring) {
         return;
     }
+
+    if (strcmp(action->valuestring, "remove") != 0) {
+        /* The event only identifies the changed entity. Re-query configured
+         * entries so favorite_colors changes become visible on the screen. */
+        esp_err_t err = app_ha_registry_query_configured_entities(client);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG,
+                     "Failed to refresh HA entity options after registry update: %s",
+                     esp_err_to_name(err));
+        }
+        return;
+    }
+
+    /* Registry updates also cover renames and disabled-state changes. Keep
+     * those references; only an actual registry removal invalidates a tile. */
+    light_favorite_colors_store_remove(entity_id->valuestring);
 
     app_ha_registry_removal_job_t *job =
         app_ha_registry_create_single_removal_job(entity_id->valuestring);
@@ -898,9 +977,33 @@ static void app_ha_registry_query_result_cb(ha_ws_client_t *client,
     size_t missing_count = 0;
     const cJSON *entry = NULL;
     cJSON_ArrayForEach(entry, result) {
+        if (entry->string && cJSON_IsObject(entry) &&
+            strncmp(entry->string, "light.", 6) == 0) {
+            bool changed = false;
+            esp_err_t options_err = light_favorite_colors_store_update(
+                entry->string,
+                entry,
+                &changed);
+            if (options_err != ESP_OK) {
+                ESP_LOGW(TAG,
+                         "Failed to cache favorite colors for %s: %s",
+                         entry->string,
+                         esp_err_to_name(options_err));
+            }
+            else if (changed && lvgl_port_lock(0)) {
+                taskENTER_CRITICAL(&s_ha_data_state_guard);
+                ha_entity_store_t *store = s_ha_entity_store;
+                taskEXIT_CRITICAL(&s_ha_data_state_guard);
+                if (store) {
+                    screen_ui_refresh_entity_all(store, entry->string);
+                }
+                lvgl_port_unlock();
+            }
+        }
         /* get_entries returns JSON null for requested IDs which no longer
          * exist. Disabled entities still have a registry entry. */
         if (entry->string && cJSON_IsNull(entry)) {
+            light_favorite_colors_store_remove(entry->string);
             missing_count++;
         }
     }
@@ -940,9 +1043,15 @@ static esp_err_t app_ha_registry_query_configured_entities(ha_ws_client_t *clien
     char **entity_ids = NULL;
     size_t entity_id_count = 0;
     esp_err_t err = screen_get_configured_entity_ids(&entity_ids, &entity_id_count);
-    if (err != ESP_OK || entity_id_count == 0) {
+    if (err != ESP_OK) {
         screen_free_entity_ids(entity_ids, entity_id_count);
         return err;
+    }
+    light_favorite_colors_store_retain((const char *const *)entity_ids,
+                                       entity_id_count);
+    if (entity_id_count == 0) {
+        screen_free_entity_ids(entity_ids, entity_id_count);
+        return ESP_OK;
     }
 
     cJSON *message = cJSON_CreateObject();
@@ -1163,12 +1272,18 @@ static esp_err_t app_ha_data_start(const ha_auth_connection_info_t *info)
 
 static bool app_ha_data_stop(void)
 {
+    if (!ha_screen_light_stop()) {
+        return false;
+    }
     taskENTER_CRITICAL(&s_ha_data_state_guard);
-    ha_ws_client_t *ws_client = s_ha_ws_client;
-    ha_entity_store_t *entity_store = s_ha_entity_store;
+    ha_ws_client_t *ws_client = s_ha_ws_client ? s_ha_ws_client : s_ha_ws_cleanup_pending;
+    ha_entity_store_t *entity_store = s_ha_entity_store
+                                          ? s_ha_entity_store
+                                          : s_ha_entity_store_cleanup_pending;
     taskEXIT_CRITICAL(&s_ha_data_state_guard);
     ha_entity_listener_handle_t *entity_listener = s_ha_entity_listener;
     if (!ws_client && !entity_store) {
+        light_favorite_colors_store_clear();
         return true;
     }
 
@@ -1176,16 +1291,17 @@ static bool app_ha_data_stop(void)
         ESP_LOGE(TAG, "Failed to lock LVGL while stopping HA entity data layer");
         return false;
     }
+    light_favorite_colors_store_clear();
     screen_ui_set_entity_store(NULL);
     taskENTER_CRITICAL(&s_ha_data_state_guard);
     s_ha_ws_client = NULL;
     s_ha_entity_store = NULL;
     s_ha_registry_subscription_client = NULL;
     s_ha_transport_connected = false;
+    s_ha_ws_cleanup_pending = ws_client;
+    s_ha_entity_store_cleanup_pending = entity_store;
     taskEXIT_CRITICAL(&s_ha_data_state_guard);
     s_ha_entity_listener = NULL;
-    app_secure_zero(s_ha_data_hass_url, sizeof(s_ha_data_hass_url));
-    app_secure_zero(s_ha_data_token, sizeof(s_ha_data_token));
     lvgl_port_unlock();
 
     ha_entity_store_remove_listener(entity_listener);
@@ -1197,12 +1313,34 @@ static bool app_ha_data_stop(void)
         err = ha_entity_store_destroy(entity_store);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to destroy HA Entity Store: %s", esp_err_to_name(err));
+            return false;
         }
+        taskENTER_CRITICAL(&s_ha_data_state_guard);
+        if (s_ha_entity_store_cleanup_pending == entity_store) {
+            s_ha_entity_store_cleanup_pending = NULL;
+        }
+        taskEXIT_CRITICAL(&s_ha_data_state_guard);
     }
     if (ws_client) {
-        ha_ws_close(ws_client);
-        ha_ws_destroy(ws_client);
+        esp_err_t close_err = ha_ws_close(ws_client);
+        if (close_err != ESP_OK && close_err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "Failed to close HA WebSocket before destroy: %s",
+                     esp_err_to_name(close_err));
+        }
+        esp_err_t destroy_err = ha_ws_destroy(ws_client);
+        if (destroy_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to destroy HA WebSocket: %s",
+                     esp_err_to_name(destroy_err));
+            return false;
+        }
+        taskENTER_CRITICAL(&s_ha_data_state_guard);
+        if (s_ha_ws_cleanup_pending == ws_client) {
+            s_ha_ws_cleanup_pending = NULL;
+        }
+        taskEXIT_CRITICAL(&s_ha_data_state_guard);
     }
+    app_secure_zero(s_ha_data_hass_url, sizeof(s_ha_data_hass_url));
+    app_secure_zero(s_ha_data_token, sizeof(s_ha_data_token));
     return true;
 }
 
@@ -1369,6 +1507,21 @@ static bool app_set_wifi_connected_toast_pending(bool pending)
         return false;
     }
     screen_ui_set_wifi_connected_toast_pending(pending);
+    lvgl_port_unlock();
+    return true;
+}
+
+static bool app_set_wifi_status_connected(bool connected)
+{
+    if (!s_screen_state_ready) {
+        return false;
+    }
+
+    if (!lvgl_port_lock(0)) {
+        ESP_LOGW(TAG, "Failed to lock LVGL while updating Wi-Fi status icon");
+        return false;
+    }
+    screen_ui_set_wifi_sta_connected(connected);
     lvgl_port_unlock();
     return true;
 }
@@ -1592,6 +1745,9 @@ static void app_notification_manager_init(void)
     app_reconcile_firmware_ui();
 
     NetworkState *network = network_get_state();
+    bool wifi_sta_ready = network && network->sta_connected_flag &&
+                          network->current_ip.ip != 0;
+    app_set_wifi_status_connected(wifi_sta_ready);
     bool wifi_configured = network && network->wifi_params.ssid[0] != '\0';
     bool uplink_connected = network && (network->sta_connected_flag || network->eth_connected);
     app_set_notification_active(SCREEN_NOTIFICATION_WIFI_DISCONNECTED,
@@ -1743,6 +1899,10 @@ static void app_ha_data_task(void *arg)
 
 static esp_err_t app_ha_data_manager_init(void)
 {
+    esp_err_t err = light_favorite_colors_store_init();
+    if (err != ESP_OK) {
+        return err;
+    }
     s_ha_data_reconcile_queue = xQueueCreate(1, sizeof(app_ha_data_request_t));
     if (!s_ha_data_reconcile_queue) {
         return ESP_ERR_NO_MEM;
@@ -1764,10 +1924,10 @@ static esp_err_t app_ha_data_manager_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    esp_err_t err = esp_event_handler_register(HA_AUTH_EVENT,
-                                               ESP_EVENT_ANY_ID,
-                                               app_ha_auth_event_handler,
-                                               NULL);
+    err = esp_event_handler_register(HA_AUTH_EVENT,
+                                     ESP_EVENT_ANY_ID,
+                                     app_ha_auth_event_handler,
+                                     NULL);
     if (err != ESP_OK) {
         vQueueDelete(s_ha_registry_removal_queue);
         s_ha_registry_removal_queue = NULL;
@@ -1912,6 +2072,8 @@ void app_init(void)
         }
         return;
     }
+
+    s_screen_power_ready = true;
 
     esp_err_t boot_confirm_err = firmware_update_confirm_boot();
     if (boot_confirm_err != ESP_OK) {

@@ -70,7 +70,7 @@
     </SettingRowGroup>
     <SettingRowGroup>
         <SettingRow title="SSID" content={$networkStore.ap?.apName || '--'} route={ROUTES_PATH.NETWORK_AP_SSID} />
-        <SettingRow title={$_('networkPage.changePassword')} content={$networkStore?.ap?.password || '--'} route={ROUTES_PATH.NETWORK_AP_PASSWORD} />
+        <SettingRow title={$_('networkPage.changePassword')} content={$networkStore?.ap?.password || ''} route={ROUTES_PATH.NETWORK_AP_PASSWORD} />
         <!--<SettingRow title={$_('networkPage.hideNetwork')}>
             {#snippet contentSnippet()}<span class="form-check form-switch"><input class="form-check-input" type="checkbox" checked={$networkStore.ap?.hideSsid ?? false} disabled={loadingField !== null} onchange={(event) => updateConfig('hideSsid', event)} /></span>{/snippet}
         </SettingRow>-->

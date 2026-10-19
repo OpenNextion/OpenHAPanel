@@ -17,6 +17,7 @@
 #include "components/light_rgb_picker.h"
 #include "entity_handlers/ha_datetime_format.h"
 #include "esp_log.h"
+#include "light_favorite_colors_store.h"
 #include "screen/components/ha_relative_time_label.h"
 
 #define LIGHT_EFFECT_MAX_COUNT 16
@@ -33,6 +34,9 @@
 #define LIGHT_SECOND_PAGE_TOP_OFFSET 8
 #define LIGHT_SECOND_PAGE_GAP 31
 #define LIGHT_FEATURE_EFFECT 4U
+#define LIGHT_COLOR_TEMP_FAVORITE_COUNT 4
+/* Let rapid taps settle before issuing a state-changing HA service call. */
+#define LIGHT_PRESET_DEBOUNCE_MS 120
 
 static const char *TAG = "light_entity_handler";
 
@@ -44,6 +48,10 @@ typedef struct {
     lv_color_t last_brightness_display_color;
     bool last_brightness_display_color_initialized;
     uint8_t tileview_page;
+    lv_timer_t *preset_timer;
+    bool has_pending_preset;
+    light_favorite_color_t pending_preset;
+    char preset_entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
 } light_more_info_session_t;
 
 typedef struct {
@@ -75,6 +83,9 @@ typedef struct {
     uint16_t max_kelvin;
     uint16_t kelvin;
     light_rgb_t rgb;
+    bool has_custom_favorite_colors;
+    light_favorite_color_t favorite_colors[LIGHT_FAVORITE_COLOR_MAX];
+    size_t favorite_color_count;
     light_color_source_t color_source;
     char effects[LIGHT_EFFECT_MAX_COUNT][LIGHT_EFFECT_NAME_MAX];
     size_t effect_count;
@@ -97,6 +108,8 @@ static lv_color_t light_brightness_display_color(
     const light_more_info_page_t *page);
 static void light_remember_brightness_display_color(
     light_more_info_page_t *page);
+static void light_prepare_favorite_display_colors(
+    light_more_info_page_t *page);
 
 static void light_session_delete_cb(lv_event_t *event)
 {
@@ -104,6 +117,9 @@ static void light_session_delete_cb(lv_event_t *event)
     light_more_info_session_t *session = lv_event_get_user_data(event);
     if (screen && lv_obj_get_user_data(screen) == session) {
         lv_obj_set_user_data(screen, NULL);
+    }
+    if (session && session->preset_timer) {
+        lv_timer_delete(session->preset_timer);
     }
     lv_free(session);
 }
@@ -350,6 +366,16 @@ static void light_read_page_state(const entity_more_info_context_t *context,
         supported_features = number > 0 ? (uint32_t)number : 0;
     }
     light_apply_capabilities(page, supported_features);
+    page->has_custom_favorite_colors = light_favorite_colors_store_get(
+        page->entity_id,
+        page->favorite_colors,
+        LIGHT_FAVORITE_COLOR_MAX,
+        &page->favorite_color_count);
+    if (page->has_custom_favorite_colors) {
+        page->capabilities.supports_favorite_colors =
+            page->favorite_color_count > 0;
+        light_prepare_favorite_display_colors(page);
+    }
     if (page->state_unknown && page->mode_mask == 0) {
         /* Unknown is actionable only for the explicit on/off button layout.
          * Keep the previous unavailable behavior for adjustable controls. */
@@ -565,12 +591,143 @@ static void light_rgb_changed(light_rgb_t rgb,
     cJSON_Delete(data);
 }
 
+static void light_send_preset_color(const char *entity_id,
+                                    const light_favorite_color_t *color)
+{
+    if (!entity_id || !entity_id[0] || !color) {
+        return;
+    }
+
+    cJSON *data = cJSON_CreateObject();
+    if (!data) {
+        return;
+    }
+    const char *key = NULL;
+    double values[5] = {0};
+    size_t value_count = 0;
+    if (color->type == LIGHT_FAVORITE_COLOR_TEMP) {
+        cJSON_AddNumberToObject(data,
+                                "color_temp_kelvin",
+                                color->value.color_temp_kelvin);
+    }
+    else if (color->type == LIGHT_FAVORITE_RGB) {
+        key = "rgb_color";
+        values[0] = color->value.rgb.red;
+        values[1] = color->value.rgb.green;
+        values[2] = color->value.rgb.blue;
+        value_count = 3;
+    }
+    else if (color->type == LIGHT_FAVORITE_HS) {
+        key = "hs_color";
+        values[0] = color->value.hs.hue;
+        values[1] = color->value.hs.saturation;
+        value_count = 2;
+    }
+    else if (color->type == LIGHT_FAVORITE_RGBW) {
+        key = "rgbw_color";
+        values[0] = color->value.rgbw.red;
+        values[1] = color->value.rgbw.green;
+        values[2] = color->value.rgbw.blue;
+        values[3] = color->value.rgbw.white;
+        value_count = 4;
+    }
+    else if (color->type == LIGHT_FAVORITE_RGBWW) {
+        key = "rgbww_color";
+        values[0] = color->value.rgbww.red;
+        values[1] = color->value.rgbww.green;
+        values[2] = color->value.rgbww.blue;
+        values[3] = color->value.rgbww.cold_white;
+        values[4] = color->value.rgbww.warm_white;
+        value_count = 5;
+    }
+
+    if (key) {
+        cJSON *array = cJSON_CreateDoubleArray(values, (int)value_count);
+        if (!array || !cJSON_AddItemToObject(data, key, array)) {
+            cJSON_Delete(array);
+            cJSON_Delete(data);
+            return;
+        }
+    }
+
+    esp_err_t err = app_ha_call_entity_service_data("light",
+                                                    "turn_on",
+                                                    entity_id,
+                                                    data);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "light.turn_on for %s failed to send: %s",
+                 entity_id,
+                 esp_err_to_name(err));
+    }
+    cJSON_Delete(data);
+}
+
+static void light_preset_timer_cb(lv_timer_t *timer)
+{
+    light_more_info_session_t *session = lv_timer_get_user_data(timer);
+    lv_timer_pause(timer);
+    if (!session || !session->has_pending_preset) {
+        return;
+    }
+    const light_favorite_color_t color = session->pending_preset;
+    session->has_pending_preset = false;
+    light_send_preset_color(session->preset_entity_id, &color);
+}
+
+static void light_schedule_preset(light_more_info_page_t *page,
+                                  const light_favorite_color_t *color)
+{
+    if (!page || !page->available || !page->session || !color) {
+        return;
+    }
+    light_more_info_session_t *session = page->session;
+    session->pending_preset = *color;
+    session->has_pending_preset = true;
+    snprintf(session->preset_entity_id,
+             sizeof(session->preset_entity_id),
+             "%s",
+             page->entity_id);
+
+    if (!session->preset_timer) {
+        session->preset_timer = lv_timer_create(light_preset_timer_cb,
+                                                LIGHT_PRESET_DEBOUNCE_MS,
+                                                session);
+        if (!session->preset_timer) {
+            session->has_pending_preset = false;
+            light_send_preset_color(session->preset_entity_id, color);
+        }
+        return;
+    }
+    lv_timer_resume(session->preset_timer);
+    lv_timer_reset(session->preset_timer);
+}
+
 static void light_preset_selected(size_t index,
-                                  light_rgb_t rgb,
+                                  const light_favorite_color_t *color,
                                   void *user_data)
 {
     (void)index;
-    light_rgb_changed(rgb, LIGHT_CONTROL_COMMIT, user_data);
+    light_more_info_page_t *page = user_data;
+    if (!page || !color) {
+        return;
+    }
+
+    if (color->type == LIGHT_FAVORITE_COLOR_TEMP) {
+        page->kelvin = color->value.color_temp_kelvin;
+        page->color_source = LIGHT_COLOR_SOURCE_COLOR_TEMP;
+    }
+    else {
+        page->rgb = color->display_rgb;
+        page->has_rgb_color = true;
+        page->color_source = LIGHT_COLOR_SOURCE_RGB;
+    }
+    light_remember_brightness_display_color(page);
+    page->on = true;
+    if (page->effect_selector) {
+        light_effect_selector_set_power(page->effect_selector, true);
+    }
+    light_schedule_preset(page, color);
 }
 
 static void light_effect_changed(size_t index,
@@ -965,7 +1122,7 @@ static void light_update_dots(light_more_info_page_t *page)
     }
 }
 
-static lv_color_t light_kelvin_color(uint16_t kelvin)
+static light_rgb_t light_kelvin_rgb(uint16_t kelvin)
 {
     const float temperature = kelvin / 100.0f;
     const float red = temperature <= 66.0f
@@ -985,10 +1142,208 @@ static lv_color_t light_kelvin_color(uint16_t kelvin)
                                  : 138.5177312231f *
                                            logf(temperature - 10.0f) -
                                        305.0447927307f;
-    return lv_color_make(
-        (uint8_t)LV_CLAMP(0, (int32_t)lroundf(red), 255),
-        (uint8_t)LV_CLAMP(0, (int32_t)lroundf(green), 255),
-        (uint8_t)LV_CLAMP(0, (int32_t)lroundf(blue), 255));
+    return (light_rgb_t) {
+        .red = (uint8_t)LV_CLAMP(0, (int32_t)lroundf(red), 255),
+        .green = (uint8_t)LV_CLAMP(0, (int32_t)lroundf(green), 255),
+        .blue = (uint8_t)LV_CLAMP(0, (int32_t)lroundf(blue), 255),
+    };
+}
+
+static lv_color_t light_kelvin_color(uint16_t kelvin)
+{
+    const light_rgb_t rgb = light_kelvin_rgb(kelvin);
+    return lv_color_make(rgb.red, rgb.green, rgb.blue);
+}
+
+static uint8_t light_scale_channel(double value)
+{
+    return (uint8_t)LV_CLAMP(0, (int32_t)lround(value), 255);
+}
+
+static light_rgb_t light_hs_rgb(light_hs_t hs)
+{
+    double hue = fmod(hs.hue, 360.0);
+    if (hue < 0.0) {
+        hue += 360.0;
+    }
+    const double saturation = LV_CLAMP(0.0, hs.saturation / 100.0, 1.0);
+    const double chroma = 255.0 * saturation;
+    const double section = hue / 60.0;
+    const double x = chroma * (1.0 - fabs(fmod(section, 2.0) - 1.0));
+    double red = 0.0;
+    double green = 0.0;
+    double blue = 0.0;
+    if (section < 1.0) {
+        red = chroma;
+        green = x;
+    }
+    else if (section < 2.0) {
+        red = x;
+        green = chroma;
+    }
+    else if (section < 3.0) {
+        green = chroma;
+        blue = x;
+    }
+    else if (section < 4.0) {
+        green = x;
+        blue = chroma;
+    }
+    else if (section < 5.0) {
+        red = x;
+        blue = chroma;
+    }
+    else {
+        red = chroma;
+        blue = x;
+    }
+    const double match = 255.0 - chroma;
+    return (light_rgb_t) {
+        light_scale_channel(red + match),
+        light_scale_channel(green + match),
+        light_scale_channel(blue + match),
+    };
+}
+
+static light_rgb_t light_match_max_rgb(double red,
+                                       double green,
+                                       double blue,
+                                       uint8_t input_max)
+{
+    const double output_max = LV_MAX(red, LV_MAX(green, blue));
+    const double scale = output_max > 0.0 ? input_max / output_max : 0.0;
+    return (light_rgb_t) {
+        light_scale_channel(red * scale),
+        light_scale_channel(green * scale),
+        light_scale_channel(blue * scale),
+    };
+}
+
+static light_rgb_t light_rgbw_rgb(light_rgbw_t rgbw)
+{
+    const uint8_t input_max = LV_MAX(
+        LV_MAX(rgbw.red, rgbw.green),
+        LV_MAX(rgbw.blue, rgbw.white));
+    return light_match_max_rgb(rgbw.red + rgbw.white,
+                               rgbw.green + rgbw.white,
+                               rgbw.blue + rgbw.white,
+                               input_max);
+}
+
+static light_rgb_t light_rgbww_rgb(light_rgbww_t rgbww,
+                                   uint16_t min_kelvin,
+                                   uint16_t max_kelvin)
+{
+    const uint8_t input_max = LV_MAX(
+        LV_MAX(LV_MAX(rgbww.red, rgbww.green), rgbww.blue),
+        LV_MAX(rgbww.cold_white, rgbww.warm_white));
+    const uint16_t safe_min = LV_MAX((uint16_t)1, min_kelvin);
+    const uint16_t safe_max = LV_MAX(safe_min, max_kelvin);
+    const uint32_t max_mired = 1000000U / safe_min;
+    const uint32_t min_mired = 1000000U / safe_max;
+    const uint16_t white_sum = rgbww.cold_white + rgbww.warm_white;
+    const double warm_ratio = white_sum > 0
+                                  ? (double)rgbww.warm_white / white_sum
+                                  : 0.5;
+    const double color_mired =
+        min_mired + warm_ratio * (max_mired - min_mired);
+    const uint16_t kelvin = color_mired > 0.0
+                                ? (uint16_t)(1000000.0 / color_mired)
+                                : safe_max;
+    const light_rgb_t white = light_kelvin_rgb(kelvin);
+    const double white_level =
+        LV_MAX(rgbww.cold_white, rgbww.warm_white) / 255.0;
+    return light_match_max_rgb(rgbww.red + white.red * white_level,
+                               rgbww.green + white.green * white_level,
+                               rgbww.blue + white.blue * white_level,
+                               input_max);
+}
+
+static void light_prepare_favorite_display_colors(light_more_info_page_t *page)
+{
+    if (!page) {
+        return;
+    }
+    for (size_t i = 0; i < page->favorite_color_count; i++) {
+        light_favorite_color_t *color = &page->favorite_colors[i];
+        switch (color->type) {
+        case LIGHT_FAVORITE_COLOR_TEMP:
+            color->display_rgb =
+                light_kelvin_rgb(color->value.color_temp_kelvin);
+            break;
+        case LIGHT_FAVORITE_RGB:
+            color->display_rgb = color->value.rgb;
+            break;
+        case LIGHT_FAVORITE_HS:
+            color->display_rgb = light_hs_rgb(color->value.hs);
+            break;
+        case LIGHT_FAVORITE_RGBW:
+            color->display_rgb = light_rgbw_rgb(color->value.rgbw);
+            break;
+        case LIGHT_FAVORITE_RGBWW:
+            color->display_rgb = light_rgbww_rgb(color->value.rgbww,
+                                                 page->min_kelvin,
+                                                 page->max_kelvin);
+            break;
+        }
+    }
+}
+
+static size_t light_build_default_favorite_colors(
+    const light_more_info_page_t *page,
+    light_favorite_color_t colors[LIGHT_FAVORITE_COLOR_MAX])
+{
+    if (!page || !colors) {
+        return 0;
+    }
+
+    size_t count = 0;
+    if (page->capabilities.supports_color_temp) {
+        const uint16_t min_kelvin = page->min_kelvin;
+        const uint16_t max_kelvin = LV_MAX(page->min_kelvin,
+                                          page->max_kelvin);
+        const uint32_t span = max_kelvin - min_kelvin;
+        for (size_t i = 0; i < LIGHT_COLOR_TEMP_FAVORITE_COUNT; i++) {
+            const uint16_t kelvin = (uint16_t)(
+                min_kelvin +
+                (span * i + (LIGHT_COLOR_TEMP_FAVORITE_COUNT - 1) / 2) /
+                    (LIGHT_COLOR_TEMP_FAVORITE_COUNT - 1));
+            colors[count++] = (light_favorite_color_t) {
+                .type = LIGHT_FAVORITE_COLOR_TEMP,
+                .display_rgb = light_kelvin_rgb(kelvin),
+                .value.color_temp_kelvin = kelvin,
+            };
+        }
+    }
+    else if (page->capabilities.supports_color) {
+        static const uint16_t white_kelvin[] = {2000, 3500, 5000, 6500};
+        for (size_t i = 0; i < sizeof(white_kelvin) / sizeof(white_kelvin[0]);
+             i++) {
+            const light_rgb_t rgb = light_kelvin_rgb(white_kelvin[i]);
+            colors[count++] = (light_favorite_color_t) {
+                .type = LIGHT_FAVORITE_RGB,
+                .display_rgb = rgb,
+                .value.rgb = rgb,
+            };
+        }
+    }
+
+    if (page->capabilities.supports_color) {
+        static const light_rgb_t colored[] = {
+            {127, 172, 255},
+            {215, 150, 255},
+            {255, 158, 243},
+            {255, 110, 84},
+        };
+        for (size_t i = 0; i < sizeof(colored) / sizeof(colored[0]); i++) {
+            colors[count++] = (light_favorite_color_t) {
+                .type = LIGHT_FAVORITE_RGB,
+                .display_rgb = colored[i],
+                .value.rgb = colored[i],
+            };
+        }
+    }
+    return count;
 }
 
 static lv_color_t light_brightness_display_color(
@@ -1223,6 +1578,18 @@ static void light_build_second_page(lv_obj_t *parent,
     if (page->capabilities.supports_favorite_colors) {
         lv_obj_t *presets = light_preset_colors_create(container);
         if (presets) {
+            light_favorite_color_t colors[LIGHT_FAVORITE_COLOR_MAX];
+            size_t color_count = page->favorite_color_count;
+            if (page->has_custom_favorite_colors) {
+                memcpy(colors,
+                       page->favorite_colors,
+                       color_count * sizeof(colors[0]));
+            }
+            else {
+                color_count =
+                    light_build_default_favorite_colors(page, colors);
+            }
+            light_preset_colors_set_palette(presets, colors, color_count);
             light_preset_colors_set_disabled(presets, !page->available);
             light_preset_colors_set_select_cb(presets,
                                               light_preset_selected,

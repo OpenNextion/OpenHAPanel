@@ -1,61 +1,43 @@
 <script lang="ts">
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
-    import { getHassEntityMdiIcon } from '@/constant';
+    import { getHassEntityPresentation } from '@/hooks/useHassEntity';
     import { haRegistryStore } from '@/stores/haRegistry';
 
     interface IHassEntityRowProps {
         entityId: string;
-        name: string;
         state?: string;
         icon?: string | null;
         variant?: 'entity' | 'badge';
+        showIconBackground?: boolean;
         onclick?: () => void;
     }
 
-    let { entityId, name, state, icon, variant = 'entity', onclick }: IHassEntityRowProps = $props();
-    const domain = $derived(entityId.split('.')[0] ?? '');
-    const stateObject = $derived($haRegistryStore.states.find((item) => item.entity_id === entityId));
-    const registryEntity = $derived($haRegistryStore.entities.find((item) => (item.ei ?? item.entity_id) === entityId));
-    const registryEntityName = $derived(
-        registryEntity?.en ?? registryEntity?.name ?? registryEntity?.ne ?? registryEntity?.original_name ?? registryEntity?.or ?? stateObject?.attributes?.friendly_name,
-    );
-    const displayName = $derived(name && name !== entityId ? name : (registryEntityName ?? name ?? entityId));
-    const configuredIcon = $derived(icon ?? registryEntity?.ic ?? registryEntity?.icon);
-    const deviceClass = $derived(typeof stateObject?.attributes?.device_class === 'string' ? stateObject.attributes.device_class : '');
-    const fakeState = $derived.by(() => {
-        switch (domain) {
-            case 'light':
-                return { label: '20%', value: 'on', tone: 'warm' };
-            case 'switch':
-                return { label: 'On', value: 'on', tone: 'positive' };
-            case 'cover':
-                return { label: 'Closed', value: 'closed', tone: 'neutral' };
-            case 'scene':
-                return { label: '3 days ago', value: 'unknown', tone: 'blue' };
-            case 'button':
-                return { label: 'Press', value: 'unknown', tone: 'blue' };
-            case 'binary_sensor':
-                return { label: 'Detected', value: 'on', tone: 'danger' };
-            case 'sensor':
-                return deviceClass === 'humidity'
-                    ? { label: '65%', value: '65', tone: 'cyan' }
-                    : { label: '25°C', value: '25', tone: 'cyan' };
-            default:
-                return { label: 'Unknown', value: 'unknown', tone: 'neutral' };
-        }
+    let { entityId, state, icon, variant = 'entity', showIconBackground, onclick }: IHassEntityRowProps = $props();
+    const entity = $derived(getHassEntityPresentation(entityId, $haRegistryStore, { state, icon }));
+    const iconBackgroundVisible = $derived(variant !== 'badge' && (showIconBackground ?? entity.defaultActions.iconTap !== 'nothing'));
+    const badgeDisplaysFriendlyName = $derived(['button', 'scene', 'event'].includes(entityId.split('.', 1)[0] ?? ''));
+    const badgeValue = $derived.by(() => {
+        const value = badgeDisplaysFriendlyName ? entity.displayName : entity.displayState;
+        if (!badgeDisplaysFriendlyName) return value;
+        const characters = Array.from(value);
+        return characters.length > 10 ? `${characters.slice(0, 10).join('')}…` : value;
     });
-    const displayState = $derived(state ?? fakeState.label);
-    const iconState = $derived(state ?? fakeState.value);
-    const mdiIcon = $derived(getHassEntityMdiIcon(entityId, configuredIcon, deviceClass, iconState));
-
 </script>
 
 {#snippet content()}
-    <span class="entity-icon tone-{fakeState.tone}"><SvgIcon name={mdiIcon} /></span>
+    <span
+        class:unavailable={entity.isUnavailable}
+        class:no-icon-background={!iconBackgroundVisible}
+        class="entity-icon tone-{entity.preview.tone}"
+        style={entity.iconStyle}
+    >
+        <SvgIcon name={entity.icon} />
+        {#if entity.isUnavailable}<span class="entity-warning" aria-hidden="true">!</span>{/if}
+    </span>
     {#if variant === 'badge'}
-        <strong class="badge-value">{displayState}</strong>
+        <strong class="badge-value">{badgeValue}</strong>
     {:else}
-        <span class="entity-copy"><strong>{displayName}</strong><small>{displayState}</small></span>
+        <span class="entity-copy"><strong>{entity.displayName}</strong><small>{entity.displayState}</small></span>
     {/if}
 {/snippet}
 
@@ -68,18 +50,16 @@
 <style>
     .hass-entity-row {
         display: flex;
-        width: min(100%, 280px);
-        height: 68px;
+        width: min(100%, 17.5rem);
         min-width: 0;
-        min-height: 68px;
         margin-inline: auto;
-        padding: 8px 12px;
+        padding: 0.5rem 0.75rem;
         align-items: center;
-        gap: 10px;
+        gap: 0.625rem;
         color: #f2f2f7;
-        border: 0;
-        border-radius: 12px;
-        background: rgba(30, 34, 40, 1);
+        border: 0.0625rem solid rgba(84, 84, 88, 0.65);
+        border-radius: 0.75rem;
+        background: rgba(153, 153, 153, 0.2);
         font-family: MiSans, sans-serif;
         text-align: left;
     }
@@ -88,21 +68,24 @@
     }
     .hass-entity-row.clickable:hover,
     .hass-entity-row.clickable:focus-visible {
-        outline: 2px solid #249ed5;
-        outline-offset: -2px;
+        outline: 0.125rem solid #249ed5;
+        outline-offset: -0.125rem;
     }
     .hass-entity-row.badge {
         width: auto;
-        height: 30px;
-        min-height: 30px;
         margin-inline: 0;
-        padding: 0.25rem 0.65rem 0.25rem 0.35rem;
+        padding: 0.2rem 0.6rem 0.2rem 0.3rem;
         flex: 0 1 auto;
-        border-radius: 999px;
+        gap: 0rem;
+        border: 0;
+        border-radius: 0.83625rem;
     }
     .hass-entity-row.badge .entity-icon {
+        display: inline-grid;
         width: 1.45rem;
         height: 1.45rem;
+        aspect-ratio: 1;
+        border-radius: 50%;
         font-size: 1rem;
     }
     .badge-value {
@@ -110,44 +93,69 @@
         overflow: hidden;
         font-size: 0.75rem;
         font-weight: 600;
+        line-height: 1.125rem;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
     .entity-icon {
+        position: relative;
         display: grid;
-        width: 40px;
-        height: 40px;
+        width: 2.5rem;
+        height: 2.5rem;
         flex: 0 0 auto;
         place-items: center;
-        color: #697079;
+        color: var(--entity-icon-color, #697079);
         border-radius: 50%;
-        background: #f2f2f7;
-        font-size: 20px;
+        background-color: var(--entity-icon-background, #f2f2f7);
+        font-size: 1.25rem;
         opacity: 1;
     }
     .entity-icon.tone-warm {
-        color: #ffd09a;
-        background: rgba(153, 112, 76, 0.55);
+        --entity-icon-color: #ffc107;
+        --entity-icon-background: rgba(255, 193, 7, 0.2);
     }
     .entity-icon.tone-positive {
-        color: #ffc107;
-        background: rgba(52, 199, 89, 0.2);
+        --entity-icon-color: #4caf50;
+        --entity-icon-background: rgba(76, 175, 80, 0.2);
     }
     .entity-icon.tone-danger {
-        color: #ff4d46;
-        background: rgba(241, 82, 75, 0.18);
+        --entity-icon-color: #ff4d46;
+        --entity-icon-background: rgba(241, 82, 75, 0.18);
     }
     .entity-icon.tone-blue {
-        color: #31b7eb;
-        background: rgba(49, 183, 235, 0.2);
+        --entity-icon-color: #448ccb;
+        --entity-icon-background: rgba(68, 140, 203, 0.22);
     }
     .entity-icon.tone-cyan {
-        color: #19c2d8;
-        background: rgba(25, 194, 216, 0.2);
+        --entity-icon-color: #448ccb;
+        --entity-icon-background: rgba(68, 140, 203, 0.22);
     }
     .entity-icon.tone-neutral {
-        color: #a8abb0;
-        background: rgba(168, 171, 176, 0.18);
+        --entity-icon-color: #a8abb0;
+        --entity-icon-background: rgba(168, 171, 176, 0.18);
+    }
+    .entity-icon.unavailable {
+        --entity-icon-color: #9a9a9e;
+        --entity-icon-background: rgba(142, 142, 147, 0.2);
+    }
+    .entity-icon.no-icon-background {
+        background-color: transparent;
+    }
+    .entity-warning {
+        position: absolute;
+        top: -0.125rem;
+        right: -0.125rem;
+        display: grid;
+        width: 0.875rem;
+        aspect-ratio: 1;
+        place-items: center;
+        color: #fff;
+        border-radius: 50%;
+        background: #ff9f0a;
+        font-family: Arial, sans-serif;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        line-height: 1;
     }
     .entity-copy {
         display: flex;
@@ -162,19 +170,19 @@
     }
     .entity-copy strong {
         font-family: MiSans, sans-serif;
-        font-size: 20px;
+        font-size: 1.25rem;
         font-style: normal;
         font-weight: 500;
-        line-height: 28px;
+        line-height: 1.75rem;
         letter-spacing: 0;
     }
     .entity-copy small {
         color: #a8abb0;
         font-family: MiSans, sans-serif;
-        font-size: 16px;
+        font-size: 1rem;
         font-style: normal;
         font-weight: 400;
-        line-height: 24px;
+        line-height: 1.5rem;
         letter-spacing: 0;
     }
 </style>

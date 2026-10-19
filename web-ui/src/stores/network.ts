@@ -5,7 +5,7 @@ import { writable, get, derived } from 'svelte/store';
 import sendForReply from '@/ws/sendForReply';
 import { EWsMethods } from '@/types/websocket';
 import { encryptData } from '../utils/encryptContent';
-import { ENetworkMode, type IWifiInfoNotify, type IWifiScanResultNotify, type Result, type Wifi } from '@/types/network';
+import { ENetworkMode, EIPAcquisition, type IWifiInfoNotify, type IWifiScanResultNotify, type Result, type Wifi } from '@/types/network';
 import { t } from 'svelte-i18n';
 import { EMessageType, sendMessage } from './message';
 import { ERROR_CODE } from '@/constant';
@@ -55,6 +55,7 @@ const EMPTY_WIFI_IP_DRAFT: WifiIpDraft = {
 };
 
 export const wifiIpDraft = writable<WifiIpDraft>(cloneDeep(EMPTY_WIFI_IP_DRAFT));
+export const wifiIpDraftMode = writable<EIPAcquisition>(EIPAcquisition.DHCP);
 let wifiIpDraftInitialized = false;
 
 export function initializeWifiIpDraft(wifiConfig?: Wifi, force = false) {
@@ -66,7 +67,12 @@ export function initializeWifiIpDraft(wifiConfig?: Wifi, force = false) {
         dns1: wifiConfig?.dns1 ?? '',
         dns2: wifiConfig?.dns2 ?? '',
     });
+    wifiIpDraftMode.set(wifiConfig?.ipAcquisition ?? (wifiConfig?.dhcpEnabled === false ? EIPAcquisition.STATIC : EIPAcquisition.DHCP));
     wifiIpDraftInitialized = true;
+}
+
+export function updateWifiIpDraftMode(mode: EIPAcquisition) {
+    wifiIpDraftMode.set(mode);
 }
 
 export function updateWifiIpDraft(field: keyof WifiIpDraft, value: string) {
@@ -280,7 +286,6 @@ export async function updateMdnsDomain(mdnsDomain: string) {
         method: EWsMethods.SET_MDNS_DOMAIN,
         data: { mdnsDomain },
     });
-    if (response.error === ERROR_CODE.SUCCESS) updateNetworkField('mdnsDomain', mdnsDomain);
     return response;
 }
 

@@ -859,7 +859,7 @@ esp_err_t method_api_handle_set_name(cJSON *data, async_resp_arg *now_resp_arg)
     ret = webserver_code_response_to_current_client(WEB_API_ERROR_OK, WEB_API_METHOD_SET_NAME_RSP, now_resp_arg->seq);
     webserver_device_info_notify(UPDATE_NAME);
     // mdns_server_update_server_txt();
-    // webserver_cur_mdns_scan_result_notify();
+    webserver_cur_mdns_scan_result_notify();
     return ret;
 
 send_response:

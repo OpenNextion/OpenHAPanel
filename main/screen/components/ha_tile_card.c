@@ -117,6 +117,7 @@ void ha_tile_card_set_icon_clickable(lv_obj_t *obj, bool clickable)
     LV_ASSERT_OBJ(obj, MY_CLASS);
     ha_tile_card_t *card = (ha_tile_card_t *)obj;
 
+    lv_obj_set_style_bg_opa(card->icon_circle, clickable ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
     if (clickable) {
         lv_obj_add_flag(card->icon_circle, LV_OBJ_FLAG_CLICKABLE);
     }
@@ -264,6 +265,7 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
     lv_obj_set_style_radius(obj, 12, 0);
+    // lv_obj_set_style_clip_corner(obj, true, 0);
     lv_obj_set_style_border_width(obj, 0, 0);
     lv_obj_set_style_bg_color(obj, lv_color_hex(0x1E2228), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
@@ -301,7 +303,7 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
     lv_obj_set_style_radius(card->icon_circle, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(card->icon_circle, 0, 0);
     lv_obj_set_style_bg_color(card->icon_circle, lv_color_hex(0xECEFF1), 0);
-    lv_obj_set_style_bg_opa(card->icon_circle, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_opa(card->icon_circle, LV_OPA_TRANSP, 0);
     lv_obj_set_style_pad_all(card->icon_circle, 0, 0);
     lv_obj_add_event_cb(card->icon_circle,
                         ha_tile_card_icon_event_cb,

@@ -44,14 +44,16 @@
 </script>
 
 <div class="page-container ha-oauth-callback">
-    <i class="bi" class:bi-hourglass-split={$homeAssistantStore.oauthCompleting} class:bi-exclamation-circle={Boolean(submitError || $homeAssistantStore.authorizationResult?.status === 'error')}></i>
+    <i class="bi" class:bi-hourglass-split={!submitError && $homeAssistantStore.authorizationResult?.status !== 'error'} class:bi-exclamation-circle={Boolean(submitError || $homeAssistantStore.authorizationResult?.status === 'error')}></i>
     <h1>{$_('homeAssistant.oauthCompleting')}</h1>
     {#if submitError}
-        <p>{submitError}</p>
+        <p role="status" aria-live="polite">{submitError}</p>
     {:else if $homeAssistantStore.authorizationResult?.status === 'error'}
-        <p>{$_('homeAssistant.oauthFailed')}: {$homeAssistantStore.authorizationResult.reason}</p>
+        <p role="status" aria-live="polite">{$_('homeAssistant.oauthFailed')}: {$homeAssistantStore.authorizationResult.reason}</p>
+    {:else if $homeAssistantStore.authorizationResult === null}
+        <p role="status" aria-live="polite">{$_('homeAssistant.oauthWaitingForStatus')}</p>
     {:else}
-        <p>{$_('homeAssistant.oauthCompletingHint')}</p>
+        <p role="status" aria-live="polite">{$_('homeAssistant.oauthCompletingHint')}</p>
     {/if}
 </div>
 

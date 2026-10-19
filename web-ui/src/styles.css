@@ -53,15 +53,38 @@ body {
 	background: var(--bs-body-bg);
 }
 
-.auth-brand-logo {
+.auth-shell.wifi-setup-shell {
+	--auth-header-space: 4rem;
+	--wifi-setup-top-tips-space: 0px;
+}
+
+.auth-shell.wifi-setup-shell.has-top-tips {
+	--wifi-setup-top-tips-space: var(--top-tips-height);
+}
+
+.auth-topbar-controls {
 	position: fixed;
-	top: 1.25rem;
-	left: 1.5rem;
 	z-index: 1040;
-	display: grid;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: var(--topbar-height);
+	padding: 0 1.5rem;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	box-sizing: border-box;
+}
+
+.auth-topbar-controls.has-top-tips {
+	top: var(--top-tips-height);
+}
+
+.auth-brand-logo {
+	display: flex;
+	align-items: center;
 	width: 5.875rem;
 	height: 1.875rem;
-	place-items: center;
 }
 
 .auth-brand-logo .sf-icon,
@@ -71,10 +94,6 @@ body {
 }
 
 .auth-sidebar-toggle {
-	position: fixed;
-	top: 1.25rem;
-	right: 1.5rem;
-	z-index: 1040;
 	display: grid;
 	width: 2.5rem;
 	height: 2.5rem;
@@ -108,33 +127,31 @@ body {
 	padding-top: calc(var(--top-tips-height) + var(--auth-header-space) + clamp(1rem, 4vw, 3rem));
 }
 
-.app-top-tips ~ .auth-brand-logo,
-.app-top-tips ~ .auth-sidebar-toggle {
-	top: calc(var(--top-tips-height) + 1.25rem);
-}
-
 @media (max-width: 600px) {
 	:root {
 		--auth-header-space: 2.5rem;
 	}
 
 	.auth-brand-logo {
-		top: .75rem;
-		left: 1rem;
 		width: 5.875rem;
 		height: 1.875rem;
 	}
 
 	.auth-sidebar-toggle {
-		top: .75rem;
-		right: 1rem;
 		width: 2.25rem;
 		height: 2.25rem;
 	}
 
-	.app-top-tips ~ .auth-brand-logo,
-	.app-top-tips ~ .auth-sidebar-toggle {
-		top: calc(var(--top-tips-height) + .75rem);
+	.auth-topbar-controls {
+		padding: 0 1rem;
+	}
+
+	.auth-shell.wifi-setup-shell {
+		padding: calc(var(--auth-header-space) + 1rem) 1rem calc(var(--footer-height) + 1rem);
+	}
+
+	.auth-shell.wifi-setup-shell.has-top-tips {
+		padding-top: calc(var(--top-tips-height) + var(--auth-header-space) + 1rem);
 	}
 }
 

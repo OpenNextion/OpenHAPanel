@@ -11,12 +11,16 @@
 
 #define HA_HISTORY_TIME_LABEL_COUNT 5
 #define HA_HISTORY_VALUE_SCALE 100.0
-#define HA_HISTORY_CHART_X 12
-#define HA_HISTORY_CHART_Y 92
-#define HA_HISTORY_PLOT_WIDTH 256
-#define HA_HISTORY_PLOT_HEIGHT 184
-#define HA_HISTORY_PLOT_PAD_HOR 28
+#define HA_HISTORY_CHART_Y 57
+#define HA_HISTORY_CHART_RIGHT 12
+#define HA_HISTORY_PLOT_HEIGHT 219
+#define HA_HISTORY_PLOT_PAD_HOR 12
+#define HA_HISTORY_PLOT_PAD_VER 12
 #define HA_HISTORY_UNIT_MAX 32
+#define HA_HISTORY_Y_AXIS_MAX_TICKS 5
+#define HA_HISTORY_Y_LABEL_X 4
+#define HA_HISTORY_Y_LABEL_GAP 6
+#define HA_HISTORY_TIME_LABEL_GAP 4
 
 typedef struct {
     lv_obj_t *chart;
@@ -26,6 +30,8 @@ typedef struct {
     lv_chart_cursor_t *cursor;
     double *values;
     size_t point_count;
+    int32_t chart_x;
+    int32_t chart_width;
     char unit[HA_HISTORY_UNIT_MAX];
 } ha_history_chart_t;
 
@@ -44,15 +50,139 @@ static int32_t history_chart_scaled_value(double value)
     return (int32_t)llround(value * HA_HISTORY_VALUE_SCALE);
 }
 
-static int32_t history_chart_clamp_i64(int64_t value)
+static void history_chart_format_value(double value,
+                                       char *output,
+                                       size_t output_size)
 {
-    if (value > INT32_MAX) {
-        return INT32_MAX;
+    if (!output || output_size == 0) {
+        return;
     }
-    if (value < INT32_MIN) {
-        return INT32_MIN;
+
+    snprintf(output, output_size, "%.2f", value);
+    size_t length = strlen(output);
+    while (length > 0 && output[length - 1] == '0') {
+        output[--length] = '\0';
     }
-    return (int32_t)value;
+    if (length > 0 && output[length - 1] == '.') {
+        output[--length] = '\0';
+    }
+    if (strcmp(output, "-0") == 0) {
+        snprintf(output, output_size, "0");
+    }
+}
+
+static double history_chart_nice_step(double minimum_step)
+{
+    if (!isfinite(minimum_step) || minimum_step <= 0.0) {
+        return 1.0;
+    }
+
+    const double exponent = floor(log10(minimum_step));
+    const double magnitude = pow(10.0, exponent);
+    const double fraction = minimum_step / magnitude;
+    double nice_fraction = 10.0;
+    if (fraction <= 1.0) {
+        nice_fraction = 1.0;
+    } else if (fraction <= 2.0) {
+        nice_fraction = 2.0;
+    } else if (fraction <= 5.0) {
+        nice_fraction = 5.0;
+    }
+    return nice_fraction * magnitude;
+}
+
+static void history_chart_calculate_y_axis(
+    const ha_history_chart_point_t *points,
+    size_t point_count,
+    int32_t *axis_min,
+    int32_t *axis_max,
+    size_t *tick_count)
+{
+    int32_t min_value = history_chart_scaled_value(points[0].value);
+    int32_t max_value = min_value;
+    for (size_t i = 1; i < point_count; i++) {
+        const int32_t value = history_chart_scaled_value(points[i].value);
+        min_value = LV_MIN(min_value, value);
+        max_value = LV_MAX(max_value, value);
+    }
+
+    const double minimum = (double)min_value / HA_HISTORY_VALUE_SCALE;
+    const double maximum = (double)max_value / HA_HISTORY_VALUE_SCALE;
+    double step;
+    if (maximum > minimum) {
+        step = history_chart_nice_step((maximum - minimum) /
+                                       (HA_HISTORY_Y_AXIS_MAX_TICKS - 1));
+    } else {
+        /* A flat series still needs enough vertical range to be readable. */
+        step = history_chart_nice_step(LV_MAX(fabs(minimum) * 0.1, 0.01));
+    }
+
+    double low = floor(minimum / step) * step;
+    double high = ceil(maximum / step) * step;
+    if (maximum == minimum) {
+        low -= 2.0 * step;
+        high += 2.0 * step;
+    }
+
+    size_t count = (size_t)llround((high - low) / step) + 1;
+    while (count > HA_HISTORY_Y_AXIS_MAX_TICKS) {
+        step = history_chart_nice_step(step * 1.01);
+        low = floor(minimum / step) * step;
+        high = ceil(maximum / step) * step;
+        count = (size_t)llround((high - low) / step) + 1;
+    }
+
+    int32_t scaled_low = history_chart_scaled_value(low);
+    int32_t scaled_high = history_chart_scaled_value(high);
+    if (scaled_high <= scaled_low) {
+        scaled_high = scaled_low < INT32_MAX ? scaled_low + 1 : INT32_MAX;
+    }
+    *axis_min = scaled_low;
+    *axis_max = scaled_high;
+    *tick_count = count;
+}
+
+static int32_t history_chart_create_y_axis_labels(lv_obj_t *root,
+                                                  int32_t axis_min,
+                                                  int32_t axis_max,
+                                                  size_t tick_count)
+{
+    if (!root || tick_count < 2 || axis_max <= axis_min) {
+        return HA_HISTORY_Y_LABEL_X + HA_HISTORY_Y_LABEL_GAP;
+    }
+
+    lv_obj_t *labels[HA_HISTORY_Y_AXIS_MAX_TICKS] = {0};
+    int32_t label_width = 0;
+    const int32_t plot_top = HA_HISTORY_CHART_Y + HA_HISTORY_PLOT_PAD_VER;
+    const int32_t plot_height = HA_HISTORY_PLOT_HEIGHT -
+                                HA_HISTORY_PLOT_PAD_VER * 2;
+    const double range = (double)axis_max - axis_min;
+    for (size_t i = 0; i < tick_count; i++) {
+        const double scaled_value = axis_max -
+            range * i / (tick_count - 1);
+        char value_text[20] = {0};
+        history_chart_format_value(scaled_value / HA_HISTORY_VALUE_SCALE,
+                                   value_text,
+                                   sizeof(value_text));
+
+        lv_obj_t *label = lv_label_create(root);
+        lv_label_set_text(label, value_text);
+        lv_obj_set_style_text_font(label, &ha_font_misan_regular_12, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0x666666), 0);
+        lv_obj_update_layout(label);
+        labels[i] = label;
+        label_width = LV_MAX(label_width, lv_obj_get_width(label));
+        const int32_t center_y = plot_top + (int32_t)(plot_height * i /
+                                                       (tick_count - 1));
+        lv_obj_set_y(label, center_y - lv_obj_get_height(label) / 2);
+    }
+
+    for (size_t i = 0; i < tick_count; i++) {
+        lv_obj_set_width(labels[i], label_width);
+        lv_obj_set_style_text_align(labels[i], LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_x(labels[i], HA_HISTORY_Y_LABEL_X);
+    }
+    return HA_HISTORY_Y_LABEL_X + label_width + HA_HISTORY_Y_LABEL_GAP;
 }
 
 static void history_chart_render_message(lv_obj_t *root, const char *text)
@@ -67,12 +197,13 @@ static void history_chart_render_message(lv_obj_t *root, const char *text)
 static void history_chart_create_time_labels(
     lv_obj_t *root,
     time_t start_time,
-    time_t end_time)
+    time_t end_time,
+    int32_t chart_x,
+    int32_t chart_width)
 {
     const time_t span = end_time > start_time ? end_time - start_time : 1;
-    const int32_t plot_start = HA_HISTORY_CHART_X +
-                               HA_HISTORY_PLOT_PAD_HOR;
-    const int32_t plot_width = HA_HISTORY_PLOT_WIDTH -
+    const int32_t plot_start = chart_x + HA_HISTORY_PLOT_PAD_HOR;
+    const int32_t plot_width = chart_width -
                                HA_HISTORY_PLOT_PAD_HOR * 2;
 
     for (size_t i = 0; i < HA_HISTORY_TIME_LABEL_COUNT; i++) {
@@ -99,7 +230,8 @@ static void history_chart_create_time_labels(
                                            (HA_HISTORY_TIME_LABEL_COUNT - 1));
         lv_obj_set_pos(label,
                        center_x - lv_obj_get_width(label) / 2,
-                       280);
+                       HA_HISTORY_CHART_Y + HA_HISTORY_PLOT_HEIGHT +
+                           HA_HISTORY_TIME_LABEL_GAP);
     }
 }
 
@@ -163,14 +295,9 @@ static void history_chart_event_cb(lv_event_t *event)
                               point_id);
 
     char value_text[32] = {0};
-    snprintf(value_text,
-             sizeof(value_text),
-             "%.2f",
-             history->values[point_id]);
-    size_t value_length = strlen(value_text);
-    if (value_length > 1 && value_text[value_length - 1] == '0') {
-        value_text[--value_length] = '\0';
-    }
+    history_chart_format_value(history->values[point_id],
+                               value_text,
+                               sizeof(value_text));
 
     char tooltip_text[sizeof(value_text) + HA_HISTORY_UNIT_MAX] = {0};
     snprintf(tooltip_text,
@@ -189,9 +316,9 @@ static void history_chart_event_cb(lv_event_t *event)
                                  &point);
     const int32_t tooltip_width = lv_obj_get_width(history->tooltip);
     const int32_t tooltip_height = lv_obj_get_height(history->tooltip);
-    int32_t tooltip_x = HA_HISTORY_CHART_X + point.x + 8;
+    int32_t tooltip_x = history->chart_x + point.x + 8;
     if (tooltip_x + tooltip_width > HA_HISTORY_CHART_DEFAULT_WIDTH - 6) {
-        tooltip_x = HA_HISTORY_CHART_X + point.x - tooltip_width - 8;
+        tooltip_x = history->chart_x + point.x - tooltip_width - 8;
     }
     tooltip_x = LV_CLAMP(4,
                          tooltip_x,
@@ -338,19 +465,42 @@ lv_obj_t *ha_history_chart_create(
                         LV_EVENT_DELETE,
                         history);
 
+    int32_t axis_min = 0;
+    int32_t axis_max = 0;
+    size_t y_axis_tick_count = 0;
+    history_chart_calculate_y_axis(config->points,
+                                   config->point_count,
+                                   &axis_min,
+                                   &axis_max,
+                                   &y_axis_tick_count);
+    history->chart_x = history_chart_create_y_axis_labels(
+        root,
+        axis_min,
+        axis_max,
+        y_axis_tick_count);
+    history->chart_width = HA_HISTORY_CHART_DEFAULT_WIDTH -
+                           HA_HISTORY_CHART_RIGHT - history->chart_x;
+
     lv_obj_t *unit_label = lv_label_create(root);
     lv_label_set_text(unit_label, history->unit);
     lv_obj_set_style_text_font(unit_label, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(unit_label, lv_color_hex(0x666666), 0);
-    lv_obj_set_pos(unit_label, 12, 62);
+    lv_obj_update_layout(unit_label);
+    lv_obj_set_pos(unit_label,
+                   HA_HISTORY_CHART_DEFAULT_WIDTH -
+                       HA_HISTORY_CHART_RIGHT -
+                       lv_obj_get_width(unit_label),
+                   18);
 
     lv_obj_t *chart = lv_chart_create(root);
     history->chart = chart;
     lv_obj_remove_style_all(chart);
     lv_obj_add_flag(chart, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(chart, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(chart, HA_HISTORY_CHART_X, HA_HISTORY_CHART_Y);
-    lv_obj_set_size(chart, HA_HISTORY_PLOT_WIDTH, HA_HISTORY_PLOT_HEIGHT);
+    lv_obj_set_pos(chart, history->chart_x, HA_HISTORY_CHART_Y);
+    lv_obj_set_size(chart,
+                    history->chart_width,
+                    HA_HISTORY_PLOT_HEIGHT);
     lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(chart, 2, 0);
     lv_obj_set_style_border_color(chart, lv_color_hex(0x4D5157), 0);
@@ -362,8 +512,8 @@ lv_obj_t *ha_history_chart_create(
     lv_obj_set_style_radius(chart, 0, 0);
     lv_obj_set_style_pad_left(chart, HA_HISTORY_PLOT_PAD_HOR, 0);
     lv_obj_set_style_pad_right(chart, HA_HISTORY_PLOT_PAD_HOR, 0);
-    lv_obj_set_style_pad_top(chart, 12, 0);
-    lv_obj_set_style_pad_bottom(chart, 12, 0);
+    lv_obj_set_style_pad_top(chart, HA_HISTORY_PLOT_PAD_VER, 0);
+    lv_obj_set_style_pad_bottom(chart, HA_HISTORY_PLOT_PAD_VER, 0);
     lv_obj_set_style_line_width(chart, 2, LV_PART_ITEMS);
     lv_obj_set_style_width(chart, 6, LV_PART_INDICATOR);
     lv_obj_set_style_height(chart, 6, LV_PART_INDICATOR);
@@ -383,21 +533,6 @@ lv_obj_t *ha_history_chart_create(
                             (int32_t)(config->end_time -
                                       config->start_time));
 
-    int32_t min_value = history_chart_scaled_value(config->points[0].value);
-    int32_t max_value = min_value;
-    for (size_t i = 1; i < config->point_count; i++) {
-        const int32_t value = history_chart_scaled_value(
-            config->points[i].value);
-        min_value = LV_MIN(min_value, value);
-        max_value = LV_MAX(max_value, value);
-    }
-    const int64_t value_span = (int64_t)max_value - min_value;
-    const int64_t padding = LV_MAX(value_span / 3, 100);
-    int32_t axis_min = history_chart_clamp_i64((int64_t)min_value - padding);
-    int32_t axis_max = history_chart_clamp_i64((int64_t)max_value + padding);
-    if (axis_max <= axis_min) {
-        axis_max = axis_min < INT32_MAX ? axis_min + 1 : INT32_MAX;
-    }
     lv_chart_set_axis_range(chart,
                             LV_CHART_AXIS_PRIMARY_Y,
                             axis_min,
@@ -464,7 +599,9 @@ lv_obj_t *ha_history_chart_create(
                         history);
     history_chart_create_time_labels(root,
                                      config->start_time,
-                                     config->end_time);
+                                     config->end_time,
+                                     history->chart_x,
+                                     history->chart_width);
     lv_chart_refresh(chart);
     return root;
 }

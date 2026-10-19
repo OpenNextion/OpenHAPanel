@@ -1,46 +1,46 @@
 import { get } from 'svelte/store';
-import { getHassEntityMdiIcon, HASS_ENTITY_SUPPORT_CONFIG } from '@/constant';
+import {
+    getHassEntityDisplayName,
+    type THassActionSelection,
+} from '@/hooks/useHassEntity';
+import type { IHassEntityInteractionConfig } from '@/constant/hassEntity';
 import { haRegistryStore } from '@/stores/haRegistry';
-import { addScreenBadge, addScreenCard, removeScreenCard, screenConfigStore, updateScreenCard, updateScreenCardActionConfig } from '@/stores/screenConfig';
+import {
+    addScreenBadge,
+    addScreenCard,
+    removeScreenBadge,
+    removeScreenCard,
+    screenConfigStore,
+    updateScreenBadge,
+    updateScreenCard,
+} from '@/stores/screenConfig';
 import type { IHassRegistryTreeArea, IHassRegistryTreeDevice, IHassRegistryTreeEntity } from '@/types/haRegistry';
 import type { IHassScreenActionConfig, THassScreenAction } from '@/types/screenConfig';
 
 export type TEntityPickerMode = 'badge' | 'entity';
-export type TActionSelection = 'default' | THassScreenAction;
+export type TActionSelection = THassActionSelection;
 
 export interface IEntitySearchResult {
     entity: IHassRegistryTreeEntity;
     rank: number;
     name: string;
+    displayName: string;
 }
 
-export const SCREEN_ACTION_OPTIONS: { value: TActionSelection; label: string }[] = [
+export const SCREEN_ACTION_OPTIONS: { value: THassScreenAction; label: string }[] = [
     { value: 'more-info', label: 'More info' },
     { value: 'toggle', label: 'Toggle' },
     { value: 'nothing', label: 'Nothing' },
 ];
 
-export function getScreenEntityDefaultActions(entityId: string): {
-    tap: THassScreenAction;
-    hold: THassScreenAction;
-    iconTap: THassScreenAction;
-} {
-    const domain = entityId.split('.')[0] ?? '';
-    const iconTapDefault = HASS_ENTITY_SUPPORT_CONFIG[domain]?.iconTapDefault ?? (['light', 'switch', 'scene'].includes(domain) ? 'toggle' : 'nothing');
-    return {
-        tap: 'more-info',
-        hold: 'nothing',
-        iconTap: iconTapDefault,
-    };
-}
-
 export function createDefaultScreenActionConfig(): IHassScreenActionConfig {
     return {};
 }
 
-export function getScreenActionOptions(defaultAction: THassScreenAction) {
-    const defaultLabel = SCREEN_ACTION_OPTIONS.find((option) => option.value === defaultAction)?.label ?? defaultAction;
-    return [{ value: 'default' as const, label: `Default (${defaultLabel})` }, ...SCREEN_ACTION_OPTIONS];
+export function getScreenActionOptions(interaction: IHassEntityInteractionConfig) {
+    const defaultLabel = SCREEN_ACTION_OPTIONS.find((option) => option.value === interaction.default)?.label ?? String(interaction.default);
+    const supportedOptions = SCREEN_ACTION_OPTIONS.filter((option) => interaction.options.includes(option.value));
+    return [{ value: 'default' as const, label: `Default (${defaultLabel})` }, ...supportedOptions];
 }
 
 export function toScreenActionSelection(action: THassScreenAction | undefined): TActionSelection {
@@ -56,23 +56,11 @@ function toScreenActionItem(action: TActionSelection) {
     return resolvedAction ? { action: resolvedAction } : undefined;
 }
 
-export function getScreenEntityName(entityId: string) {
-    const entity = get(haRegistryStore).entities.find((item) => (item.ei ?? item.entity_id) === entityId);
-    return entity?.en ?? entity?.name ?? entity?.ne ?? entity?.original_name ?? entity?.or ?? entityId;
-}
-
-export function getScreenEntityIcon(entityId: string) {
-    const registry = get(haRegistryStore);
-    const entity = registry.entities.find((item) => (item.ei ?? item.entity_id) === entityId);
-    const state = registry.states.find((item) => item.entity_id === entityId);
-    return getHassEntityMdiIcon(entityId, entity?.ic ?? entity?.icon, state?.attributes?.device_class, state?.state);
-}
-
 export function addEntityToScreen(screenIndex: number, mode: TEntityPickerMode, entity: IHassRegistryTreeEntity) {
     if (mode === 'badge') {
         addScreenBadge(screenIndex, {
             type: 'entity',
-            data: { entity: entity.id, name: entity.name, actionConfig: createDefaultScreenActionConfig() },
+            data: { entity: entity.id, name: getHassEntityDisplayName(entity.id), actionConfig: createDefaultScreenActionConfig() },
         });
         return;
     }
@@ -82,41 +70,43 @@ export function addEntityToScreen(screenIndex: number, mode: TEntityPickerMode, 
     });
 }
 
-export function saveScreenCardActions(screenIndex: number, entityId: string, tap: TActionSelection, hold: TActionSelection, iconTap: TActionSelection) {
-    updateScreenCardActionConfig(screenIndex, entityId, {
-        tap_action: toScreenActionItem(tap),
-        hold_action: toScreenActionItem(hold),
-        icon_tap_action: toScreenActionItem(iconTap),
-    });
-}
-
-export function saveScreenCardSettings(
+export function saveScreenEntitySettings(
+    mode: TEntityPickerMode,
     screenIndex: number,
     currentEntityId: string,
     entityId: string,
+    name: string,
     tap: TActionSelection,
     hold: TActionSelection,
     iconTap: TActionSelection,
 ) {
-    updateScreenCard(screenIndex, currentEntityId, entityId, {
+    const actionConfig = {
         tap_action: toScreenActionItem(tap),
         hold_action: toScreenActionItem(hold),
         icon_tap_action: toScreenActionItem(iconTap),
-    });
+    };
+    if (mode === 'badge') {
+        updateScreenBadge(screenIndex, currentEntityId, entityId, name, actionConfig);
+        return;
+    }
+    updateScreenCard(screenIndex, currentEntityId, entityId, actionConfig);
 }
 
-export function deleteScreenCard(screenIndex: number, entityId: string) {
-    removeScreenCard(screenIndex, entityId);
+export function deleteScreenEntity(mode: TEntityPickerMode, screenIndex: number, entityId: string) {
+    if (mode === 'badge') removeScreenBadge(screenIndex, entityId);
+    else removeScreenCard(screenIndex, entityId);
 }
 
-export function getScreenCardActionSelections(screenIndex: number, entityId: string) {
-    const card = get(screenConfigStore)
-        .screens.find((screen) => screen.index === screenIndex)
-        ?.cards?.find((item) => item.data.entity === entityId);
+export function getScreenEntityActionSelections(mode: TEntityPickerMode, screenIndex: number, entityId: string) {
+    const screen = get(screenConfigStore).screens.find((item) => item.index === screenIndex);
+    const actionConfig =
+        mode === 'badge'
+            ? screen?.badges?.find((item) => item.data.entity === entityId)?.data.actionConfig
+            : screen?.cards?.find((item) => item.data.entity === entityId)?.data.actionConfig;
     return {
-        tap: toScreenActionSelection(card?.data.actionConfig?.tap_action?.action),
-        hold: toScreenActionSelection(card?.data.actionConfig?.hold_action?.action),
-        iconTap: toScreenActionSelection(card?.data.actionConfig?.icon_tap_action?.action),
+        tap: toScreenActionSelection(actionConfig?.tap_action?.action),
+        hold: toScreenActionSelection(actionConfig?.hold_action?.action),
+        iconTap: toScreenActionSelection(actionConfig?.icon_tap_action?.action),
     };
 }
 
@@ -130,17 +120,18 @@ function normalizeSearchValue(value: unknown) {
 export function searchScreenEntities(queryValue: string): IEntitySearchResult[] {
     const query = normalizeSearchValue(queryValue).trim();
     const registry = get(haRegistryStore);
-    const stateNames = new Map(registry.states.map((state) => [state.entity_id, state.attributes?.friendly_name ?? '']));
-    const entities = new Map<string, { entity: IHassRegistryTreeEntity; searchText: string; name: string; id: string }>();
+    const entities = new Map<string, { entity: IHassRegistryTreeEntity; searchText: string; name: string; displayName: string; id: string }>();
     const addEntity = (entity: IHassRegistryTreeEntity, context: string[] = []) => {
         if (entities.has(entity.id)) return;
         const raw = entity.raw;
+        const displayName = getHassEntityDisplayName(entity.id, registry);
         entities.set(entity.id, {
             entity,
-            name: normalizeSearchValue(entity.name),
+            displayName,
+            name: normalizeSearchValue(displayName),
             id: normalizeSearchValue(entity.id),
             searchText: normalizeSearchValue(
-                [entity.name, entity.id, stateNames.get(entity.id), raw.en, raw.name, raw.ne, raw.original_name, raw.or, ...context].filter(Boolean).join(' '),
+                [displayName, entity.id, raw.en, raw.name, raw.ne, raw.original_name, raw.or, ...context].filter(Boolean).join(' '),
             ),
         });
     };
@@ -165,6 +156,7 @@ export function searchScreenEntities(queryValue: string): IEntitySearchResult[] 
         .map((item) => ({
             entity: item.entity,
             name: item.name,
+            displayName: item.displayName,
             rank: !query ? 0 : item.id === query ? 0 : item.name === query ? 1 : item.name.startsWith(query) ? 2 : item.id.startsWith(query) ? 3 : 4,
         }))
         .sort((left, right) => left.rank - right.rank || left.name.localeCompare(right.name, document.documentElement.lang || navigator.language, { numeric: true }));

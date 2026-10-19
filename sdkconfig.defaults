@@ -12,6 +12,15 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_FREERTOS_HZ=1000
 CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=4096
 
+# Keep a smaller fast internal LVGL pool. The BSP adds two separate 256 KiB
+# PSRAM pools before creating the display and application UI. LVGL's TLSF uses
+# LV_MEM_SIZE + LV_MEM_POOL_EXPAND_SIZE as the maximum accepted pool size, so
+# a 224 KiB expansion limit is required to register each 256 KiB PSRAM pool. The
+# expansion setting only changes the allocator's size range; it does not
+# allocate another 224 KiB buffer by itself.
+CONFIG_LV_MEM_SIZE_KILOBYTES=32
+CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=224
+
 #
 # Partition Table
 #
@@ -67,6 +76,10 @@ CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
 # put additional pressure on the already constrained internal heap. Falling
 # back to internal RAM remains supported if a PSRAM allocation fails.
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# Keep allocations up to 2 KiB in internal RAM. Larger ordinary malloc/calloc
+# allocations prefer PSRAM and still fall back to the other heap if necessary.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=2048
 
 # Enlarge the TCP receive path for high-latency HTTPS OTA downloads. Keep the
 # send buffer unchanged because OTA is primarily a receive workload. Testing

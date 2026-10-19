@@ -22,7 +22,6 @@ interface IHassRegistryStore {
     areas: IHassAreaRegistryEntry[];
     floors: IHassFloorRegistryEntry[];
     domainTranslations: Record<string, string>;
-    entityCategories: Record<string, string>;
     tree: IHassRegistryTree;
 }
 
@@ -44,7 +43,6 @@ const INIT_VALUE: IHassRegistryStore = {
     areas: [],
     floors: [],
     domainTranslations: {},
-    entityCategories: {},
     tree: EMPTY_TREE,
 };
 
@@ -96,7 +94,6 @@ export function buildHassRegistryTree(
     areas: IHassAreaRegistryEntry[],
     floors: IHassFloorRegistryEntry[],
     domainTranslations: Record<string, string>,
-    entityCategories: Record<string, string> = {},
 ): IHassRegistryTree {
     const entityById = new Map(entities.map((entity) => [entity.ei ?? entity.entity_id, entity]));
     const deviceById = new Map(devices.map((device) => [device.id, device]));
@@ -168,7 +165,7 @@ export function buildHassRegistryTree(
     states.forEach((state) => {
         const entity = entityById.get(state.entity_id);
         if (entity?.hb) return;
-        if (!isHassEntityVisibleInPicker(state.entity_id, state.attributes?.device_class, entity?.entity_category ?? entity?.ec, entityCategories)) return;
+        if (!isHassEntityVisibleInPicker(state.entity_id, state.attributes?.device_class)) return;
         const entityDeviceId = entity?.di ?? entity?.device_id;
         const node = normalizeEntity(state, entity, entityDeviceId ? deviceById.get(entityDeviceId) : undefined);
         const device = node.deviceId ? deviceById.get(node.deviceId) : undefined;
@@ -269,12 +266,12 @@ export function setHassRegistryError(error: string) {
 }
 
 export function setHassRegistryData(
-    data: Pick<IHassRegistryStore, 'states' | 'entities' | 'devices' | 'areas' | 'floors' | 'domainTranslations' | 'entityCategories'>,
+    data: Pick<IHassRegistryStore, 'states' | 'entities' | 'devices' | 'areas' | 'floors' | 'domainTranslations'>,
 ) {
     haRegistryStore.set({
         ...data,
         loading: false,
         error: null,
-        tree: buildHassRegistryTree(data.states, data.entities, data.devices, data.areas, data.floors, data.domainTranslations, data.entityCategories),
+        tree: buildHassRegistryTree(data.states, data.entities, data.devices, data.areas, data.floors, data.domainTranslations),
     });
 }

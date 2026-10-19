@@ -4,27 +4,18 @@
 #define LIGHT_PRESET_COLUMNS     4
 #define LIGHT_PRESET_BUTTON_SIZE 56
 #define LIGHT_PRESET_GAP         16
+/* Leave room for the button theme's pressed-state scale animation. */
+#define LIGHT_PRESET_PRESS_OVERFLOW 8
 
 typedef struct {
     lv_obj_t *buttons[LIGHT_PRESET_COLOR_COUNT];
-    light_rgb_t colors[LIGHT_PRESET_COLOR_COUNT];
+    light_favorite_color_t colors[LIGHT_PRESET_COLOR_COUNT];
     size_t count;
     int selected_index;
     bool disabled;
     light_preset_select_cb_t callback;
     void *user_data;
 } light_preset_colors_context_t;
-
-static const light_rgb_t LIGHT_DEFAULT_PRESETS[LIGHT_PRESET_COLOR_COUNT] = {
-    {0x54, 0xF5, 0x62},
-    {0xFF, 0x48, 0x48},
-    {0x7F, 0xE1, 0xE8},
-    {0x3F, 0x76, 0xEA},
-    {0xF5, 0x00, 0x86},
-    {0xC6, 0x12, 0xE5},
-    {0xA8, 0xF5, 0xA7},
-    {0xFF, 0xE5, 0x00},
-};
 
 static light_preset_colors_context_t *light_preset_colors_context(lv_obj_t *obj)
 {
@@ -42,17 +33,15 @@ static void light_preset_colors_refresh(light_preset_colors_context_t *context)
             lv_obj_remove_flag(button, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_bg_color(
                 button,
-                lv_color_make(context->colors[i].red,
-                              context->colors[i].green,
-                              context->colors[i].blue),
+                lv_color_make(context->colors[i].display_rgb.red,
+                              context->colors[i].display_rgb.green,
+                              context->colors[i].display_rgb.blue),
                 0);
         }
         else {
             lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
         }
-        lv_obj_set_style_border_width(button,
-                                      context->selected_index == (int)i ? 3 : 0,
-                                      0);
+        lv_obj_set_style_border_width(button, 0, 0);
         if (context->disabled) {
             lv_obj_add_state(button, LV_STATE_DISABLED);
         }
@@ -74,7 +63,7 @@ static void light_preset_colors_event_cb(lv_event_t *event)
             context->selected_index = (int)i;
             light_preset_colors_refresh(context);
             if (context->callback) {
-                context->callback(i, context->colors[i], context->user_data);
+                context->callback(i, &context->colors[i], context->user_data);
             }
             return;
         }
@@ -95,11 +84,8 @@ lv_obj_t *light_preset_colors_create(lv_obj_t *parent)
     if (!context) {
         return NULL;
     }
-    context->count = LIGHT_PRESET_COLOR_COUNT;
+    context->count = 0;
     context->selected_index = -1;
-    for (size_t i = 0; i < context->count; i++) {
-        context->colors[i] = LIGHT_DEFAULT_PRESETS[i];
-    }
 
     lv_obj_t *root = lv_obj_create(parent);
     if (!root) {
@@ -115,8 +101,10 @@ lv_obj_t *light_preset_colors_create(lv_obj_t *parent)
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(root,
                     LIGHT_PRESET_COLUMNS * LIGHT_PRESET_BUTTON_SIZE +
-                        (LIGHT_PRESET_COLUMNS - 1) * LIGHT_PRESET_GAP,
-                    2 * LIGHT_PRESET_BUTTON_SIZE + LIGHT_PRESET_GAP);
+                        (LIGHT_PRESET_COLUMNS - 1) * LIGHT_PRESET_GAP +
+                        2 * LIGHT_PRESET_PRESS_OVERFLOW,
+                    2 * LIGHT_PRESET_BUTTON_SIZE + LIGHT_PRESET_GAP +
+                        2 * LIGHT_PRESET_PRESS_OVERFLOW);
     static const int32_t column_dsc[] = {
         LIGHT_PRESET_BUTTON_SIZE,
         LIGHT_PRESET_BUTTON_SIZE,
@@ -130,7 +118,7 @@ lv_obj_t *light_preset_colors_create(lv_obj_t *parent)
         LV_GRID_TEMPLATE_LAST,
     };
     lv_obj_set_grid_dsc_array(root, column_dsc, row_dsc);
-    lv_obj_set_style_pad_all(root, 0, 0);
+    lv_obj_set_style_pad_all(root, LIGHT_PRESET_PRESS_OVERFLOW, 0);
     lv_obj_set_style_pad_row(root, LIGHT_PRESET_GAP, 0);
     lv_obj_set_style_pad_column(root, LIGHT_PRESET_GAP, 0);
 
@@ -148,7 +136,7 @@ lv_obj_t *light_preset_colors_create(lv_obj_t *parent)
                              1);
         lv_obj_set_style_radius(context->buttons[i], LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_shadow_width(context->buttons[i], 0, 0);
-        lv_obj_set_style_border_color(context->buttons[i], lv_color_white(), 0);
+        lv_obj_set_style_border_width(context->buttons[i], 0, LV_STATE_PRESSED);
         lv_obj_add_event_cb(context->buttons[i],
                             light_preset_colors_event_cb,
                             LV_EVENT_CLICKED,
@@ -159,7 +147,7 @@ lv_obj_t *light_preset_colors_create(lv_obj_t *parent)
 }
 
 void light_preset_colors_set_palette(lv_obj_t *obj,
-                                     const light_rgb_t *colors,
+                                     const light_favorite_color_t *colors,
                                      size_t count)
 {
     light_preset_colors_context_t *context = light_preset_colors_context(obj);
@@ -173,6 +161,14 @@ void light_preset_colors_set_palette(lv_obj_t *obj,
     if (context->selected_index >= (int)context->count) {
         context->selected_index = -1;
     }
+    const size_t rows = (context->count + LIGHT_PRESET_COLUMNS - 1) /
+                        LIGHT_PRESET_COLUMNS;
+    lv_obj_set_height(obj,
+                      rows > 0
+                          ? (int32_t)(rows * LIGHT_PRESET_BUTTON_SIZE +
+                                      (rows - 1) * LIGHT_PRESET_GAP +
+                                      2 * LIGHT_PRESET_PRESS_OVERFLOW)
+                          : 0);
     light_preset_colors_refresh(context);
 }
 

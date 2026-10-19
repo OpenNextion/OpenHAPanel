@@ -234,12 +234,42 @@ static bool cover_handle_action(const entity_action_context_t *context)
         return false;
     }
 
+    ha_entity_store_t *store = app_get_ha_entity_store();
+    ha_entity_snapshot_t snapshot = {0};
+    if (!store ||
+        ha_entity_store_get(store, context->entity_id, &snapshot) != ESP_OK ||
+        strcmp(snapshot.state, "unavailable") == 0 ||
+        strcmp(snapshot.state, "unknown") == 0) {
+        ESP_LOGW(TAG,
+                 "Cannot toggle %s without an available state",
+                 context->entity_id);
+        return true;
+    }
+
+    const char *service = NULL;
+    if (strcmp(snapshot.state, "open") == 0 ||
+        strcmp(snapshot.state, "opening") == 0) {
+        service = "close_cover";
+    }
+    else if (strcmp(snapshot.state, "closed") == 0) {
+        service = "open_cover";
+    }
+
+    if (!service) {
+        ESP_LOGW(TAG,
+                 "Cannot toggle %s in state %s",
+                 context->entity_id,
+                 snapshot.state);
+        return true;
+    }
+
     esp_err_t err = app_ha_call_entity_service("cover",
-                                               "toggle",
+                                               service,
                                                context->entity_id);
     if (err != ESP_OK) {
         ESP_LOGW(TAG,
-                 "cover.toggle for %s failed to send: %s",
+                 "cover.%s for %s failed to send: %s",
+                 service,
                  context->entity_id,
                  esp_err_to_name(err));
     }

@@ -77,6 +77,9 @@ static bool night_mode_should_apply(void)
 
 static void night_mode_apply(void)
 {
+    if (screen_is_locked()) {
+        return;
+    }
     uint8_t target_br = s_night_mode_config.brightness;
     ESP_LOGI(TAG, "Night mode applied: brightness=%d", target_br);
     bsp_lcd_br_set(target_br);
@@ -84,6 +87,9 @@ static void night_mode_apply(void)
 
 static void night_mode_restore(void)
 {
+    if (screen_is_locked()) {
+        return;
+    }
     device_info_t *dev_info = webserver_config_get_device_info();
     uint8_t manual_br = dev_info ? dev_info->brightness : 50;
     ESP_LOGI(TAG, "Night mode exited, restoring manual brightness=%d", manual_br);

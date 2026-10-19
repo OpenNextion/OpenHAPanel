@@ -13,6 +13,7 @@ import {
     mdiBrightness5,
     mdiBrightness7,
     mdiBullhorn,
+    mdiButtonPointer,
     mdiBlindsHorizontal,
     mdiBlindsHorizontalClosed,
     mdiCalendar,
@@ -25,11 +26,13 @@ import {
     mdiCropPortrait,
     mdiCurtains,
     mdiCurtainsClosed,
+    mdiDatabase,
 
     mdiDevices,
     mdiDoor,
     mdiDoorClosed,
     mdiDoorOpen,
+    mdiDoorbell,
     mdiFire,
     mdiFan,
 
@@ -121,6 +124,7 @@ const mdiPaths: Record<string, string> = {
     'mdi:brightness-5': mdiBrightness5,
     'mdi:brightness-7': mdiBrightness7,
     'mdi:bullhorn': mdiBullhorn,
+    'mdi:button-pointer': mdiButtonPointer,
     'mdi:blinds-horizontal': mdiBlindsHorizontal,
     'mdi:blinds-horizontal-closed': mdiBlindsHorizontalClosed,
     'mdi:checkbox-marked-circle': mdiCheckboxMarkedCircle,
@@ -130,9 +134,11 @@ const mdiPaths: Record<string, string> = {
     'mdi:crop-portrait': mdiCropPortrait,
     'mdi:curtains': mdiCurtains,
     'mdi:curtains-closed': mdiCurtainsClosed,
+    'mdi:database': mdiDatabase,
     'mdi:calendar-alert': mdiCalendarAlert,
     'mdi:door-closed': mdiDoorClosed,
     'mdi:door-open': mdiDoorOpen,
+    'mdi:doorbell': mdiDoorbell,
     'mdi:fire': mdiFire,
     'mdi:fan': mdiFan,
     'mdi:garage': mdiGarage,
@@ -246,7 +252,7 @@ const ENTITY_DOMAIN_ICONS: Record<string, string> = {
     scene: 'mdi:palette',
     button: 'mdi:gesture-tap-button',
     climate: 'mdi:thermostat',
-    event: 'mdi:calendar-alert',
+    event: 'mdi:alert-circle',
     siren: 'mdi:bullhorn',
     fan: 'mdi:fan',
     //cover: 'mdi:window-shutter',
@@ -262,6 +268,12 @@ const ENTITY_DOMAIN_ICONS: Record<string, string> = {
 const SENSOR_DEVICE_CLASS_ICONS: Record<string, string> = {
     temperature: 'mdi:thermometer',
     humidity: 'mdi:water-percent',
+};
+
+const EVENT_DEVICE_CLASS_ICONS: Record<string, string> = {
+    button: 'mdi:button-pointer',
+    doorbell: 'mdi:doorbell',
+    motion: 'mdi:motion-sensor',
 };
 
 const BINARY_SENSOR_ICONS: Record<string, { off: string; on: string }> = {
@@ -296,7 +308,7 @@ const BINARY_SENSOR_ICONS: Record<string, { off: string; on: string }> = {
 };
 
 const COVER_ICONS: Record<string, { default: string; closed: string; closing?: string; opening?: string }> = {
-    awning: { default: 'mdi:storefront-outline', closed: 'mdi:storefront-outline' },
+    awning: { default: 'mdi:window-open', closed: 'mdi:window-open' },
     blind: { default: 'mdi:blinds-horizontal', closed: 'mdi:blinds-horizontal-closed', closing: 'mdi:arrow-down-box', opening: 'mdi:arrow-up-box' },
     curtain: { default: 'mdi:curtains', closed: 'mdi:curtains-closed', closing: 'mdi:arrow-collapse-horizontal', opening: 'mdi:arrow-split-vertical' },
     damper: { default: 'mdi:circle', closed: 'mdi:circle-slice-8' },
@@ -311,6 +323,9 @@ const COVER_ICONS: Record<string, { default: string; closed: string; closing?: s
 export function getHassEntityMdiIcon(entityId: string, configuredIcon?: string | null, deviceClass?: unknown, state?: string) {
     if (configuredIcon && hasMdiIcon(configuredIcon)) return normalizeMdiName(configuredIcon);
     const domain = entityId.split('.')[0] ?? '';
+    if (domain === 'event' && typeof deviceClass === 'string') {
+        return EVENT_DEVICE_CLASS_ICONS[deviceClass] ?? ENTITY_DOMAIN_ICONS.event;
+    }
     if (domain === 'sensor' && typeof deviceClass === 'string') return SENSOR_DEVICE_CLASS_ICONS[deviceClass] ?? 'mdi:home-assistant';
     if (domain === 'binary_sensor') {
         const icons = typeof deviceClass === 'string' ? BINARY_SENSOR_ICONS[deviceClass] : undefined;

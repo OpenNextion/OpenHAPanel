@@ -6,13 +6,15 @@ file(GLOB_RECURSE HA_UI_ASSET_SRCS
         "${CMAKE_CURRENT_LIST_DIR}/assets/images/*.c"
 )
 
-# UI widgets, including transient components such as toast.c, are discovered
-# when CMake configures the main component.
+# UI widgets, including screen_indicator.c and transient components such as
+# toast.c, are discovered when CMake configures the main component.
 file(GLOB_RECURSE HA_UI_WIDGET_SRCS
         RELATIVE "${CMAKE_CURRENT_LIST_DIR}"
         "${CMAKE_CURRENT_LIST_DIR}/screen/components/*.c"
 )
 
+# Entity handlers also include their small domain-specific stores, such as the
+# Home Assistant light favorite-color options cache.
 file(GLOB_RECURSE HA_ENTITY_HANDLER_SRCS
         RELATIVE "${CMAKE_CURRENT_LIST_DIR}"
         "${CMAKE_CURRENT_LIST_DIR}/entity_handlers/*.c"

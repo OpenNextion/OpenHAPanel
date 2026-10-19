@@ -629,7 +629,15 @@ static esp_err_t binary_sensor_render_tile(ha_entity_store_t *store,
                                sizeof(model->state_text));
     const bool is_on = binary_sensor_is_on(snapshot);
     model->background_color = lv_color_hex(0x1E2228);
-    model->icon_color = lv_color_hex(is_on ? 0xFFC107 : 0x9E9E9E);
+    char *device_class = snapshot->device_class;
+    if(strcmp(device_class, "battery") == 0 || strcmp(device_class, "gas") == 0 || strcmp(device_class, "heat") == 0 || strcmp(device_class, "lock") == 0
+    || strcmp(device_class, "moisture") == 0 || strcmp(device_class, "problem") == 0 || strcmp(device_class, "safety") == 0 
+    || strcmp(device_class, "smoke") == 0 || strcmp(device_class, "sound") == 0 || strcmp(device_class, "tamper") == 0)
+    {
+        model->icon_color = lv_color_hex(is_on ? 0xF44336 : 0x9E9E9E);
+    }else{
+        model->icon_color = lv_color_hex(is_on ? 0xFFC107 : 0x9E9E9E);
+    }
     model->icon_circle_background_color =
         lv_color_hex(is_on ? 0x493D17 : 0x363636);
     model->title_color = lv_color_hex(0xFFFFFF);

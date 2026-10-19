@@ -38,6 +38,13 @@ void screen_lock_reset_timer(void);
 
 bool screen_is_locked(void);
 
+/** Apply an explicit HA screen lock/unlock command. Touch may unlock it later. */
+esp_err_t screen_set_ha_lock(bool locked);
+/** Toggle the physical screen between dark and the configured brightness. */
+esp_err_t screen_toggle_power(void);
+/** Apply a HA brightness command and clear the explicit/idle lock. */
+esp_err_t screen_set_ha_brightness(uint8_t brightness);
+
 #endif 
 
 #ifdef __cplusplus

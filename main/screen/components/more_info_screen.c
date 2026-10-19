@@ -1,5 +1,6 @@
 #include "more_info_screen.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -19,6 +20,7 @@ typedef struct {
     char entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
     bool loaded;
     bool refresh_pending;
+    bool rendered;
     bool closing;
     entity_more_info_context_t render_context;
 } more_info_screen_context_t;
@@ -162,8 +164,6 @@ static bool more_info_screen_refresh(void)
                  s_more_info.entity_id);
     }
 
-    lv_obj_clean(s_more_info.screen);
-    lv_obj_clean(s_more_info.overlay);
     s_more_info.render_context = (entity_more_info_context_t) {
         .screen = s_more_info.screen,
         .overlay = s_more_info.overlay,
@@ -176,11 +176,21 @@ static bool more_info_screen_refresh(void)
 
     const entity_handler_t *handler = entity_handler_registry_find(
         s_more_info.entity_id);
+    if (s_more_info.rendered && handler && handler->update_more_info &&
+        handler->update_more_info(&s_more_info.render_context) == ESP_OK) {
+        return true;
+    }
+
+    lv_obj_clean(s_more_info.screen);
+    lv_obj_clean(s_more_info.overlay);
     if (handler && handler->render_more_info) {
-        return handler->render_more_info(&s_more_info.render_context) == ESP_OK;
+        s_more_info.rendered =
+            handler->render_more_info(&s_more_info.render_context) == ESP_OK;
+        return s_more_info.rendered;
     }
 
     more_info_screen_render_default(&s_more_info.render_context);
+    s_more_info.rendered = true;
     return true;
 }
 
@@ -242,7 +252,32 @@ static void more_info_screen_render_default(
     lv_obj_set_height(close_label, lv_font_get_line_height(&ha_font_misan_medium_24));
 
     lv_obj_t *tip = lv_label_create(screen);
-    lv_label_set_text(tip, "Unsupport");
+    if (strncmp(context->snapshot.entity_id, "fan.", 4) == 0) {
+        char state_text[64] = {0};
+        const char *state = context->snapshot.state;
+        if (strcmp(state, "on") == 0) {
+            double percentage = 0;
+            if (context->store &&
+                ha_entity_store_get_attr_number(context->store,
+                                                context->snapshot.entity_id,
+                                                "percentage",
+                                                &percentage) == ESP_OK &&
+                isfinite(percentage)) {
+                snprintf(state_text, sizeof(state_text), "Speed: %.0f%%",
+                         LV_CLAMP(0.0, percentage, 100.0));
+            } else {
+                snprintf(state_text, sizeof(state_text), "On");
+            }
+        } else if (strcmp(state, "off") == 0) {
+            snprintf(state_text, sizeof(state_text), "Closed");
+        } else {
+            snprintf(state_text, sizeof(state_text), "%s",
+                     state[0] ? state : "Unknown");
+        }
+        lv_label_set_text(tip, state_text);
+    } else {
+        lv_label_set_text(tip, "Unsupport");
+    }
     lv_obj_set_style_text_font(tip, &ha_font_misan_medium_24, 0);
     lv_obj_set_style_text_color(tip, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_translate_y(tip, 20, 0);

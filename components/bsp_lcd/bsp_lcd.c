@@ -19,9 +19,9 @@
 #include "lcd_st7796u.h"
 #include "lcd_touch_cst826.h"
 
-#define LVGL_TASK_STACK_SIZE (16 * 1024)
+#define LVGL_TASK_STACK_SIZE (12 * 1024)
 #define LVGL_EXTRA_MEMORY_POOL_COUNT 2U
-#define LVGL_EXTRA_MEMORY_POOL_SIZE  (64U * 1024U)
+#define LVGL_EXTRA_MEMORY_POOL_SIZE  (256U * 1024U)
 
 static esp_err_t bsp_lcd_i2c_init(void);
 static esp_err_t bsp_lcd_spi_init(void);
@@ -32,6 +32,7 @@ static esp_err_t bsp_lcd_lvgl_init(void);
 static esp_err_t bsp_lcd_lvgl_add_extra_memory_pool(void);
 
 static const char *TAG = "bsp_lcd";
+static volatile uint8_t s_applied_brightness;
 
 static i2c_master_bus_handle_t s_i2c_0_bus_handle = NULL;
 
@@ -155,8 +156,15 @@ esp_err_t bsp_lcd_br_set(uint8_t br)
     ESP_RETURN_ON_ERROR(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty), TAG, "Set LEDC duty failed");
     ESP_RETURN_ON_ERROR(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0), TAG, "Update LEDC duty failed");
 
+    s_applied_brightness = br;
+
     ESP_LOGI(TAG, "Set LCD brightness to %d%%", br);
     return ESP_OK;
+}
+
+uint8_t bsp_lcd_br_get(void)
+{
+    return s_applied_brightness;
 }
 
 static esp_err_t bsp_lcd_touch_init(void)

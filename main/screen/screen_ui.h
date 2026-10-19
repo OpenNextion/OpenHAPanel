@@ -35,6 +35,8 @@ void screen_ui_set_status_time(const char *time_str);
 void screen_ui_set_ota_update_available(bool available);
 /** Show or hide the Home Assistant connected indicator in every system status bar. */
 void screen_ui_set_ha_connected(bool connected);
+/** Show the Wi-Fi indicator only when the STA interface has a usable IP address. */
+void screen_ui_set_wifi_sta_connected(bool connected);
 void screen_ui_set_active_screen(int32_t screen_index);
 
 /** Show or hide the static device-information page. */
@@ -68,7 +70,7 @@ size_t screen_ui_update_entity_all(const char *entity_id,
 size_t screen_ui_refresh_entity_all(ha_entity_store_t *store,
                                     const char *entity_id);
 
-/** Rebind every rendered tile to store. Pass NULL to release all subscriptions. */
+/** Rebind rendered badges and tiles to store. Pass NULL to release all subscriptions. */
 void screen_ui_set_entity_store(ha_entity_store_t *store);
 
 #endif // OPEN_NEXTION_MAIN_SCREEN_SCREEN_UI_H

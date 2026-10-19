@@ -8,6 +8,7 @@
 
 #include "cJSON.h"
 #include "assets/ha_ui_assets.h"
+#include "components/badge_display.h"
 #include "components/main_view.h"
 #include "components/notification.h"
 #include "components/ap_provisioning_view.h"
@@ -16,6 +17,7 @@
 #include "components/more_info_screen.h"
 #include "components/reset_password_view.h"
 #include "components/screen_device_info.h"
+#include "components/screen_indicator.h"
 #include "components/screen_ota_update.h"
 #include "components/system_status_bar.h"
 #include "components/toast.h"
@@ -54,6 +56,7 @@ typedef struct {
     lv_timer_t *manual_ota_start_timer;
     lv_obj_t *ha_provisioning_root;
     lv_obj_t *tileview;
+    screen_indicator_t *screen_indicator;
     lv_obj_t **tiles;
     main_view_t **main_views;
     size_t page_count;
@@ -119,6 +122,7 @@ static void screen_ui_state_event_handler(void *arg,
 static void screen_create_components(screen_ctx_t *ctx, lv_obj_t *screen, const screen_config_t *config);
 static void screen_create_status_bar(screen_ctx_t *ctx, lv_obj_t *screen);
 static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const screen_config_t *config);
+static void screen_create_indicator(screen_ctx_t *ctx, lv_obj_t *screen);
 static void screen_create_default_content(lv_obj_t *parent, lv_coord_t y_offset);
 static bool screen_view_has_badges_or_entities(const screen_view_t *view);
 static void screen_create_device_info(screen_ctx_t *ctx);
@@ -369,6 +373,11 @@ void screen_ui_set_ha_connected(bool connected)
     system_status_bar_set_hass_connected_visible(connected);
 }
 
+void screen_ui_set_wifi_sta_connected(bool connected)
+{
+    system_status_bar_set_wifi_sta_connected_visible(connected);
+}
+
 void screen_ui_set_active_screen(int32_t screen_index)
 {
     size_t position = 0;
@@ -552,6 +561,7 @@ static void screen_ctx_destroy(screen_ctx_t *ctx)
         lv_timer_delete(ctx->manual_ota_start_timer);
         ctx->manual_ota_start_timer = NULL;
     }
+    screen_indicator_destroy(ctx->screen_indicator);
     screen_device_info_destroy(ctx->device_info);
     screen_ota_update_destroy(ctx->ota_update);
     lv_free(ctx);
@@ -989,6 +999,7 @@ static void screen_create_components(screen_ctx_t *ctx, lv_obj_t *screen, const 
     }
 
     screen_create_pages(ctx, screen, config);
+    screen_create_indicator(ctx, screen);
     screen_update_active_page(ctx, 0);
 }
 
@@ -1809,6 +1820,33 @@ static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const scree
             screen_create_default_content(tile, -(SYSTEM_STATUS_BAR_HEIGHT / 2));
         }
     }
+
+    /* A configuration reload releases every previous view before rebuilding
+     * it. Keep cached snapshots through that handoff so unchanged cards do
+     * not fall back to their entity IDs, then discard entities absent from the
+     * newly created views and rebuild the filtered HA subscription once. */
+    ha_entity_store_t *store = app_get_ha_entity_store();
+    if (store) {
+        ha_entity_store_prune_unreferenced(store);
+        esp_err_t err = ha_entity_store_sync(store);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG,
+                     "Failed to synchronize entities after screen configuration reload: %s",
+                     esp_err_to_name(err));
+        }
+    }
+}
+
+static void screen_create_indicator(screen_ctx_t *ctx, lv_obj_t *screen)
+{
+    if (!ctx || !screen || ctx->page_count < 2) {
+        return;
+    }
+
+    ctx->screen_indicator = screen_indicator_create(screen, ctx->page_count);
+    if (!ctx->screen_indicator) {
+        ESP_LOGW(TAG, "Failed to create screen indicator");
+    }
 }
 
 static void screen_create_default_content(lv_obj_t *parent, lv_coord_t y_offset)
@@ -1847,7 +1885,9 @@ static bool screen_view_has_badges_or_entities(const screen_view_t *view)
     }
 
     for (size_t i = 0; view->badges && i < view->badge_count; i++) {
-        if (view->badges[i].has_data) {
+        if (view->badges[i].type == SCREEN_BADGE_TYPE_ENTITY &&
+            view->badges[i].has_data &&
+            badge_display_supported(view->badges[i].data.entity)) {
             return true;
         }
     }
@@ -1899,6 +1939,7 @@ static void screen_update_active_page(screen_ctx_t *ctx, size_t active_page)
     }
 
     ctx->active_page = active_page;
+    screen_indicator_set_active(ctx->screen_indicator, active_page);
     const screen_view_t *view = &ctx->config->screens[active_page];
     screen_ui_set_status_title(view->title ? view->title : "");
 }

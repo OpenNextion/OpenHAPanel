@@ -340,7 +340,6 @@ class HomeAssistantWebSocket {
             setHassRegistryData({
                 states: stateResponse.result ?? [],
                 entities: Array.isArray(entityResponse.result) ? entityResponse.result : (entityResponse.result?.entities ?? []),
-                entityCategories: Array.isArray(entityResponse.result) ? {} : (entityResponse.result?.entity_categories ?? {}),
                 devices: deviceResponse.result ?? [],
                 areas: areaResponse.result ?? [],
                 floors: floorResponse.result ?? [],

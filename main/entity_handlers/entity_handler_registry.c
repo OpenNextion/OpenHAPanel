@@ -4,21 +4,25 @@
 
 #include "binary_sensor/binary_sensor_entity_handler.h"
 #include "button/button_entity_handler.h"
+#include "climate/climate_entity_handler.h"
 #include "cover/cover_entity_handler.h"
 #include "light/light_entity_handler.h"
 #include "scene/scene_entity_handler.h"
 #include "switch/switch_entity_handler.h"
 #include "sensor/sensor_entity_handler.h"
+#include "event/event_entity_handler.h"
 #include "siren/siren_entity_handler.h"
 
 static const entity_handler_t *const s_entity_handlers[] = {
     &binary_sensor_entity_handler,
     &button_entity_handler,
+    &climate_entity_handler,
     &light_entity_handler,
     &switch_entity_handler,
     &cover_entity_handler,
     &scene_entity_handler,
     &sensor_entity_handler,
+    &event_entity_handler,
     &siren_entity_handler,
 };
 

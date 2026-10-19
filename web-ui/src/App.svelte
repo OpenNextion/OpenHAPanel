@@ -42,9 +42,13 @@
             $authStore.initialSetup ||
             ($authStore.loggedIn && $authStore.sessionReady && $wifiSetupRequired),
     );
+
     let protectedAppStatusReady = $derived.by(
         () =>
             !$authStore.loggedIn ||
+            Boolean($pendingHassOAuthCallback) ||
+            normalizeRoute(router.location) === ROUTES_PATH.HOME_ASSISTANT_OAUTH_CALLBACK ||
+            getBrowserRoute() === ROUTES_PATH.HOME_ASSISTANT_OAUTH_CALLBACK ||
             ($authStore.sessionReady && $networkStore.infoReady && $homeAssistantStore.connectionInfo !== null),
     );
     let sidebarOpen = $state(false);
@@ -126,25 +130,26 @@
 {#if hasTopTips}
     <div class:with-sidebar={($authStore.loggedIn && !showWifiSetup) || sidebarOpen} class="app-top-tips"><TopTips /></div>
 {/if}
-{#if showWifiSetup}
-    <GuestSidebar open={sidebarOpen} onClose={() => (sidebarOpen = false)} />
+{#if showWifiSetup || !$authStore.loggedIn}
+    <GuestSidebar open={sidebarOpen} hasTopTips={hasTopTips} onClose={() => (sidebarOpen = false)} />
     <div class:has-top-tips={hasTopTips} class="auth-topbar" aria-hidden="true"></div>
-    <div class="auth-brand-logo" aria-hidden="true"><SvgIcon name={nextionLogo} /></div>
-    <button class="auth-sidebar-toggle" type="button" aria-label={$_('common.openMenu')} onclick={() => (sidebarOpen = !sidebarOpen)}>
-        <SvgIcon name="sidebarCollapse.svg" />
-    </button>
-    <main class:has-top-tips={hasTopTips} class:guest-sidebar-open={sidebarOpen} class="auth-shell">
-        <WifiSetup />
-    </main>
-{:else if !$authStore.loggedIn}
-    <GuestSidebar open={sidebarOpen} onClose={() => (sidebarOpen = false)} />
-    <div class:has-top-tips={hasTopTips} class="auth-topbar" aria-hidden="true"></div>
-    <div class="auth-brand-logo" aria-hidden="true"><SvgIcon name={nextionLogo} /></div>
-    <button class="auth-sidebar-toggle" type="button" aria-label={$_('common.openMenu')} onclick={() => (sidebarOpen = !sidebarOpen)}>
-        <SvgIcon name="sidebarCollapse.svg" />
-    </button>
-    <main class:has-top-tips={hasTopTips} class:guest-sidebar-open={sidebarOpen} class="auth-shell">
-        <Router routes={publicRoutes} />
+    <div class:has-top-tips={hasTopTips} class="auth-topbar-controls">
+        <div class="auth-brand-logo" aria-hidden="true"><SvgIcon name={nextionLogo} /></div>
+        <button class="auth-sidebar-toggle" type="button" aria-label={$_('common.openMenu')} onclick={() => (sidebarOpen = !sidebarOpen)}>
+            <SvgIcon name="sidebarCollapse.svg" />
+        </button>
+    </div>
+    <main
+        class:has-top-tips={hasTopTips}
+        class:guest-sidebar-open={sidebarOpen}
+        class:wifi-setup-shell={showWifiSetup}
+        class="auth-shell"
+    >
+        {#if showWifiSetup}
+            <WifiSetup />
+        {:else}
+            <Router routes={publicRoutes} />
+        {/if}
     </main>
 {:else}
     <div class:has-top-tips={hasTopTips} class="app-shell">

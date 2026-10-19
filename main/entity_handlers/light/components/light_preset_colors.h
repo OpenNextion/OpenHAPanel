@@ -5,15 +5,15 @@
 #include <stddef.h>
 
 #include "lvgl.h"
-#include "light_component_types.h"
+#include "../light_favorite_color.h"
 
 typedef void (*light_preset_select_cb_t)(size_t index,
-                                         light_rgb_t rgb,
+                                         const light_favorite_color_t *color,
                                          void *user_data);
 
 lv_obj_t *light_preset_colors_create(lv_obj_t *parent);
 void light_preset_colors_set_palette(lv_obj_t *obj,
-                                     const light_rgb_t *colors,
+                                     const light_favorite_color_t *colors,
                                      size_t count);
 void light_preset_colors_set_selected(lv_obj_t *obj, int selected_index);
 void light_preset_colors_set_disabled(lv_obj_t *obj, bool disabled);

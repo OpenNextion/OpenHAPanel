@@ -36,6 +36,9 @@ async_resp_arg webserver_cur_resp_arg = {0};
 static EXT_RAM_BSS_ATTR uint8_t webserver_message_queue_storage[WEB_MSG_ITEM_LEN * WEB_MSG_ITEM_NUM];
 static QueueHandle_t webserver_message_queue_handle;
 static StaticQueue_t webserver_message_queue_buffer;
+static TaskHandle_t webserver_message_task_handle;
+static esp_event_handler_instance_t webserver_ip_event_instance;
+static esp_event_handler_instance_t webserver_event_instance;
 
 /**
  * websocket loop handle
@@ -474,12 +477,18 @@ static httpd_handle_t start_webserver(void)
         .method = HTTP_GET,
         .handler = http_no_content_handler,
     };
-    httpd_register_uri_handler(server, &html_file);
-    httpd_register_uri_handler(server, &ws);
-    httpd_register_uri_handler(server, &uri_generate_204);
-    httpd_register_uri_handler(server, &uri_generate204);
-    httpd_register_uri_handler(server, &uri_favicon);
-    httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
+    esp_err_t err = httpd_register_uri_handler(server, &html_file);
+    if (err == ESP_OK) err = httpd_register_uri_handler(server, &ws);
+    if (err == ESP_OK) err = httpd_register_uri_handler(server, &uri_generate_204);
+    if (err == ESP_OK) err = httpd_register_uri_handler(server, &uri_generate204);
+    if (err == ESP_OK) err = httpd_register_uri_handler(server, &uri_favicon);
+    if (err == ESP_OK) err = httpd_register_err_handler(server, HTTPD_404_NOT_FOUND,
+                                                         http_404_error_handler);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "Failed to register HTTP handler: %s", esp_err_to_name(err));
+      httpd_stop(server);
+      return NULL;
+    }
     return server;
   }
 
@@ -549,15 +558,21 @@ static void webserver_message_handle_task(void *pvParameters)
  */
 void webserver_init(void)
 {
-  /* register event handler */
-    ESP_ERROR_CHECK(
-        esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &got_ip_event_handler, &websocket_server_handle));
+  esp_err_t err = esp_event_handler_instance_register(IP_EVENT,
+                                                       IP_EVENT_STA_GOT_IP,
+                                                       got_ip_event_handler,
+                                                       &websocket_server_handle,
+                                                       &webserver_ip_event_instance);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to register IP event handler: %s", esp_err_to_name(err));
+    return;
+  }
 
   /* create webserver mutex */
   webserver_send_message_mutex = xSemaphoreCreateMutex();
   if (webserver_send_message_mutex == NULL) {
     ESP_LOGE(TAG, "Failed to create webserver_send_message_mutex Mutex!");
-    return;
+    goto cleanup;
   }
 
   /* create web msg queue and create webserver message handle task */
@@ -565,21 +580,60 @@ void webserver_init(void)
     webserver_message_queue_handle = xQueueCreateStatic(WEB_MSG_ITEM_NUM, WEB_MSG_ITEM_LEN,
                                                         &(webserver_message_queue_storage[0]),
       &webserver_message_queue_buffer);
-  if (webserver_message_queue_handle != 0) {
-        int error_code = xTaskCreatePinnedToCore(&webserver_message_handle_task, "webMsgDistTask", 4096 * 2, NULL, 5,
-                                                 NULL, 1);
-    if (error_code != pdPASS) {
-      ESP_LOGE(TAG, "webserver_message_handle_task create failed");
-    }
-    }
-    else {
+  if (webserver_message_queue_handle == NULL) {
     ESP_LOGE(TAG, "Failed to create web msg queue!");
+    goto cleanup;
+  }
+
+  BaseType_t task_created =
+      xTaskCreatePinnedToCore(webserver_message_handle_task, "webMsgDistTask", 4096 * 2,
+                              NULL, 5, &webserver_message_task_handle, 1);
+  if (task_created != pdPASS) {
+    ESP_LOGE(TAG, "webserver_message_handle_task create failed");
+    goto cleanup;
   }
 
   /* register webserver event handler */
-    ESP_ERROR_CHECK(
-        esp_event_handler_instance_register(WEB_SERVER_EVENT, ESP_EVENT_ANY_ID, webserver_event_handler, NULL, NULL));
+  err = esp_event_handler_instance_register(WEB_SERVER_EVENT,
+                                             ESP_EVENT_ANY_ID,
+                                             webserver_event_handler,
+                                             NULL,
+                                             &webserver_event_instance);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to register webserver event handler: %s", esp_err_to_name(err));
+    goto cleanup;
+  }
 
   /* create webserver */
   websocket_server_handle = start_webserver();
+  if (!websocket_server_handle) {
+    goto cleanup;
+  }
+  return;
+
+cleanup:
+  if (webserver_event_instance) {
+    esp_event_handler_instance_unregister(WEB_SERVER_EVENT,
+                                           ESP_EVENT_ANY_ID,
+                                           webserver_event_instance);
+    webserver_event_instance = NULL;
+  }
+  if (webserver_message_task_handle) {
+    vTaskDelete(webserver_message_task_handle);
+    webserver_message_task_handle = NULL;
+  }
+  if (webserver_message_queue_handle) {
+    vQueueDelete(webserver_message_queue_handle);
+    webserver_message_queue_handle = NULL;
+  }
+  if (webserver_send_message_mutex) {
+    vSemaphoreDelete(webserver_send_message_mutex);
+    webserver_send_message_mutex = NULL;
+  }
+  if (webserver_ip_event_instance) {
+    esp_event_handler_instance_unregister(IP_EVENT,
+                                           IP_EVENT_STA_GOT_IP,
+                                           webserver_ip_event_instance);
+    webserver_ip_event_instance = NULL;
+  }
 }

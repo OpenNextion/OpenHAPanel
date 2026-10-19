@@ -1,5 +1,6 @@
 import { cloneDeep } from 'lodash-es';
 import { writable } from 'svelte/store';
+import { HASS_ENTITY_SUPPORT_CONFIG } from '@/constant';
 import type { IHassScreenActionConfig, IHassScreenConfigBadge, IHassScreenConfigCard, IHassScreenConfigItem } from '@/types/screenConfig';
 
 interface IScreenConfigStore {
@@ -9,6 +10,14 @@ interface IScreenConfigStore {
 const INIT_VALUE: IScreenConfigStore = {
     screens: [],
 };
+
+export const MAX_SCREEN_BADGE_COUNT = 3;
+
+export function shouldShowScreenEntityIconBackground(entityId: string, actionConfig?: IHassScreenActionConfig) {
+    const domain = entityId.split('.', 1)[0] ?? '';
+    const defaultAction = HASS_ENTITY_SUPPORT_CONFIG[domain]?.interactions.iconTap.default ?? 'nothing';
+    return (actionConfig?.icon_tap_action?.action ?? defaultAction) !== 'nothing';
+}
 
 export const screenConfigStore = writable<IScreenConfigStore>(cloneDeep(INIT_VALUE));
 
@@ -87,8 +96,8 @@ export function addScreenBadge(index: number, badge: IHassScreenConfigBadge) {
         screens: store.screens.map((screen) => {
             if (screen.index !== index) return screen;
             const badges = screen.badges ?? [];
-            if (badges.some((item) => item.data.entity === badge.data.entity)) return screen;
-            return { ...screen, badges: [...badges, cloneDeep(badge)] };
+            if (badges.length >= MAX_SCREEN_BADGE_COUNT || badges.some((item) => item.data.entity === badge.data.entity)) return screen;
+            return { ...screen, badges: [cloneDeep(badge), ...badges] };
         }),
     }));
 }
@@ -98,6 +107,15 @@ export function removeScreenCard(index: number, entityId: string) {
         ...store,
         screens: store.screens.map((screen) =>
             screen.index === index ? { ...screen, cards: (screen.cards ?? []).filter((card) => card.data.entity !== entityId) } : screen,
+        ),
+    }));
+}
+
+export function removeScreenBadge(index: number, entityId: string) {
+    screenConfigStore.update((store) => ({
+        ...store,
+        screens: store.screens.map((screen) =>
+            screen.index === index ? { ...screen, badges: (screen.badges ?? []).filter((badge) => badge.data.entity !== entityId) } : screen,
         ),
     }));
 }
@@ -129,6 +147,24 @@ export function updateScreenCard(index: number, currentEntityId: string, entityI
                           card.data.entity === currentEntityId
                               ? { ...card, data: { ...card.data, entity: entityId, actionConfig: cloneDeep(actionConfig) } }
                               : card,
+                      ),
+                  }
+                : screen,
+        ),
+    }));
+}
+
+export function updateScreenBadge(index: number, currentEntityId: string, entityId: string, name: string, actionConfig: IHassScreenActionConfig) {
+    screenConfigStore.update((store) => ({
+        ...store,
+        screens: store.screens.map((screen) =>
+            screen.index === index
+                ? {
+                      ...screen,
+                      badges: (screen.badges ?? []).map((badge) =>
+                          badge.data.entity === currentEntityId
+                              ? { ...badge, data: { ...badge.data, entity: entityId, name, actionConfig: cloneDeep(actionConfig) } }
+                              : badge,
                       ),
                   }
                 : screen,

@@ -64,6 +64,9 @@ typedef struct {
 
 typedef esp_err_t (*entity_more_info_render_cb_t)(
     const entity_more_info_context_t *context);
+/** Update an existing More Info page without recreating its LVGL objects. */
+typedef esp_err_t (*entity_more_info_update_cb_t)(
+    const entity_more_info_context_t *context);
 
 /** Strategy implemented by one Home Assistant entity domain. */
 typedef struct {
@@ -75,6 +78,7 @@ typedef struct {
     entity_action_cb_t handle_action;
     entity_tile_render_cb_t render_tile;
     entity_more_info_render_cb_t render_more_info;
+    entity_more_info_update_cb_t update_more_info;
 } entity_handler_t;
 
 /** Shared helpers keep state normalization consistent across domain handlers. */

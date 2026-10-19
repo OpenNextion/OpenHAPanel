@@ -9,8 +9,12 @@ extern const lv_font_t ha_font_mdi_24;
 extern const lv_font_t ha_font_mdi_26;
 extern const lv_font_t ha_font_mdi_36;
 
+extern const lv_font_t ha_font_misan_medium_12;
+extern const lv_font_t ha_font_misan_medium_16;
 extern const lv_font_t ha_font_misan_medium_20;
 extern const lv_font_t ha_font_misan_medium_24;
+extern const lv_font_t ha_font_misan_medium_30;
+extern const lv_font_t ha_font_misan_medium_36;
 extern const lv_font_t ha_font_misan_regular_12;
 extern const lv_font_t ha_font_misan_regular_14;
 extern const lv_font_t ha_font_misan_regular_16;
@@ -41,6 +45,7 @@ extern const lv_image_dsc_t rgb_color_230;
 extern const lv_image_dsc_t color_temp_30;
 
 /* PICS */
+extern const lv_image_dsc_t close_40;
 extern const lv_image_dsc_t close_50;
 extern const lv_image_dsc_t no_entity_160;
 extern const lv_image_dsc_t scroll_down_108;

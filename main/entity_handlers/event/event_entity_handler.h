@@ -1,0 +1,8 @@
+#ifndef OPEN_NEXTION_MAIN_ENTITY_HANDLERS_EVENT_ENTITY_HANDLER_H
+#define OPEN_NEXTION_MAIN_ENTITY_HANDLERS_EVENT_ENTITY_HANDLER_H
+
+#include "../entity_handler.h"
+
+extern const entity_handler_t event_entity_handler;
+
+#endif // OPEN_NEXTION_MAIN_ENTITY_HANDLERS_EVENT_ENTITY_HANDLER_H

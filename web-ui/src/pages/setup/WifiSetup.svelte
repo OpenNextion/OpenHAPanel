@@ -1,10 +1,9 @@
 <script lang="ts">
-    import { tick } from 'svelte';
+    import { onMount, tick } from 'svelte';
     import { _ } from 'svelte-i18n';
     import Button from '@/component/Button/Button.svelte';
     import Modal from '@/component/Modal/Modal.svelte';
-    import SettingRow from '@/component/SettingRow/SettingRow.svelte';
-    import SettingRowGroup from '@/component/SettingRow/SettingRowGroup.svelte';
+    import WifiNetworkList from '@/component/WifiNetworkList/WifiNetworkList.svelte';
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
     import { authStore } from '@/stores/auth';
     import {
@@ -18,7 +17,6 @@
     import type { Result } from '@/types/network';
     import { deviceStore } from '@/stores/device';
     import EThemeMode from '@/types/EThemeMode';
-    import { getWifiSignalIcon } from '@/constant';
     import { copyText, validIPv4 } from '@/utils/commonUtils';
 
     let selected = $state<Result | null>(null);
@@ -26,7 +24,6 @@
     let password = $state('');
     let showPassword = $state(false);
     let connectionModalVisible = $state(false);
-    let securityTooltipBssid = $state<string | null>(null);
     let rescanLoading = $state(false);
     let ssidError = $state(false);
     let connectionError = $state<WifiConnectionErrorKey | null>(null);
@@ -41,6 +38,19 @@
     const loadingIcon = $derived($deviceStore.currentMode === EThemeMode.DARK ? 'loadingDark.svg' : 'loadingLight.svg');
     const scanLoading = $derived(!$authStore.sessionReady || $networkStore.scanWifiLoading);
     const mdnsDomain = $derived($networkStore.mdnsDomain?.trim() ?? '');
+
+    onMount(() => {
+        const keepPageOffTop = () => {
+            const pageScroller = document.scrollingElement;
+            if (pageScroller && pageScroller.scrollTop < 1) pageScroller.scrollTop = 1;
+        };
+
+        // Keep the document just below its top edge so portal browsers are less likely
+        // to claim a downward gesture for their pull-to-refresh behavior.
+        keepPageOffTop();
+        window.addEventListener('scroll', keepPageOffTop, { passive: true });
+        return () => window.removeEventListener('scroll', keepPageOffTop);
+    });
 
     $effect(() => {
         if (!$authStore.sessionReady) return;
@@ -76,13 +86,6 @@
         }
     }
 
-    function handleRefreshKeydown(event: KeyboardEvent) {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        if (!$authStore.sessionReady || scanLoading) return;
-        void refreshWifi(true);
-    }
-
     function togglePasswordVisibility(event: MouseEvent) {
         event.preventDefault();
         event.stopPropagation();
@@ -101,13 +104,7 @@
         showPassword = false;
         ssidError = false;
         connectionError = null;
-        securityTooltipBssid = null;
         connectionModalVisible = true;
-    }
-
-    function toggleSecurityTooltip(event: MouseEvent, bssid: string) {
-        event.stopPropagation();
-        securityTooltipBssid = securityTooltipBssid === bssid ? null : bssid;
     }
 
     async function connect() {
@@ -162,59 +159,13 @@
     </header>
 
     <section class="wifi-card">
-        <div class="wifi-list-heading">
-            <span>
-                {#if scanLoading}<span class="wifi-heading-loading"><SvgIcon name={loadingIcon} /></span>{/if}
-                {$_(scanLoading ? 'networkPage.scanning' : 'networkPage.nearbyWifi')}
-            </span>
-            <span
-                class="wifi-refresh"
-                role="button"
-                tabindex="0"
-                aria-disabled={!$authStore.sessionReady || scanLoading}
-                aria-label={$_('networkPage.refresh')}
-                onclick={() => $authStore.sessionReady && !scanLoading && void refreshWifi(true)}
-                onkeydown={handleRefreshKeydown}><SvgIcon name="refresh.svg" /></span
-            >
-        </div>
-
-        <div class="wifi-results-scroll">
-            {#if $networkStore.results.length}
-                <SettingRowGroup>
-                    {#each $networkStore.results as item (item.bssid)}
-                        <div class="wifi-setting-row" class:tooltip-open={securityTooltipBssid === item.bssid}>
-                            <SettingRow titleCol={9} contentCol={3} onclick={() => openNetwork(item)}>
-                                {#snippet titleSnippet()}
-                                    <span class="wifi-row-title">
-                                        <span class="wifi-signal-icon"><SvgIcon name={getWifiSignalIcon(item.rssi)} /></span>
-                                        <span class="wifi-row-copy">
-                                            <strong>{item.ssid || $_('networkPage.hiddenNetwork')}</strong>
-                                            <small><span>RSSI {item.rssi} dBm</span><span>Channel {item.channel}</span></small>
-                                        </span>
-                                    </span>
-                                {/snippet}
-                                {#snippet contentSnippet()}
-                                    <span class="wifi-row-content">
-                                        <span class="security-tooltip-wrap">
-                                            <button
-                                                type="button"
-                                                class="security-info"
-                                                aria-label={item.security}
-                                                aria-expanded={securityTooltipBssid === item.bssid}
-                                                onclick={(event) => toggleSecurityTooltip(event, item.bssid)}><SvgIcon name="i.svg" /></button
-                                            >
-                                            {#if securityTooltipBssid === item.bssid}<span class="security-tooltip" role="tooltip">{item.security || '--'}</span>{/if}
-                                        </span>
-                                    </span>
-                                {/snippet}
-                            </SettingRow>
-                        </div>
-                    {/each}
-                </SettingRowGroup>
-            {:else if !scanLoading}
-                <p class="empty-result">{$_('networkPage.noWifi')}</p>
-            {/if}
-        </div>
+        <WifiNetworkList
+            results={$networkStore.results}
+            loading={scanLoading}
+            {loadingIcon}
+            onRefresh={() => void refreshWifi(true)}
+            onSelect={openNetwork}
+        />
     </section>
 
     <Button class="manual-button" onclick={() => openNetwork()}>{$_('networkPage.addWifiManually')}</Button>
@@ -322,10 +273,42 @@
         display: flex;
         flex-direction: column;
         width: min(100%, 1080px);
-        height: calc(100dvh - var(--footer-height) - var(--auth-header-space) - clamp(2rem, 8vw, 6rem));
+        --wifi-setup-viewport-height: 100vh;
+        height: calc(var(--wifi-setup-viewport-height) - var(--footer-height) - var(--auth-header-space) - clamp(2rem, 8vw, 6rem));
         min-height: 0;
         margin: 0 auto;
         overflow: hidden;
+    }
+    @supports (height: 100svh) {
+        .wifi-setup-page {
+            --wifi-setup-viewport-height: 100svh;
+        }
+    }
+    @media (max-width: 600px) {
+        .wifi-setup-page {
+            height: auto;
+            min-height: 0;
+            overflow: visible;
+        }
+
+        .wifi-card {
+            flex: 0 0 auto;
+            height: var(--wifi-setup-viewport-height);
+        }
+
+        .wifi-card :global(.wifi-network-list) {
+            flex: 1 1 0;
+            height: 0;
+        }
+
+        .wifi-card :global(.wifi-results-scroll) {
+            flex: 1 1 0;
+            height: 0;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            touch-action: pan-y;
+            -webkit-overflow-scrolling: touch;
+        }
     }
     header {
         margin-bottom: 1rem;
@@ -347,154 +330,8 @@
         padding: 0.75rem 1rem 0;
         overflow: visible;
         border-radius: 1rem;
-        background: var(--bs-tertiary-bg);
+        background: var(--body-inner-level-2);
 		margin-bottom: 2rem;
-    }
-    .wifi-list-heading {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        min-height: 2.5rem;
-    }
-    .wifi-list-heading > span {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-    .wifi-refresh {
-        width: 2.5rem;
-        height: 2.5rem;
-        margin-left: auto;
-        justify-content: center;
-        cursor: pointer;
-    }
-    .wifi-refresh[aria-disabled='true'] {
-        cursor: default;
-        opacity: 0.65;
-    }
-    .wifi-heading-loading {
-        display: inline-flex;
-        width: 1.25rem;
-        height: 1.25rem;
-    }
-    .wifi-heading-loading :global(.sf-icon),
-    .wifi-heading-loading :global(svg) {
-        width: 100%;
-        height: 100%;
-    }
-    .wifi-results-scroll {
-        flex: 1 1 auto;
-        min-height: 0;
-        overflow-y: auto;
-        scrollbar-gutter: stable;
-    }
-    .wifi-results-scroll::-webkit-scrollbar {
-        width: 0.45rem;
-    }
-    .wifi-results-scroll::-webkit-scrollbar-thumb {
-        border-radius: 999px;
-        background: var(--bs-secondary-bg);
-    }
-    .wifi-row-title {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        min-width: 0;
-    }
-    .wifi-signal-icon {
-        display: inline-flex;
-        flex: 0 0 1.5rem;
-        width: 1.5rem;
-        height: 1.5rem;
-        filter: invert(1);
-    }
-    .wifi-signal-icon :global(.sf-icon),
-    .wifi-signal-icon :global(svg) {
-        width: 100%;
-        height: 100%;
-    }
-    :global([data-bs-theme='dark']) .wifi-signal-icon {
-        filter: none;
-    }
-    .wifi-row-copy {
-        display: grid;
-        min-width: 0;
-    }
-    .wifi-row-copy strong,
-    .wifi-row-copy small {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .wifi-row-copy strong {
-        font-size: 0.9rem;
-        font-weight: 500;
-    }
-    .wifi-row-copy small {
-        display: flex;
-        gap: 0.85rem;
-        color: var(--body-text-color-grey);
-        font-size: 0.75rem;
-    }
-    .wifi-row-content {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 0.65rem;
-        width: 100%;
-    }
-    .wifi-setting-row {
-        position: relative;
-        z-index: 0;
-    }
-    .wifi-setting-row.tooltip-open {
-        z-index: 30;
-    }
-    .wifi-setting-row :global(.setting-row .main-content),
-    .wifi-setting-row :global(.setting-row .content-wrapper),
-    .wifi-setting-row :global(.setting-row .content) {
-        overflow: visible;
-    }
-    .security-tooltip-wrap {
-        position: relative;
-        display: inline-flex;
-    }
-    .security-info {
-        display: grid;
-        width: 1.75rem;
-        height: 1.75rem;
-        padding: 0;
-        place-items: center;
-        color: var(--body-text-color-grey);
-        border: 0;
-        background: transparent;
-    }
-    .security-info :global(.sf-icon) {
-        display: inline-flex;
-    }
-    .security-tooltip {
-        position: absolute;
-        right: 0;
-        bottom: calc(100% + 0.4rem);
-        z-index: 20;
-        width: max-content;
-        max-width: min(260px, 70vw);
-        padding: 0.4rem 0.6rem;
-        color: white;
-        border-radius: 0.4rem;
-        background: #202124;
-        box-shadow: 0 0.25rem 0.8rem rgba(0, 0, 0, 0.25);
-        font-size: 0.75rem;
-        white-space: normal;
-    }
-    .wifi-setting-row:first-child .security-tooltip {
-        top: calc(100% + 0.4rem);
-        bottom: auto;
-    }
-    .empty-result {
-        padding: 2rem;
-        text-align: center;
-        color: var(--body-text-color-grey);
     }
     :global(.manual-button) {
         width: min(36%, 350px) !important;

@@ -12,13 +12,10 @@ export interface IHassEntityRegistryDisplayEntry {
     name?: string | null;
     original_name?: string | null;
     icon?: string | null;
-    ec?: number | string | null;
-    entity_category?: string | null;
     [key: string]: unknown;
 }
 
 export interface IHassEntityRegistryDisplayResult {
-    entity_categories?: Record<string, string>;
     entities?: IHassEntityRegistryDisplayEntry[];
 }
 

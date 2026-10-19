@@ -12,6 +12,7 @@
 static const char *TAG = "mdns_init";
 
 static TaskHandle_t mdns_task_handle = NULL;
+static TaskHandle_t s_mdns_hostname_task = NULL;
 static bool s_mdns_server_started = false;
 static volatile bool s_mdns_scan_paused = false;
 
@@ -104,6 +105,8 @@ static esp_err_t mdns_start_server(wireless_controller_work_mode_t mode)
     err = mdns_service_add(instance_name, "_http", "_tcp", 80, http_txt, 2);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "add HTTP mDNS service failed: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "mDNS HTTP service registered: instance=%s port=80", instance_name);
     }
     return err;
 }
@@ -526,6 +529,45 @@ void mdns_scan_set_paused(bool paused)
     ESP_LOGI(TAG, "Periodic mDNS scanning %s", paused ? "paused" : "resumed");
 }
 
+static void mdns_hostname_monitor_task(void *arg)
+{
+    (void)arg;
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (mdns_current_ip[0] != '\0') {
+            mdns_verify_hostname();
+        }
+    }
+}
+
+static void mdns_hostname_monitor_start(void)
+{
+    if (s_mdns_hostname_task != NULL) {
+        return;
+    }
+    BaseType_t ret = xTaskCreatePinnedToCoreWithCaps(mdns_hostname_monitor_task,
+                                                     "MDNS_NAME",
+                                                     3072,
+                                                     NULL,
+                                                     4,
+                                                     &s_mdns_hostname_task,
+                                                     1,
+                                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ret != pdPASS) {
+        ESP_LOGW(TAG, "PSRAM mDNS hostname monitor allocation failed; using internal RAM");
+        ret = xTaskCreatePinnedToCore(mdns_hostname_monitor_task,
+                                      "MDNS_NAME",
+                                      3072,
+                                      NULL,
+                                      4,
+                                      &s_mdns_hostname_task,
+                                      1);
+    }
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to start mDNS hostname monitor");
+    }
+}
+
 /**
  * @brief Event handler for network IP address changes.
  *
@@ -545,10 +587,17 @@ static void mdns_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         char tmp_ip[MDNS_IP_LEN] = {0};
         sprintf(tmp_ip, IPSTR, IP2STR(&event->ip_info.ip));
+        ESP_LOGI(TAG, "mDNS got-IP: event=%ld ip=%s previous_ip=%s netif=%p up=%d",
+                 (long)event_id, tmp_ip, mdns_current_ip, (void *)event->esp_netif,
+                 event->esp_netif ? (int)esp_netif_is_netif_up(event->esp_netif) : -1);
         if (tmp_ip[0] != '\0' && strcmp(mdns_current_ip, tmp_ip) != 0) {
             ESP_LOGI(TAG, "IPv4 change address: %s", tmp_ip);
-            mdns_update_server_by_host_name(true);
+            mdns_select_hostname_for_network();
             sprintf(mdns_current_ip, IPSTR, IP2STR(&event->ip_info.ip));
+            char active_hostname[HOSTNAME_MAX_LEN] = {0};
+            esp_err_t hostname_err = mdns_hostname_get(active_hostname);
+            ESP_LOGI(TAG, "mDNS active identity: hostname=%s.local ip=%s hostname_get=%s",
+                     active_hostname, mdns_current_ip, esp_err_to_name(hostname_err));
             /* The network got-IP handler may have already sent its incremental
              * status before conflict avoidance selected the final hostname.
              * Publish again so provisioning clients receive the hostname that
@@ -579,7 +628,10 @@ int mdns_server_init(wireless_controller_work_mode_t mode, uint32_t baud_rate)
         ESP_LOGE(TAG, "initialize mDNS failed: %s", esp_err_to_name(err));
         return -1;
     }
-    mdns_update_server_by_host_name(false);
+    err = mdns_apply_fallback_hostname();
+    if (err != ESP_OK) {
+        return -1;
+    }
     err = mdns_start_server(mode);
     if (err != ESP_OK) {
         return -1;
@@ -592,6 +644,11 @@ int mdns_server_init(wireless_controller_work_mode_t mode, uint32_t baud_rate)
     }
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &mdns_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &mdns_event_handler, NULL));
+    char startup_hostname[HOSTNAME_MAX_LEN] = {0};
+    mdns_hostname_get(startup_hostname);
+    ESP_LOGI(TAG, "mDNS initialized: startup=%s.local requested=%s.local; waiting for STA/ETH IP",
+             startup_hostname, mdns_custom_hostname[0] ? mdns_custom_hostname : DEFAULTS_HOST_NAME);
+    mdns_hostname_monitor_start();
     mdns_scan_task_start();
     return 0;
 }

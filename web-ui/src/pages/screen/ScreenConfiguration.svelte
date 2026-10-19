@@ -1,18 +1,23 @@
 <script lang="ts">
-    import { cloneDeep, isEqual } from 'lodash-es';
+    import { cloneDeep } from 'lodash-es';
     import dayjs from 'dayjs';
     import { onMount } from 'svelte';
     import { _ } from 'svelte-i18n';
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
     import HassEntityRow from '@/component/HassEntityRow/HassEntityRow.svelte';
     import Modal from '@/component/Modal/Modal.svelte';
-    import EntityCardSettingsModal from './EntityCardSettingsModal.svelte';
-    import EntityPickerModal from './EntityPickerModal.svelte';
-    import { getScreenEntityName, type TEntityPickerMode } from '@/hooks/useScreenConfiguration';
-    import { homeAssistantStore } from '@/stores/homeassistant';
-    import { isHomeAssistantAvailable } from '@/hooks/useHomeAssistant.svelte';
+    import EntitySettingsModal from './EntitySettingsModal.svelte';
+    import EntitySelectionModal from './EntitySelectionModal.svelte';
+    import type { TEntityPickerMode } from '@/hooks/useScreenConfiguration';
     import { EMessageType, sendMessage } from '@/stores/message';
-    import { removeScreenConfig, screenConfigStore, updateScreenConfigs, updateScreenTitle } from '@/stores/screenConfig';
+    import {
+        MAX_SCREEN_BADGE_COUNT,
+        removeScreenConfig,
+        screenConfigStore,
+        shouldShowScreenEntityIconBackground,
+        updateScreenConfigs,
+        updateScreenTitle,
+    } from '@/stores/screenConfig';
     import type { IHassScreenConfigItem } from '@/types/screenConfig';
     import { EWsMethods } from '@/types/websocket';
     import sendForReply from '@/ws/sendForReply';
@@ -25,9 +30,10 @@
     let entityModalVisible = $state(false);
     let pickerMode = $state<TEntityPickerMode>('entity');
     let activeScreenIndex = $state<number | null>(null);
-    let cardSettingsVisible = $state(false);
-    let selectedCardScreenIndex = $state<number | null>(null);
-    let selectedCardEntityId = $state('');
+    let entitySettingsVisible = $state(false);
+    let settingsMode = $state<TEntityPickerMode>('entity');
+    let selectedEntityScreenIndex = $state<number | null>(null);
+    let selectedEntityId = $state('');
     let screenSettingsVisible = $state(false);
     let editingScreenIndex = $state<number | null>(null);
     let screenTitleCache = $state('');
@@ -51,12 +57,9 @@
         features: [],
     };
 
-    const configured = $derived(Boolean($homeAssistantStore.connectionInfo?.configured));
-    const homeAssistantAvailable = $derived(isHomeAssistantAvailable($homeAssistantStore.connectionInfo));
     const currentTimeInMs = $derived(Number($timerStore.timers.currentTime?.value ?? ($deviceStore.currentTime || dayjs().valueOf())));
     const previewTime = $derived(dayjs.utc(currentTimeInMs).utcOffset($finialOffset).format('HH:mm'));
     const displayedScreens = $derived.by(() => {
-        if (!configured) return [DEFAULT_SCREEN];
         if (editing) return $screenConfigStore.screens;
         return $screenConfigStore.screens.length ? $screenConfigStore.screens : [DEFAULT_SCREEN];
     });
@@ -68,28 +71,7 @@
         return Boolean(screen.badges?.length || screen.cards?.length || screen.features?.length);
     }
 
-    function ensureHomeAssistantAvailable() {
-        if (homeAssistantAvailable) return true;
-        sendMessage(EMessageType.ERROR, $_('page.screen.haConnectionAbnormal'));
-        return false;
-    }
-
-    function hasCardChanges() {
-        if (!editingSnapshot) return false;
-        const serializeCards = (screens: IHassScreenConfigItem[]) =>
-            screens
-                .map((screen) => screen.cards ?? [])
-                .filter((cards) => cards.length > 0)
-                .map((cards) => JSON.stringify(cards))
-                .sort();
-        return !isEqual(serializeCards(editingSnapshot), serializeCards($screenConfigStore.screens));
-    }
-
     function startEditing() {
-        if (!configured) {
-            sendMessage(EMessageType.ERROR, $_('page.screen.connectHaFirst'));
-            return;
-        }
         editingSnapshot = cloneDeep($screenConfigStore.screens);
         if (!$screenConfigStore.screens.length) {
             updateScreenConfigs([DEFAULT_SCREEN]);
@@ -98,7 +80,11 @@
     }
 
     function openEntityPicker(mode: TEntityPickerMode, screenIndex: number) {
-        if (!ensureHomeAssistantAvailable()) return;
+        if (
+            mode === 'badge' &&
+            ($screenConfigStore.screens.find((screen) => screen.index === screenIndex)?.badges?.length ?? 0) >= MAX_SCREEN_BADGE_COUNT
+        )
+            return;
         pickerMode = mode;
         activeScreenIndex = screenIndex;
         entityModalVisible = true;
@@ -109,17 +95,17 @@
         activeScreenIndex = null;
     }
 
-    function openCardSettings(screenIndex: number, entityId: string) {
-        if (!ensureHomeAssistantAvailable()) return;
-        selectedCardScreenIndex = screenIndex;
-        selectedCardEntityId = entityId;
-        cardSettingsVisible = true;
+    function openEntitySettings(mode: TEntityPickerMode, screenIndex: number, entityId: string) {
+        settingsMode = mode;
+        selectedEntityScreenIndex = screenIndex;
+        selectedEntityId = entityId;
+        entitySettingsVisible = true;
     }
 
-    function closeCardSettings() {
-        cardSettingsVisible = false;
-        selectedCardScreenIndex = null;
-        selectedCardEntityId = '';
+    function closeEntitySettings() {
+        entitySettingsVisible = false;
+        selectedEntityScreenIndex = null;
+        selectedEntityId = '';
     }
 
     function openAddScreenModal() {
@@ -158,10 +144,6 @@
     }
 
     function openScreenSettings(screen: IHassScreenConfigItem) {
-        if (!configured) {
-            sendMessage(EMessageType.ERROR, $_('page.screen.connectHaFirst'));
-            return;
-        }
         editingScreenIndex = screen.index;
         screenTitleCache = getScreenTitle(screen).slice(0, MAX_SCREEN_TITLE_LENGTH);
         screenSettingsVisible = true;
@@ -192,10 +174,6 @@
 
     async function finishEditing() {
         if (saving) return;
-        if (!homeAssistantAvailable && hasCardChanges()) {
-            sendMessage(EMessageType.ERROR, $_('page.screen.haConnectionAbnormal'));
-            return;
-        }
         saving = true;
         try {
             const screens: IHassScreenConfigItem[] = $screenConfigStore.screens;
@@ -296,7 +274,7 @@
         </button>
     </header>
 
-    <div class:editing class="screen-grid-layout">
+    <div class:editing class:has-add-screen={editing && $screenConfigStore.screens.length < MAX_SCREEN_COUNT} class="screen-grid-layout">
         <div class="screen-grid">
         {#each displayedScreens as screen (screen.index)}
             <div class="screen-card-shell">
@@ -312,24 +290,25 @@
                 <div class="device-preview-frame">
                     <div class="device-preview">
                         <div class="device-status">
-                            {#if configured}<strong>{getScreenTitle(screen)}</strong>{/if}<span class="device-status-icons"
-                                >{#if configured}<SvgIcon name="ha.svg" />{/if}<SvgIcon name="wifi_4.svg" /><b>{previewTime}</b></span
+                            <strong>{getScreenTitle(screen)}</strong><span class="device-status-icons"
+                                ><SvgIcon name="ha.svg" /><SvgIcon name="wifi_4.svg" /><b>{previewTime}</b></span
                             >
                         </div>
-                        <!--{#if editing || screen.badges?.length}
-                        <div class="screen-badges">
-                            {#each screen.badges ?? [] as badge, badgeIndex (`${badge.data.entity}-${badgeIndex}`)}
-                                <HassEntityRow
-                                    variant="badge"
-                                    entityId={badge.data.entity}
-                                    name={badge.data.name || getScreenEntityName(badge.data.entity)}
-                                />
-                            {/each}
-                            {#if editing}
-                                <button class="add-badge-button" type="button" onclick={() => openEntityPicker('badge', screen.index)}><i class="bi bi-plus"></i> Add Badge</button>
-                            {/if}
-                        </div>
-                    {/if}-->
+                        {#if editing || screen.badges?.length}
+                            <div class="screen-badges">
+                                {#if editing && (screen.badges?.length ?? 0) < MAX_SCREEN_BADGE_COUNT}
+                                    <button class="add-badge-button" type="button" onclick={() => openEntityPicker('badge', screen.index)}><i class="bi bi-plus"></i> Add badge</button>
+                                {/if}
+                                {#each screen.badges ?? [] as badge, badgeIndex (`${badge.data.entity}-${badgeIndex}`)}
+                                    <HassEntityRow
+                                        variant="badge"
+                                        entityId={badge.data.entity}
+                                        showIconBackground={shouldShowScreenEntityIconBackground(badge.data.entity, badge.data.actionConfig)}
+                                        onclick={editing ? () => openEntitySettings('badge', screen.index, badge.data.entity) : undefined}
+                                    />
+                                {/each}
+                            </div>
+                        {/if}
                         {#if editing}
                             <div class="edit-actions">
                                 <button type="button" onclick={() => openEntityPicker('entity', screen.index)}><i class="bi bi-plus"></i> Add Entity</button>
@@ -341,20 +320,14 @@
                                     <div class="screen-entity-sort-item" role="listitem">
                                         <HassEntityRow
                                             entityId={card.data.entity}
-                                            name={getScreenEntityName(card.data.entity)}
-                                            onclick={editing ? () => openCardSettings(screen.index, card.data.entity) : undefined}
+                                            showIconBackground={shouldShowScreenEntityIconBackground(card.data.entity, card.data.actionConfig)}
+                                            onclick={editing ? () => openEntitySettings('entity', screen.index, card.data.entity) : undefined}
                                         />
                                     </div>
                                 {/each}
                             </div>
                         {/if}
-                        {#if !editing && !configured}
-                            <div class="preview-empty connect-ha">
-                                <span class="connect-ha-icon"><SvgIcon name="haHeaderActive.svg" /></span>
-                                <strong>{$_('page.screen.connectHa')}</strong>
-                                <span>{$_('page.screen.connectHaHint')}</span>
-                            </div>
-                        {:else if !editing && !isConfigured(screen)}
+                        {#if !editing && !isConfigured(screen)}
                             <div class="preview-empty">
                                 <div class="image-placeholder"><SvgIcon name="noEntity.svg" /></div>
                                 <span>{$_('page.screen.noContent')}</span>
@@ -380,7 +353,13 @@
     </div>
 </div>
 
-<EntityCardSettingsModal visible={cardSettingsVisible} screenIndex={selectedCardScreenIndex} entityId={selectedCardEntityId} onclose={closeCardSettings} />
+<EntitySettingsModal
+    visible={entitySettingsVisible}
+    mode={settingsMode}
+    screenIndex={selectedEntityScreenIndex}
+    entityId={selectedEntityId}
+    onclose={closeEntitySettings}
+/>
 
 <Modal modalVisible={addScreenModalVisible} footer={false} setVisible={(visible) => !visible && closeAddScreenModal()}>
     {#snippet customSnippet()}
@@ -442,7 +421,7 @@
     {/snippet}
 </Modal>
 
-<EntityPickerModal visible={entityModalVisible} mode={pickerMode} screenIndex={activeScreenIndex} onclose={closeEntityPicker} />
+<EntitySelectionModal visible={entityModalVisible} mode={pickerMode} screenIndex={activeScreenIndex} onclose={closeEntityPicker} />
 
 <style lang="scss">
     .screen-config-page {
@@ -661,8 +640,11 @@
         transform: translateX(-50%);
     }
     .device-preview {
+        display: flex;
         width: 320px;
         height: 480px;
+        overflow: hidden;
+        flex-direction: column;
         color: white;
         background: #000;
         font-family: MiSans, sans-serif;
@@ -711,6 +693,39 @@
         font-weight: 500;
         line-height: 28px;
     }
+    .screen-badges {
+        display: flex;
+		justify-content: start;
+        width: 100%;
+        max-width: 100%;
+        padding: 0 12px 8px;
+        box-sizing: border-box;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+    }
+    .add-badge-button {
+        position: relative;
+        display: inline-flex;
+        width: auto;
+        height: 30px;
+        padding: 0 10px;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        color: #f2f2f7;
+        border: 0;
+        border-radius: 999px;
+        background: #000;
+        font-size: 14px;
+        line-height: 1;
+        white-space: nowrap;
+    }
+    .add-badge-button i {
+        font-size: 16px;
+    }
     .preview-empty {
         display: flex;
         min-height: 270px;
@@ -721,37 +736,6 @@
         gap: 1.25rem;
         text-align: center;
         font-size: 0.8rem;
-    }
-    .connect-ha {
-        width: 100%;
-        height: calc(480px - 33px);
-        min-height: 0;
-        padding: 24px 20px;
-        gap: 8px;
-    }
-    .connect-ha-icon {
-        display: inline-flex;
-        flex: 0 0 60px;
-        width: 60px;
-        height: 60px;
-        margin-bottom: 16px;
-    }
-    .connect-ha-icon :global(.sf-icon),
-    .connect-ha-icon :global(svg) {
-        width: 100%;
-        height: 100%;
-    }
-    .connect-ha strong {
-        width: 100%;
-        font-size: 24px;
-        font-weight: 500;
-        line-height: 1.2;
-        white-space: nowrap;
-    }
-    .connect-ha > span:last-child {
-        max-width: 280px;
-        font-size: 18px;
-        line-height: 1.35;
     }
     .image-placeholder {
         display: grid;
@@ -770,6 +754,7 @@
         padding: 0 20px;
     }
     .edit-actions button {
+        position: relative;
         display: flex;
         width: 100%;
         height: 68px;
@@ -778,12 +763,23 @@
         justify-content: center;
         gap: 10px;
         color: white;
-        border: 1px dashed rgba(1, 119, 253, 1);
+        border: 0;
         border-radius: 12px;
         background: #000;
         font-size: 24px;
         line-height: 1;
         opacity: 1;
+    }
+    .add-badge-button::after,
+    .edit-actions button::after {
+        position: absolute;
+        z-index: 1;
+        box-sizing: border-box;
+        border: 1px dashed rgba(1, 119, 253, 1);
+        border-radius: inherit;
+        content: '';
+        inset: 0;
+        pointer-events: none;
     }
     .edit-actions button i {
         font-size: 28px;
@@ -791,16 +787,16 @@
     }
     .screen-entities {
         display: grid;
-        max-height: calc(480px - 48px);
+        min-height: 0;
+        max-height: none;
         padding: 0 0.35rem;
+        flex: 1 1 auto;
+        align-content: start;
         gap: 8px;
         overflow-y: auto;
         overscroll-behavior: contain;
         scrollbar-width: thin;
         scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
-    }
-    .edit-actions + .screen-entities {
-        max-height: 308px;
     }
     .screen-entity-sort-item {
         position: relative;
@@ -870,7 +866,7 @@
             grid-auto-rows: auto;
             justify-content: center;
         }
-        .screen-grid-layout.editing .screen-grid {
+        .screen-grid-layout.has-add-screen .screen-grid {
             padding-top: 5rem;
         }
         .screen-card-shell {
@@ -915,24 +911,6 @@
             font-size: 1.25rem;
             line-height: 1.75rem;
         }
-        .connect-ha {
-            height: calc(var(--mobile-device-preview-height) - 3rem);
-            padding: 1.5rem 1.25rem;
-            gap: 0.5rem;
-        }
-        .connect-ha-icon {
-            width: 3.75rem;
-            height: 3.75rem;
-            margin-bottom: 1rem;
-            flex-basis: 3.75rem;
-        }
-        .connect-ha strong {
-            font-size: 1.5rem;
-        }
-        .connect-ha > span:last-child {
-            max-width: 17.5rem;
-            font-size: 1.125rem;
-        }
         .edit-actions {
             margin-bottom: 0.75rem;
             padding: 0 1.25rem;
@@ -948,11 +926,8 @@
             font-size: 1.75rem;
         }
         .screen-entities {
-            max-height: calc(var(--mobile-device-preview-height) - 3rem);
+            max-height: none;
             gap: 0.5rem;
-        }
-        .edit-actions + .screen-entities {
-            max-height: calc(var(--mobile-device-preview-height) - 8rem);
         }
         .add-screen-card {
             top: 0;

@@ -17,11 +17,24 @@
     let hostnameValid = $derived(REG_EXP_MDNS_DOMAIN_FORMAT.test(normalizedHostname));
     async function save() {
         if (!hostnameValid || loading) return;
+        const targetDomain = normalizedHostname;
         loading = true;
         try {
-            const result = await updateMdnsDomain(normalizedHostname);
-            if (result.error === 0) await pop();
-            else if (result.error === ERROR_CODE.MDNS_DOMAIN_CONFLICT) sendMessage(EMessageType.ERROR, $_('TIPS.MDNS_NAME_CONFLICT'));
+            const result = await updateMdnsDomain(targetDomain);
+            if (result.error === 0) {
+                if (/\.local\.?$/i.test(window.location.hostname)) {
+                    const target = new URL(window.location.href);
+                    target.hash = '#/';
+                    // The responder may discover a collision after the save reply.
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                    target.hostname = $networkStore.mdnsDomain || targetDomain;
+                    if (target.hostname !== window.location.hostname) {
+                        window.location.replace(target.toString());
+                        return;
+                    }
+                }
+                await pop();
+            } else if (result.error === ERROR_CODE.MDNS_DOMAIN_CONFLICT) sendMessage(EMessageType.ERROR, $_('TIPS.MDNS_NAME_CONFLICT'));
         } catch (error) {
             console.error('Failed to update mDNS domain:', error);
         } finally {

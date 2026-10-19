@@ -27,6 +27,16 @@ esp_err_t ha_entity_store_acquire(ha_entity_store_t *store,
                                   ha_entity_handle_t **out_handle);
 void ha_entity_store_release(ha_entity_handle_t *handle);
 
+/**
+ * Remove cached entities that are no longer referenced by any consumer.
+ *
+ * Releasing a handle preserves its snapshot so a screen configuration reload
+ * can immediately reuse data for entities that remain configured. Call this
+ * after all consumers have rebound their handles to discard entities removed
+ * from the new configuration.
+ */
+void ha_entity_store_prune_unreferenced(ha_entity_store_t *store);
+
 esp_err_t ha_entity_store_get(ha_entity_store_t *store,
                               const char *entity_id,
                               ha_entity_snapshot_t *out);

@@ -22,6 +22,8 @@
 #define DEFAULT_WORKER_PRIORITY 5
 #define MAX_LISTENERS 8
 #define CONNECTION_POLL_MS 100
+#define SYNC_RETRY_DELAY_MS 3000
+#define INITIAL_SNAPSHOT_TIMEOUT_MS 15000
 
 static const char *TAG = "ha_entity_store";
 
@@ -117,6 +119,8 @@ struct ha_entity_store {
     bool sync_inflight;
     bool sync_pending;
     uint32_t sync_generation;
+    uint64_t sync_started_ms;
+    uint64_t retry_at_ms;
 };
 
 typedef struct {
@@ -799,6 +803,7 @@ static esp_err_t begin_subscribe(ha_entity_store_t *store)
 static void begin_sync(ha_entity_store_t *store)
 {
     store->sync_pending = false;
+    store->retry_at_ms = 0;
     if (store->subscription_registered) {
         ha_ws_unsubscribe_events_by_callback(store->ws_client,
                                              ws_entities_update_cb,
@@ -817,6 +822,7 @@ static void begin_sync(ha_entity_store_t *store)
 
     store->sync_generation++;
     store->sync_inflight = true;
+    store->sync_started_ms = (uint64_t)esp_timer_get_time() / 1000;
     xSemaphoreTake(store->lock, portMAX_DELAY);
     for (size_t i = 0; i < store->max_entities; i++) {
         entity_entry_t *entry = &store->entries[i];
@@ -835,8 +841,11 @@ static void begin_sync(ha_entity_store_t *store)
             store->sync_pending = true;
             set_status(store, HA_ENTITY_STORE_OFFLINE);
         } else {
+            store->sync_pending = true;
+            store->retry_at_ms = (uint64_t)esp_timer_get_time() / 1000 + SYNC_RETRY_DELAY_MS;
             set_status(store, HA_ENTITY_STORE_DEGRADED);
         }
+        ESP_LOGW(TAG, "Entity subscription failed to start: %s; retrying", esp_err_to_name(err));
         fire_store_event(store, HA_ENTITY_STORE_EVENT_SYNC_FAILED, err, 0, 0);
     }
 }
@@ -845,6 +854,9 @@ static void drive_worker(ha_entity_store_t *store, bool authenticated)
 {
     if (!authenticated || !store->sync_pending || store->sync_inflight ||
         store->subscribing) {
+        return;
+    }
+    if ((uint64_t)esp_timer_get_time() / 1000 < store->retry_at_ms) {
         return;
     }
     begin_sync(store);
@@ -870,6 +882,7 @@ static void handle_message(ha_entity_store_t *store,
             if (!store->sync_inflight) {
                 store->sync_generation++;
                 store->sync_inflight = true;
+                store->sync_started_ms = (uint64_t)esp_timer_get_time() / 1000;
                 xSemaphoreTake(store->lock, portMAX_DELAY);
                 for (size_t i = 0; i < store->max_entities; i++) {
                     entity_entry_t *entry = &store->entries[i];
@@ -896,13 +909,18 @@ static void handle_message(ha_entity_store_t *store,
                                                  store);
             store->subscription_registered = false;
             store->sync_inflight = false;
+            store->subscribed = false;
+            mark_all_stale(store);
             if (ha_ws_is_authenticated(store->ws_client)) {
-                store->sync_pending = false;
+                store->sync_pending = true;
+                store->retry_at_ms = (uint64_t)esp_timer_get_time() / 1000 + SYNC_RETRY_DELAY_MS;
                 set_status(store, HA_ENTITY_STORE_DEGRADED);
             } else {
                 store->sync_pending = true;
                 set_status(store, HA_ENTITY_STORE_OFFLINE);
             }
+            ESP_LOGW(TAG, "Entity subscription rejected: %s; retrying",
+                     esp_err_to_name(message->result));
             fire_store_event(store,
                              HA_ENTITY_STORE_EVENT_SYNC_FAILED,
                              message->result,
@@ -921,12 +939,24 @@ static void handle_message(ha_entity_store_t *store,
                                                 &changed);
         if (err != ESP_OK) {
             store->sync_inflight = false;
+            ha_ws_unsubscribe_events_by_callback(store->ws_client,
+                                                 ws_entities_update_cb,
+                                                 store);
+            store->subscription_registered = false;
+            store->subscribed = false;
+            store->subscribing = false;
+            store->sync_pending = true;
+            store->retry_at_ms = (uint64_t)esp_timer_get_time() / 1000 + SYNC_RETRY_DELAY_MS;
             mark_all_stale(store);
             set_status(store, HA_ENTITY_STORE_DEGRADED);
+            ESP_LOGW(TAG, "Invalid entity update: %s; retrying", esp_err_to_name(err));
             fire_store_event(store, HA_ENTITY_STORE_EVENT_SYNC_FAILED, err, 0, 0);
         } else if (initial) {
             store->sync_inflight = false;
+            store->retry_at_ms = 0;
             set_status(store, HA_ENTITY_STORE_READY);
+            ESP_LOGI(TAG, "Initial entity snapshot ready: matched=%u changed=%u",
+                     (unsigned)matched, (unsigned)changed);
             fire_store_event(store,
                              HA_ENTITY_STORE_EVENT_SYNC_SUCCEEDED,
                              ESP_OK,
@@ -999,6 +1029,23 @@ static void store_worker(void *arg)
                 mark_all_stale(store);
                 set_status(store, HA_ENTITY_STORE_OFFLINE);
             }
+        }
+        if (authenticated && store->sync_inflight &&
+            (uint64_t)esp_timer_get_time() / 1000 - store->sync_started_ms >=
+                INITIAL_SNAPSHOT_TIMEOUT_MS) {
+            ESP_LOGW(TAG, "Initial entity snapshot timed out; resubscribing");
+            ha_ws_unsubscribe_events_by_callback(store->ws_client,
+                                                 ws_entities_update_cb,
+                                                 store);
+            store->subscription_registered = false;
+            store->subscribed = false;
+            store->subscribing = false;
+            store->sync_inflight = false;
+            store->sync_pending = true;
+            store->retry_at_ms = (uint64_t)esp_timer_get_time() / 1000 + SYNC_RETRY_DELAY_MS;
+            mark_all_stale(store);
+            set_status(store, HA_ENTITY_STORE_DEGRADED);
+            fire_store_event(store, HA_ENTITY_STORE_EVENT_SYNC_FAILED, ESP_ERR_TIMEOUT, 0, 0);
         }
         drive_worker(store, authenticated);
     }
@@ -1237,6 +1284,21 @@ esp_err_t ha_entity_store_acquire(ha_entity_store_t *store,
                 break;
             }
         }
+        /* During a screen reload, zero-reference entries retain their last
+         * snapshot until the rebuilt views acquire their entities. If the
+         * temporary cache fills the store, evict only one of those entries;
+         * live UI consumers are never displaced. */
+        if (!entry) {
+            for (index = 0; index < store->max_entities; index++) {
+                if (store->entries[index].occupied &&
+                    store->entries[index].ref_count == 0) {
+                    entry = &store->entries[index];
+                    free_entry(entry);
+                    store->entity_count--;
+                    break;
+                }
+            }
+        }
         if (!entry) {
             xSemaphoreGive(store->lock);
             free(handle);
@@ -1283,10 +1345,7 @@ void ha_entity_store_release(ha_entity_handle_t *handle)
         entity_entry_t *entry = &store->entries[handle->entry_index];
         if (entry->occupied && entry->generation == handle->entry_generation && entry->ref_count > 0) {
             entry->ref_count--;
-            if (entry->ref_count == 0) {
-                free_entry(entry);
-                store->entity_count--;
-            } else {
+            if (entry->ref_count > 0) {
                 uint32_t fields = 0;
                 for (ha_entity_handle_t *item = store->handles; item; item = item->next) {
                     if (item->entry_index == handle->entry_index &&
@@ -1302,6 +1361,23 @@ void ha_entity_store_release(ha_entity_handle_t *handle)
     xSemaphoreGive(store->lock);
     handle->store = NULL;
     free(handle);
+}
+
+void ha_entity_store_prune_unreferenced(ha_entity_store_t *store)
+{
+    if (!store) {
+        return;
+    }
+
+    xSemaphoreTake(store->lock, portMAX_DELAY);
+    for (size_t i = 0; i < store->max_entities; i++) {
+        entity_entry_t *entry = &store->entries[i];
+        if (entry->occupied && entry->ref_count == 0) {
+            free_entry(entry);
+            store->entity_count--;
+        }
+    }
+    xSemaphoreGive(store->lock);
 }
 
 esp_err_t ha_entity_store_get(ha_entity_store_t *store,

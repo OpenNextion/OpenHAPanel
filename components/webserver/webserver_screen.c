@@ -24,7 +24,7 @@
 static const char *TAG = "webserver_screen";
 
 static TimerHandle_t screen_lock_timer = NULL;
-static bool screen_is_lock = false;
+static volatile bool screen_is_lock = false;
 
 bool screen_is_locked(void)
 {
@@ -41,15 +41,70 @@ static void screen_lock_timer_cb(TimerHandle_t xTimer)
 void screen_lock_reset_timer(void)
 {
     device_info_t *device_info = webserver_config_get_device_info();
-    if (device_info->idle_time == 0 || screen_lock_timer == NULL) {
-        return;
-    }
     if (screen_is_lock) {
         bsp_lcd_br_set(night_mode_get_effective_brightness(device_info->brightness));
         screen_is_lock = false;
         ESP_LOGI(TAG, "Screen unlocked by user activity");
     }
-    xTimerReset(screen_lock_timer, 0);
+    if (device_info->idle_time != 0 && screen_lock_timer != NULL) {
+        xTimerReset(screen_lock_timer, 0);
+    }
+}
+
+esp_err_t screen_set_ha_lock(bool locked)
+{
+    if (locked) {
+        esp_err_t err = bsp_lcd_br_set(0);
+        if (err == ESP_OK) {
+            screen_is_lock = true;
+            if (screen_lock_timer) {
+                xTimerStop(screen_lock_timer, 0);
+            }
+        }
+        return err;
+    }
+    device_info_t *info = webserver_config_get_device_info();
+    if (!info) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint8_t brightness = info->brightness ? info->brightness : 50;
+    esp_err_t err = bsp_lcd_br_set(night_mode_get_effective_brightness(brightness));
+    if (err == ESP_OK) {
+        screen_is_lock = false;
+        if (info->idle_time && screen_lock_timer) {
+            xTimerReset(screen_lock_timer, 0);
+        }
+    }
+    return err;
+}
+
+esp_err_t screen_toggle_power(void)
+{
+    bool turn_on = screen_is_locked() || bsp_lcd_br_get() == 0;
+    esp_err_t err = screen_set_ha_lock(!turn_on);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "BOOT key turned screen %s", turn_on ? "on" : "off");
+    } else {
+        ESP_LOGE(TAG, "BOOT key failed to turn screen %s: %s",
+                 turn_on ? "on" : "off", esp_err_to_name(err));
+    }
+    return err;
+}
+
+esp_err_t screen_set_ha_brightness(uint8_t brightness)
+{
+    if (brightness > 100) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = bsp_lcd_br_set(brightness);
+    if (err == ESP_OK) {
+        screen_is_lock = false;
+        device_info_t *info = webserver_config_get_device_info();
+        if (info && info->idle_time && screen_lock_timer) {
+            xTimerReset(screen_lock_timer, 0);
+        }
+    }
+    return err;
 }
 
 esp_err_t screen_set_lock(int idle_time, uint8_t brightness)

@@ -346,7 +346,13 @@ static dns_server_handle_t start_dns_server(dns_server_config_t *config)
     handle->num_of_entries = config->num_of_entries;
     memcpy(handle->entry, config->item, config->num_of_entries * sizeof(dns_entry_pair_t));
 
-    xTaskCreatePinnedToCore(dns_server_task, "dns_server", 3 * 1024, handle, 5, &handle->task, 1);
+    BaseType_t task_created =
+        xTaskCreatePinnedToCore(dns_server_task, "dns_server", 3 * 1024, handle, 5, &handle->task, 1);
+    if (task_created != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create DNS server task");
+        free(handle);
+        return NULL;
+    }
     return handle;
 }
 
@@ -363,4 +369,7 @@ void captive_portal_init()
 {
     dns_server_config_t config = DNS_SERVER_CONFIG_SINGLE("*" /* all A queries */, "WIFI_AP_DEF" /* softAP netif ID */);
     dns_server_handle = start_dns_server(&config);
+    if (!dns_server_handle) {
+        ESP_LOGE(TAG, "Failed to initialize captive portal DNS server");
+    }
 }

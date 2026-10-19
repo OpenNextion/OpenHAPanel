@@ -19,3 +19,5 @@
 
 esp_err_t bsp_lcd_init(void);
 esp_err_t bsp_lcd_br_set(uint8_t br);
+/** Last brightness successfully written to the backlight PWM (0-100). */
+uint8_t bsp_lcd_br_get(void);

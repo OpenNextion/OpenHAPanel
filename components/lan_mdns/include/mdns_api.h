@@ -56,15 +56,10 @@ void mdns_server_update_server_txt();
  */
 esp_err_t mdns_server_sync_device_mode(wireless_controller_work_mode_t mode, uint32_t baud_rate);
 
-/**
- * @brief Updates the mDNS hostname based on a custom value.
- *
- * This function checks whether a custom hostname (`mdns_custom_hostname`) is set.
- * - If a custom hostname is present (non-empty), it sets it as the mDNS hostname.
- * - Otherwise, it falls back to using the default hostname (`DEFAULTS_HOST_NAME`).
- *
- */
-void mdns_update_server_by_host_name(bool conflict_avoid_flag);
+/* Choose the configured name after obtaining an IP; use the MAC name on conflict. */
+void mdns_select_hostname_for_network(void);
+esp_err_t mdns_apply_fallback_hostname(void);
+void mdns_verify_hostname(void);
 
 /**
  * @brief Web API handler for setting the device's mDNS domain name.

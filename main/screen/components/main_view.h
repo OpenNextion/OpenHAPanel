@@ -35,12 +35,12 @@ size_t main_view_update_entity(main_view_t *main_view,
                                const char *name,
                                const char *state);
 
-/** Refresh every tile bound to entity_id using the Entity Store cache. */
+/** Refresh every badge/tile bound to entity_id using the Entity Store cache. */
 size_t main_view_refresh_entity(main_view_t *main_view,
                                 ha_entity_store_t *store,
                                 const char *entity_id);
 
-/** Release old subscriptions and bind all tile cards to a new Entity Store. */
+/** Release old subscriptions and bind badges and tiles to a new Entity Store. */
 size_t main_view_set_entity_store(main_view_t *main_view,
                                   ha_entity_store_t *store);
 

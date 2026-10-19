@@ -11,10 +11,11 @@
 
     interface Props {
         open?: boolean;
+        hasTopTips?: boolean;
         onClose?: () => void;
     }
 
-    let { open = false, onClose = () => undefined }: Props = $props();
+    let { open = false, hasTopTips = false, onClose = () => undefined }: Props = $props();
     let changingTheme = $state(false);
     let changingLanguage = $state(false);
     let selectedLanguage = $state<ELanguage>($languageStore.language);
@@ -28,10 +29,6 @@
         { label: 'English', value: ELanguage.EN_US },
     ];
     const selectedLanguageLabel = $derived(languageOptions.find((item) => item.value === selectedLanguage)?.label ?? selectedLanguage);
-    const nextionLogo = $derived(
-        $deviceStore.currentMode === EThemeMode.DARK ? 'nextionLogoMobileDark.svg' : 'nextionLogoMobileNormal.svg',
-    );
-
     $effect(() => {
         if (changingLanguage) return;
         selectedLanguage = $languageStore.language;
@@ -76,11 +73,10 @@
     }
 </script>
 
-<aside class:open class="guest-sidebar" aria-hidden={!open}>
+<aside class:open class:has-top-tips={hasTopTips} class="guest-sidebar" aria-hidden={!open}>
     <button class="guest-sidebar-close" type="button" aria-label={$_('common.closeMenu')} onclick={onClose}><SvgIcon name="mdi:close" /></button>
     <div class="guest-device">
-        <span class="guest-device-logo guest-device-logo-desktop"><SvgIcon name="nextionLogo.svg" /></span>
-        <span class="guest-device-logo guest-device-logo-mobile"><SvgIcon name={nextionLogo} /></span>
+        <span class="guest-device-logo"><SvgIcon name="nextionLogo.svg" /></span>
         <div><strong>{$currentLanDevice?.name || '--'}</strong><small>{$currentLanDevice?.ip || '--'}</small></div>
     </div>
 
@@ -99,6 +95,9 @@
                     onkeydown={(event) => handleThemeKeydown(event, item.mode, item.followSystem)}
                 >
                     <span class="theme-preview"><SvgIcon name={item.icon} /></span>
+                    {#if isThemeSelected(item.mode, item.followSystem)}
+                        <span class="theme-option-check" aria-hidden="true"><SvgIcon name="themeCheck.svg" /></span>
+                    {/if}
                     <small>{$_(item.label)}</small>
                 </div>
             {/each}
@@ -117,7 +116,7 @@
     </nav>
 </aside>
 
-{#if open}<button class="guest-sidebar-backdrop" type="button" aria-label={$_('common.closeMenu')} onclick={onClose}></button>{/if}
+{#if open}<button class:has-top-tips={hasTopTips} class="guest-sidebar-backdrop" type="button" aria-label={$_('common.closeMenu')} onclick={onClose}></button>{/if}
 
 <style lang="scss">
     .guest-sidebar {
@@ -160,10 +159,11 @@
     .guest-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
     .theme-option { position: relative; min-width: 0; color: inherit; cursor: pointer; }
     .theme-option[aria-disabled='true'] { cursor: default; opacity: 0.7; pointer-events: none; }
-    .theme-preview { display: grid; width: 100%; aspect-ratio: 1.25; place-items: center; overflow: hidden; border: 2px solid transparent; border-radius: 0.65rem; background: var(--body-inner-level-2); font-size: 3.8rem; }
+    .theme-preview { display: grid; width: 100%; aspect-ratio: 1.25; place-items: center; overflow: hidden; border-radius: 0.65rem; color-scheme: only light; font-size: 3.8rem; }
     .theme-preview :global(.sf-icon), .theme-preview :global(svg) { width: 100%; height: 100%; }
-    .theme-option.selected .theme-preview { border-color: #0199df; }
-    .theme-option.selected::after { position: absolute; top: 0.2rem; right: 0.25rem; content: '✓'; color: #0199df; font-size: 0.75rem; font-weight: 700; }
+    .theme-preview :global(svg) { color-scheme: only light; forced-color-adjust: none; }
+    .theme-option-check { position: absolute; top: 0; right: 0; display: block; width: 31px; height: 31px; overflow: hidden; border-top-right-radius: 0.65rem; pointer-events: none; }
+    .theme-option-check :global(.sf-icon), .theme-option-check :global(svg) { display: block; width: 100%; height: 100%; }
     .guest-theme-options small { display: block; margin-top: 0.4rem; overflow: hidden; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
     .guest-sidebar-links { display: grid; margin-top: 2rem; }
     .guest-sidebar-links a, .guest-sidebar-links label { display: flex; min-height: 48px; padding: 0; align-items: center; justify-content: space-between; color: var(--body-text-color-grey); border-bottom: 1px solid color-mix(in srgb, var(--bs-border-color) 55%, transparent); font-size: 0.85rem; text-decoration: none; }
@@ -179,7 +179,12 @@
             height: 100dvh;
             box-shadow: none;
         }
-        .guest-device-logo-desktop { display: none; }
-        .guest-device-logo-mobile { display: grid; width: 5.875rem; height: 1.875rem; }
+    }
+    @media (max-width: 991.98px) {
+        .guest-sidebar.has-top-tips {
+            top: var(--top-tips-height);
+            height: calc(100dvh - var(--top-tips-height));
+        }
+        .guest-sidebar-backdrop.has-top-tips { top: var(--top-tips-height); }
     }
 </style>

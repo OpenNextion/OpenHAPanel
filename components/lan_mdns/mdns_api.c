@@ -1,4 +1,5 @@
 #include <string.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "mdns.h"
@@ -6,6 +7,7 @@
 #include "mdns_api.h"
 #include <network_wifi_sta.h>
 #include "network.h"
+#include "network_api.h"
 #include <cjson_helpers.h>
 #include "littlefs.h"
 #include "webserver_api.h"
@@ -19,10 +21,13 @@ extern char mdns_custom_hostname[HOSTNAME_MAX_LEN];
 extern mdns_scan_result *mdns_prev_scan_results;
 extern int16_t mdns_prev_count;
 static char mac_id[8] = {0};
+/* Legacy mdns.conf with hostname "nextion" denotes the automatic default. */
+static bool s_mdns_hostname_explicit = false;
+static volatile bool s_mdns_desired_hostname_active = false;
 
 bool mdns_server_get_hostname(char *hostname, size_t len)
 {
-    if (mdns_custom_hostname[0] != '\0') {
+    if (s_mdns_hostname_explicit && mdns_custom_hostname[0] != '\0') {
         snprintf(hostname, len, "%s", mdns_custom_hostname);
         return true;
     }
@@ -85,79 +90,98 @@ void mdns_server_update_server_txt()
 static int8_t mdns_check_hostname_conflict(const char *hostname)
 {
     esp_ip4_addr_t addr = {0};
+    uint32_t start_ms = esp_log_timestamp();
     esp_err_t err = mdns_query_a(hostname, MDNS_SCAN_TIME_MS, &addr);
+    ESP_LOGI(TAG, "mDNS A conflict query: hostname=%s result=%s elapsed=%" PRIu32 " ms",
+             hostname, esp_err_to_name(err), esp_log_timestamp() - start_ms);
 
     if (err == ESP_OK) {
         ESP_LOGW(TAG, "hostname %s already exists: " IPSTR, hostname, IP2STR(&addr));
         return MDNS_ERR_CONFLICT;
     }
 
-    if (err == ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "mDNS is not running");
-        return MDNS_FAIL;
+    if (err == ESP_ERR_NOT_FOUND) {
+        return MDNS_OK;
     }
-    return MDNS_OK;
+    ESP_LOGE(TAG, "mDNS hostname query failed: %s", esp_err_to_name(err));
+    return MDNS_FAIL;
 }
 
-/**
- * @brief Updates the mDNS hostname based on a custom value.
- *
- * This function checks whether a custom hostname (`mdns_custom_hostname`) is set.
- * - If a custom hostname is present (non-empty), it sets it as the mDNS hostname.
- * - Otherwise, it falls back to using the default hostname (`DEFAULTS_HOST_NAME`).
- *
- * The updated hostname will be broadcast via mDNS, allowing other devices
- * on the local network to resolve the device using the new name.
- *
- * Logs the selected hostname using ESP_LOGI for debugging purposes.
- */
-void mdns_update_server_by_host_name(bool conflict_avoid_flag)
+/* Select the saved hostname, or nextion for factory defaults, after obtaining an IP.
+ * A detected conflict keeps the MAC-derived hostname active. */
+static esp_err_t mdns_fallback_hostname(char *hostname, size_t len)
 {
-    ESP_LOGI(TAG, "update broadcast mdns server");
-    char temp[128] = {0};
-    bool use_default_hostname = mdns_custom_hostname[0] == '\0' ||
-                                strcmp(mdns_custom_hostname, DEFAULTS_HOST_NAME) == 0;
-    if (!use_default_hostname) {
-        snprintf(temp, sizeof(temp), "%s", mdns_custom_hostname);
-        if (conflict_avoid_flag) {
-            for (uint16_t i = 0; i < 65535; i++) {
-                if (mdns_check_hostname_conflict(temp) == MDNS_ERR_CONFLICT) {
-                    ESP_LOGW(TAG, "hostname conflict, hostname: %s", temp);
-                    snprintf(temp, sizeof(temp), "%s-%d", mdns_custom_hostname, i + 2);
-                    temp[63] = '\0';
-                    continue;
-                }
-                break;
-            }
-        }
-    }
-    else {
-        snprintf(temp, sizeof(temp), "%s", DEFAULTS_HOST_NAME);
-        if (conflict_avoid_flag) {
-            int8_t conflict_status = mdns_check_hostname_conflict(temp);
-            char active_hostname[HOSTNAME_MAX_LEN] = {0};
-            mdns_hostname_get(active_hostname);
-
-            /* ESP-IDF's mDNS responder can resolve a collision on its own by
-             * changing "nextion" to "nextion-2" while the A query above is
-             * still running. Treat that automatic rename as proof of a
-             * conflict and replace it with our stable MAC-based hostname. */
-            bool responder_renamed = active_hostname[0] != '\0' &&
-                                     strcmp(active_hostname, DEFAULTS_HOST_NAME) != 0;
-            if (conflict_status == MDNS_ERR_CONFLICT || responder_renamed) {
-                uint8_t esp_mac[6] = {0};
-                esp_read_mac(esp_mac, ESP_MAC_WIFI_STA);
-                snprintf(temp, sizeof(temp), DEFAULTS_HOST_NAME "-%02x%02x", esp_mac[4], esp_mac[5]);
-                ESP_LOGW(TAG, "default hostname conflict; using %s", temp);
-            }
-        }
-    }
-    esp_err_t err = mdns_hostname_set(temp);
+    uint8_t mac[6] = {0};
+    esp_err_t err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "mDNS hostname applied successfully: %s", temp);
+        snprintf(hostname, len, DEFAULTS_HOST_NAME "-%02x%02x", mac[4], mac[5]);
     }
-    else {
-        ESP_LOGE(TAG, "Failed to apply mDNS hostname '%s': %s", temp, esp_err_to_name(err));
+    return err;
+}
+
+esp_err_t mdns_apply_fallback_hostname(void)
+{
+    char fallback[HOSTNAME_MAX_LEN] = {0};
+    esp_err_t err = mdns_fallback_hostname(fallback, sizeof(fallback));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot build fallback mDNS hostname: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    char active[HOSTNAME_MAX_LEN] = {0};
+    if (mdns_hostname_get(active) == ESP_OK && strcmp(active, fallback) == 0) {
+        s_mdns_desired_hostname_active = false;
+        return ESP_OK;
+    }
+
+    err = mdns_hostname_set(fallback);
+    if (err == ESP_OK) {
+        s_mdns_desired_hostname_active = false;
+        ESP_LOGI(TAG, "mDNS fallback hostname applied: %s.local", fallback);
+    } else {
+        ESP_LOGE(TAG, "Failed to apply mDNS fallback '%s': %s", fallback, esp_err_to_name(err));
+    }
+    return err;
+}
+
+void mdns_select_hostname_for_network(void)
+{
+    s_mdns_desired_hostname_active = false;
+    const char *desired = s_mdns_hostname_explicit ? mdns_custom_hostname : DEFAULTS_HOST_NAME;
+    int8_t status = mdns_check_hostname_conflict(desired);
+    if (status != MDNS_OK) {
+        ESP_LOGW(TAG, "mDNS hostname %s unavailable (%d); keeping MAC fallback", desired, status);
+        mdns_apply_fallback_hostname();
+        return;
+    }
+
+    esp_err_t err = mdns_hostname_set(desired);
+    if (err == ESP_OK) {
+        s_mdns_desired_hostname_active = true;
+        ESP_LOGI(TAG, "mDNS desired hostname applied: %s.local", desired);
+    } else {
+        ESP_LOGE(TAG, "Failed to apply mDNS hostname '%s': %s", desired, esp_err_to_name(err));
+        mdns_apply_fallback_hostname();
+    }
+}
+
+void mdns_verify_hostname(void)
+{
+    if (!s_mdns_desired_hostname_active) {
+        return;
+    }
+
+    char active[HOSTNAME_MAX_LEN] = {0};
+    if (mdns_hostname_get(active) != ESP_OK) {
+        return;
+    }
+    const char *desired = s_mdns_hostname_explicit ? mdns_custom_hostname : DEFAULTS_HOST_NAME;
+    if (strcmp(active, desired) != 0) {
+        ESP_LOGW(TAG, "mDNS responder renamed %s.local to %s.local; using MAC fallback",
+                 desired, active);
+        if (mdns_apply_fallback_hostname() == ESP_OK) {
+            webserver_network_info_notify();
+        }
     }
 }
 
@@ -199,6 +223,7 @@ static int8_t mdns_save_config(void)
         return result;
     }
     cJSON_AddStringToObject(root, "hostname", mdns_custom_hostname);
+    cJSON_AddBoolToObject(root, "custom", s_mdns_hostname_explicit);
     if (!little_file_system_write_json_to_file(root, MDNS_CONFIG_FILE_NAME)) {
         ESP_LOGE(TAG, "Failed to write mdns config to file");
         return result;
@@ -236,16 +261,27 @@ static int16_t mdns_set_mdns_hostname(const char *hostname)
         return MDNS_ERR_PARAM;
     }
 
-    if (mdns_check_hostname_conflict(hostname) < 0) {
-        ESP_LOGE(TAG, "set hostname conflict\n");
-        // notification_manage_mdns_conflicts_notify_tigger();
-        // webhook_manage_task_event_tigger(TIGGER_TYPE_MDNS_CONFLICTS);
+    int8_t conflict = mdns_check_hostname_conflict(hostname);
+    if (conflict == MDNS_ERR_CONFLICT) {
+        ESP_LOGE(TAG, "set hostname conflict: %s", hostname);
         return MDNS_ERR_DOMAIN_CONFLICT;
     }
+    if (conflict != MDNS_OK) {
+        return MDNS_FAIL;
+    }
 
+    bool previous_desired_active = s_mdns_desired_hostname_active;
+    s_mdns_desired_hostname_active = false;
+    esp_err_t err = mdns_hostname_set(hostname);
+    if (err != ESP_OK) {
+        s_mdns_desired_hostname_active = previous_desired_active;
+        ESP_LOGE(TAG, "Failed to set hostname %s: %s", hostname, esp_err_to_name(err));
+        return MDNS_FAIL;
+    }
     ESP_LOGI(TAG, "SET hostname %s", hostname);
     strncpy(mdns_custom_hostname, hostname, sizeof(mdns_custom_hostname));
-    mdns_update_server_by_host_name(false);
+    s_mdns_hostname_explicit = true;
+    s_mdns_desired_hostname_active = true;
     return MDNS_OK;
 }
 
@@ -310,8 +346,8 @@ esp_err_t method_api_handle_set_mdns_domain(cJSON *data, async_resp_arg *now_res
         // config_set_configuration_url(hostname);
         // mqtt_sync_url();
         mdns_save_config();
+        webserver_network_info_notify();
         webserver_code_response_to_current_client(result, WEB_API_METHOD_NET_SET_MDNS_DOMAIN_RSP, now_resp_arg->seq);
-        esp32_app_restart();
         return result;
     }
     else {
@@ -440,6 +476,9 @@ int8_t mdns_load_config_from_file(void)
     }
     strncpy(mdns_custom_hostname, hostname_json->valuestring, HOSTNAME_MAX_LEN - 1);
     mdns_custom_hostname[HOSTNAME_MAX_LEN - 1] = '\0';
+    cJSON *custom_json = cJSON_GetObjectItemCaseSensitive(root, "custom");
+    s_mdns_hostname_explicit = cJSON_IsTrue(custom_json) ||
+                               (custom_json == NULL && strcmp(mdns_custom_hostname, DEFAULTS_HOST_NAME) != 0);
     cJSON_Delete(root);
     memset(mdns_current_ip, 0, sizeof(mdns_current_ip));
     ESP_LOGW(TAG, "mdns_load_config_from_file mdns : %s", mdns_custom_hostname);

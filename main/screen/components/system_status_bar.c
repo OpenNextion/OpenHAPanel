@@ -15,6 +15,7 @@ struct system_status_bar {
     lv_obj_t *title_label;
     lv_obj_t *ota_update_icon;
     lv_obj_t *hass_icon;
+    lv_obj_t *wifi_icon;
     lv_obj_t *time_label;
     lv_timer_t *refresh_timer;
     bool ota_update_override_enabled;
@@ -25,6 +26,7 @@ struct system_status_bar {
 static system_status_bar_t *s_status_bars;
 static bool s_ota_update_visible;
 static bool s_hass_connected_visible;
+static bool s_wifi_sta_connected_visible;
 
 static void system_status_bar_delete_event_cb(lv_event_t *event);
 static void system_status_bar_refresh_ota_update_icon(system_status_bar_t *bar);
@@ -104,9 +106,12 @@ system_status_bar_t *system_status_bar_create(lv_obj_t *parent)
         lv_obj_add_flag(bar->hass_icon, LV_OBJ_FLAG_HIDDEN);
     }
 
-    lv_obj_t *wifi_icon = lv_image_create(right);
-    lv_image_set_src(wifi_icon, &wifi_24x24);
-    lv_obj_remove_flag(wifi_icon, LV_OBJ_FLAG_CLICKABLE);
+    bar->wifi_icon = lv_image_create(right);
+    lv_image_set_src(bar->wifi_icon, &wifi_24x24);
+    lv_obj_remove_flag(bar->wifi_icon, LV_OBJ_FLAG_CLICKABLE);
+    if (!s_wifi_sta_connected_visible) {
+        lv_obj_add_flag(bar->wifi_icon, LV_OBJ_FLAG_HIDDEN);
+    }
 
     bar->time_label = lv_label_create(right);
     lv_obj_set_style_text_color(bar->time_label,
@@ -188,6 +193,22 @@ void system_status_bar_set_hass_connected_visible(bool visible)
     }
 }
 
+void system_status_bar_set_wifi_sta_connected_visible(bool visible)
+{
+    s_wifi_sta_connected_visible = visible;
+    for (system_status_bar_t *bar = s_status_bars; bar; bar = bar->next) {
+        if (!bar->wifi_icon) {
+            continue;
+        }
+        if (visible) {
+            lv_obj_remove_flag(bar->wifi_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        else {
+            lv_obj_add_flag(bar->wifi_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
 static void system_status_bar_refresh_ota_update_icon(system_status_bar_t *bar)
 {
     if (!bar || !bar->ota_update_icon) {
@@ -229,6 +250,7 @@ static void system_status_bar_delete_event_cb(lv_event_t *event)
     bar->title_label = NULL;
     bar->ota_update_icon = NULL;
     bar->hass_icon = NULL;
+    bar->wifi_icon = NULL;
     bar->time_label = NULL;
     bar->next = NULL;
     lv_free(bar);

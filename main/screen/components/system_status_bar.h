@@ -36,6 +36,9 @@ void system_status_bar_set_ota_update_visibility_override(system_status_bar_t *b
 /** Show the Home Assistant indicator only while its data WebSocket is authenticated. */
 void system_status_bar_set_hass_connected_visible(bool visible);
 
+/** Show the Wi-Fi indicator only while the STA interface has a usable IP address. */
+void system_status_bar_set_wifi_sta_connected_visible(bool visible);
+
 #ifdef __cplusplus
 }
 #endif

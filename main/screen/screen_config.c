@@ -262,62 +262,99 @@ esp_err_t screen_parse_config(const cJSON *json, screen_config_t *out_config)
     return ESP_OK;
 }
 
-static void add_optional_string(cJSON *root, const char *key, const char *value)
+static bool add_optional_string(cJSON *root, const char *key, const char *value)
 {
-    if (value) {
-        cJSON_AddStringToObject(root, key, value);
-    }
+    return !value || cJSON_AddStringToObject(root, key, value) != NULL;
 }
 
-static void add_action_item(cJSON *root, const char *key, const screen_action_t *action)
+static bool add_json_item_to_object(cJSON *root, const char *key, cJSON *item)
+{
+    if (!item) {
+        return false;
+    }
+    if (!cJSON_AddItemToObject(root, key, item)) {
+        cJSON_Delete(item);
+        return false;
+    }
+    return true;
+}
+
+static bool add_json_item_to_array(cJSON *array, cJSON *item)
+{
+    if (!item) {
+        return false;
+    }
+    if (!cJSON_AddItemToArray(array, item)) {
+        cJSON_Delete(item);
+        return false;
+    }
+    return true;
+}
+
+static bool add_action_item(cJSON *root, const char *key, const screen_action_t *action)
 {
     cJSON *action_json = cJSON_CreateObject();
     if (!action_json) {
-        return;
+        return false;
     }
-    cJSON_AddStringToObject(action_json, "action", action_type_to_string(action->action));
-    cJSON_AddItemToObject(root, key, action_json);
+    if (!cJSON_AddStringToObject(action_json, "action", action_type_to_string(action->action))) {
+        cJSON_Delete(action_json);
+        return false;
+    }
+    return add_json_item_to_object(root, key, action_json);
 }
 
-static void add_action_config(cJSON *root, const screen_action_config_t *config)
+static bool add_action_config(cJSON *root, const screen_action_config_t *config)
 {
     cJSON *action_config = cJSON_CreateObject();
     if (!action_config) {
-        return;
+        return false;
     }
 
-    if (config->has_tap_action) {
-        add_action_item(action_config, "tap_action", &config->tap_action);
+    if (config->has_tap_action &&
+        !add_action_item(action_config, "tap_action", &config->tap_action)) {
+        cJSON_Delete(action_config);
+        return false;
     }
-    if (config->has_hold_action) {
-        add_action_item(action_config, "hold_action", &config->hold_action);
+    if (config->has_hold_action &&
+        !add_action_item(action_config, "hold_action", &config->hold_action)) {
+        cJSON_Delete(action_config);
+        return false;
     }
-    if (config->has_icon_tap_action) {
-        add_action_item(action_config, "icon_tap_action", &config->icon_tap_action);
+    if (config->has_icon_tap_action &&
+        !add_action_item(action_config, "icon_tap_action", &config->icon_tap_action)) {
+        cJSON_Delete(action_config);
+        return false;
     }
-    cJSON_AddItemToObject(root, "actionConfig", action_config);
+    return add_json_item_to_object(root, "actionConfig", action_config);
 }
 
 static cJSON *badge_to_json(const screen_badge_config_t *badge)
 {
     cJSON *badge_json = cJSON_CreateObject();
-    cJSON *data = cJSON_CreateObject();
-    if (!badge_json || !data) {
-        cJSON_Delete(badge_json);
-        cJSON_Delete(data);
+    if (!badge_json) {
         return NULL;
     }
 
-    cJSON_AddStringToObject(badge_json, "type", "entity");
+    if (!cJSON_AddStringToObject(badge_json, "type", "entity")) {
+        cJSON_Delete(badge_json);
+        return NULL;
+    }
     if (badge->has_data) {
-        cJSON_AddStringToObject(data, "entity", badge->data.entity);
-        add_optional_string(data, "name", badge->data.name);
-        if (badge->data.has_action_config) {
-            add_action_config(data, &badge->data.action_config);
+        cJSON *data = cJSON_CreateObject();
+        if (!data ||
+            !cJSON_AddStringToObject(data, "entity", badge->data.entity) ||
+            !add_optional_string(data, "name", badge->data.name) ||
+            (badge->data.has_action_config &&
+             !add_action_config(data, &badge->data.action_config))) {
+            cJSON_Delete(data);
+            cJSON_Delete(badge_json);
+            return NULL;
         }
-        cJSON_AddItemToObject(badge_json, "data", data);
-    } else {
-        cJSON_Delete(data);
+        if (!add_json_item_to_object(badge_json, "data", data)) {
+            cJSON_Delete(badge_json);
+            return NULL;
+        }
     }
 
     return badge_json;
@@ -329,7 +366,10 @@ static cJSON *heading_card_to_json(const screen_heading_card_data_t *heading)
     if (!data) {
         return NULL;
     }
-    cJSON_AddStringToObject(data, "heading", heading->heading);
+    if (!cJSON_AddStringToObject(data, "heading", heading->heading)) {
+        cJSON_Delete(data);
+        return NULL;
+    }
     return data;
 }
 
@@ -340,36 +380,37 @@ static cJSON *tile_card_to_json(const screen_tile_card_data_t *tile)
         return NULL;
     }
 
-    cJSON_AddStringToObject(data, "entity", tile->entity);
-    add_optional_string(data, "name", tile->name);
-    cJSON_AddBoolToObject(data, "full_width", tile->full_width);
-    if (tile->has_action_config) {
-        add_action_config(data, &tile->action_config);
+    if (!cJSON_AddStringToObject(data, "entity", tile->entity) ||
+        !add_optional_string(data, "name", tile->name) ||
+        !cJSON_AddBoolToObject(data, "full_width", tile->full_width) ||
+        (tile->has_action_config && !add_action_config(data, &tile->action_config))) {
+        cJSON_Delete(data);
+        return NULL;
     }
     if (tile->feature_count > 0) {
         cJSON *features = cJSON_CreateArray();
-        if (!features) {
+        if (!add_json_item_to_object(data, "features", features)) {
             cJSON_Delete(data);
             return NULL;
         }
         for (size_t i = 0; i < tile->feature_count; i++) {
             cJSON *feature = cJSON_CreateObject();
-            if (!feature) {
+            if (!add_json_item_to_array(features, feature)) {
                 cJSON_Delete(data);
                 return NULL;
             }
-            cJSON_AddStringToObject(feature, "type", feature_type_to_string(tile->features[i].type));
+            if (!cJSON_AddStringToObject(feature, "type", feature_type_to_string(tile->features[i].type))) {
+                cJSON_Delete(data);
+                return NULL;
+            }
             if (tile->features[i].data) {
                 cJSON *feature_data = cJSON_Duplicate(tile->features[i].data, true);
-                if (!feature_data) {
+                if (!add_json_item_to_object(feature, "data", feature_data)) {
                     cJSON_Delete(data);
                     return NULL;
                 }
-                cJSON_AddItemToObject(feature, "data", feature_data);
             }
-            cJSON_AddItemToArray(features, feature);
         }
-        cJSON_AddItemToObject(data, "features", features);
     }
 
     return data;
@@ -382,68 +423,81 @@ static cJSON *card_to_json(const screen_card_config_t *card)
         return NULL;
     }
 
-    cJSON_AddStringToObject(card_json, "type", card->type == SCREEN_CARD_TYPE_HEADING ? "heading" : "tile");
+    if (!cJSON_AddStringToObject(card_json, "type",
+                                 card->type == SCREEN_CARD_TYPE_HEADING ? "heading" : "tile")) {
+        cJSON_Delete(card_json);
+        return NULL;
+    }
     cJSON *data = card->type == SCREEN_CARD_TYPE_HEADING ? heading_card_to_json(&card->data.heading)
                                                          : tile_card_to_json(&card->data.tile);
     if (!data) {
         cJSON_Delete(card_json);
         return NULL;
     }
-    cJSON_AddItemToObject(card_json, "data", data);
+    if (!add_json_item_to_object(card_json, "data", data)) {
+        cJSON_Delete(card_json);
+        return NULL;
+    }
     return card_json;
 }
 
 cJSON *screen_config_to_json(const screen_config_t *config)
 {
     cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return NULL;
+    }
     cJSON *screens = cJSON_CreateArray();
-    if (!root || !screens) {
+    if (!add_json_item_to_object(root, "screens", screens)) {
         cJSON_Delete(root);
-        cJSON_Delete(screens);
         return NULL;
     }
 
     for (size_t i = 0; config && i < config->screen_count; i++) {
         const screen_view_t *view = &config->screens[i];
         cJSON *screen = cJSON_CreateObject();
-        cJSON *badges = cJSON_CreateArray();
-        cJSON *cards = cJSON_CreateArray();
-        if (!screen || !badges || !cards) {
+        if (!add_json_item_to_array(screens, screen)) {
             cJSON_Delete(root);
-            cJSON_Delete(screen);
-            cJSON_Delete(badges);
-            cJSON_Delete(cards);
             return NULL;
         }
 
-        cJSON_AddNumberToObject(screen, "index", view->index);
-        cJSON_AddStringToObject(screen, "title", view->title);
-        add_optional_string(screen, "icon", view->icon);
-        cJSON_AddStringToObject(screen, "type", "sections");
+        if (!cJSON_AddNumberToObject(screen, "index", view->index) ||
+            !cJSON_AddStringToObject(screen, "title", view->title) ||
+            !add_optional_string(screen, "icon", view->icon) ||
+            !cJSON_AddStringToObject(screen, "type", "sections")) {
+            cJSON_Delete(root);
+            return NULL;
+        }
+
+        cJSON *badges = cJSON_CreateArray();
+        if (!add_json_item_to_object(screen, "badges", badges)) {
+            cJSON_Delete(root);
+            return NULL;
+        }
 
         for (size_t j = 0; j < view->badge_count; j++) {
             cJSON *badge = badge_to_json(&view->badges[j]);
-            if (!badge) {
+            if (!add_json_item_to_array(badges, badge)) {
                 cJSON_Delete(root);
                 return NULL;
             }
-            cJSON_AddItemToArray(badges, badge);
         }
-        cJSON_AddItemToObject(screen, "badges", badges);
+
+        cJSON *cards = cJSON_CreateArray();
+        if (!add_json_item_to_object(screen, "cards", cards)) {
+            cJSON_Delete(root);
+            return NULL;
+        }
 
         for (size_t j = 0; j < view->card_count; j++) {
             cJSON *card = card_to_json(&view->cards[j]);
-            if (!card) {
+            if (!add_json_item_to_array(cards, card)) {
                 cJSON_Delete(root);
                 return NULL;
             }
-            cJSON_AddItemToArray(cards, card);
         }
-        cJSON_AddItemToObject(screen, "cards", cards);
-        cJSON_AddItemToArray(screens, screen);
     }
 
-    cJSON_AddItemToObject(root, "screens", screens);
     return root;
 }
 

@@ -3,10 +3,13 @@
 #include <string.h>
 
 #include "app.h"
+#include "assets/ha_ui_assets.h"
+#include "badge_display.h"
 #include "entity_display.h"
 #include "entity_handlers/entity_handler_registry.h"
 #include "esp_log.h"
 #include "ha_entity_store.h"
+#include "ha_badge.h"
 #include "ha_tile_card.h"
 #include "more_info_screen.h"
 
@@ -17,6 +20,8 @@ typedef struct {
     const char *entity_id;
     lv_obj_t *name_label;
     lv_obj_t *state_label;
+    lv_obj_t *badge_pill;
+    const char *badge_name;
     lv_obj_t *tile_card;
     ha_entity_handle_t *entity_handle;
     bool icon_clickable;
@@ -48,10 +53,20 @@ static void main_view_apply_action_config(main_view_entity_ref_t *ref,
 static bool main_view_update_ref(main_view_entity_ref_t *ref, const char *name, const char *state);
 static bool main_view_apply_cached_entity(main_view_entity_ref_t *ref,
                                           ha_entity_store_t *store);
+static void main_view_apply_badge_model(main_view_entity_ref_t *ref,
+                                        entity_display_model_t *model,
+                                        ha_entity_store_t *store);
+static void main_view_apply_badge_action_config(main_view_entity_ref_t *ref,
+                                                const screen_badge_config_t *badge);
+static bool main_view_badge_domain_is(const char *entity_id, const char *domain);
+static void main_view_dispatch_badge_action(main_view_entity_ref_t *ref,
+                                            entity_action_trigger_t trigger);
 static void main_view_apply_display_model(main_view_entity_ref_t *ref,
                                           const entity_display_model_t *model);
 static void main_view_tile_icon_click_cb(lv_obj_t *tile_card, void *user_data);
+static void main_view_badge_body_click_cb(lv_obj_t *badge_pill, void *user_data);
 static void main_view_tile_body_click_cb(lv_obj_t *tile_card, void *user_data);
+static void main_view_badge_body_hold_cb(lv_obj_t *badge_pill, void *user_data);
 static void main_view_tile_body_hold_cb(lv_obj_t *tile_card, void *user_data);
 static void main_view_dispatch_action(main_view_entity_ref_t *ref,
                                       entity_action_trigger_t trigger);
@@ -102,6 +117,14 @@ void main_view_update(main_view_t *main_view, const screen_view_t *view)
     lv_obj_clean(main_view->container);
     main_view_render_badges(main_view, view);
     main_view_render_cards(main_view, view);
+
+    ha_entity_store_t *store = app_get_ha_entity_store();
+    if (store && main_view_set_entity_store(main_view, store) > 0) {
+        esp_err_t err = ha_entity_store_sync(store);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to request entity state sync: %s", esp_err_to_name(err));
+        }
+    }
 }
 
 bool main_view_update_badge(main_view_t *main_view,
@@ -158,6 +181,12 @@ size_t main_view_refresh_entity(main_view_t *main_view,
     }
 
     size_t refreshed = 0;
+    for (size_t i = 0; i < main_view->badge_count; i++) {
+        main_view_entity_ref_t *badge = &main_view->badges[i];
+        if (badge->entity_id && strcmp(badge->entity_id, entity_id) == 0) {
+            refreshed += main_view_apply_cached_entity(badge, store) ? 1U : 0U;
+        }
+    }
     for (size_t i = 0; i < main_view->entity_count; i++) {
         main_view_entity_ref_t *entity = &main_view->entities[i];
         if (entity->entity_id && strcmp(entity->entity_id, entity_id) == 0) {
@@ -176,18 +205,24 @@ size_t main_view_set_entity_store(main_view_t *main_view,
     }
 
     size_t acquired = 0;
-    for (size_t i = 0; i < main_view->entity_count; i++) {
-        main_view_entity_ref_t *ref = &main_view->entities[i];
+    for (size_t i = 0; i < main_view->badge_count + main_view->entity_count; i++) {
+        main_view_entity_ref_t *ref = i < main_view->badge_count
+                                          ? &main_view->badges[i]
+                                          : &main_view->entities[i - main_view->badge_count];
         ha_entity_store_release(ref->entity_handle);
         ref->entity_handle = NULL;
 
-        if (!ref->tile_card) {
+        if (!ref->tile_card && !ref->badge_pill) {
             continue;
         }
 
         entity_display_model_t display_model;
         entity_display_model_init(ref->entity_id, &display_model);
-        main_view_apply_display_model(ref, &display_model);
+        if (ref->badge_pill) {
+            main_view_apply_badge_model(ref, &display_model, NULL);
+        } else {
+            main_view_apply_display_model(ref, &display_model);
+        }
 
         if (!store || !ref->entity_id || !ref->entity_id[0]) {
             continue;
@@ -236,6 +271,11 @@ static void main_view_clear_refs(main_view_t *main_view)
         return;
     }
 
+    for (size_t i = 0; i < main_view->badge_count; i++) {
+        ha_entity_store_release(main_view->badges[i].entity_handle);
+        main_view->badges[i].entity_handle = NULL;
+        main_view->badges[i].badge_pill = NULL;
+    }
     for (size_t i = 0; i < main_view->entity_count; i++) {
         ha_entity_store_release(main_view->entities[i].entity_handle);
         main_view->entities[i].entity_handle = NULL;
@@ -262,53 +302,58 @@ static void main_view_render_badges(main_view_t *main_view, const screen_view_t 
     }
     memset(main_view->badges, 0, sizeof(main_view_entity_ref_t) * view->badge_count);
 
-    lv_obj_t *badges_row = lv_obj_create(main_view->container);
-    lv_obj_remove_style_all(badges_row);
-    lv_obj_remove_flag(badges_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(badges_row, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(badges_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(badges_row, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(badges_row,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_all(badges_row, 0, 0);
-    lv_obj_set_style_pad_column(badges_row, 6, 0);
-    lv_obj_set_style_pad_row(badges_row, 6, 0);
+    lv_obj_t *badges_row = NULL;
 
     for (size_t i = 0; i < view->badge_count; i++) {
         const screen_badge_config_t *badge = &view->badges[i];
-        if (!badge->has_data) {
+        if (badge->type != SCREEN_BADGE_TYPE_ENTITY || !badge->has_data ||
+            !badge_display_supported(badge->data.entity)) {
             continue;
         }
 
-        lv_obj_t *pill = lv_obj_create(badges_row);
-        lv_obj_remove_flag(pill, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_size(pill, LV_SIZE_CONTENT, 28);
-        lv_obj_set_style_radius(pill, 14, 0);
-        lv_obj_set_style_border_width(pill, 0, 0);
-        lv_obj_set_style_bg_color(pill, lv_color_hex(0x2B303D), 0);
-        lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
-        lv_obj_set_style_pad_hor(pill, 10, 0);
-        lv_obj_set_style_pad_ver(pill, 4, 0);
-        lv_obj_set_style_pad_column(pill, 6, 0);
-        lv_obj_set_layout(pill, LV_LAYOUT_FLEX);
-        lv_obj_set_flex_flow(pill, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(pill, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        if (!badges_row) {
+            badges_row = lv_obj_create(main_view->container);
+            lv_obj_remove_style_all(badges_row);
+            lv_obj_remove_flag(badges_row, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_size(badges_row, LV_PCT(100), LV_SIZE_CONTENT);
+            lv_obj_set_layout(badges_row, LV_LAYOUT_FLEX);
+            lv_obj_set_flex_flow(badges_row, LV_FLEX_FLOW_ROW_WRAP);
+            lv_obj_set_flex_align(badges_row,
+                                  LV_FLEX_ALIGN_START,
+                                  LV_FLEX_ALIGN_CENTER,
+                                  LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_all(badges_row, 0, 0);
+            lv_obj_set_style_pad_hor(badges_row, 20, 0);
+            lv_obj_set_style_pad_top(badges_row, 12, 0);
+            lv_obj_set_style_pad_column(badges_row, 4, 0);
+            lv_obj_set_style_pad_row(badges_row, 4, 0);
+        }
 
-        const char *text = badge->data.name ? badge->data.name : badge->data.entity;
+        lv_obj_t *pill = ha_badge_create(badges_row);
+        if (!pill) {
+            ESP_LOGE(TAG, "Failed to create badge for %s", badge->data.entity);
+            continue;
+        }
+
         main_view_entity_ref_t *ref = &main_view->badges[main_view->badge_count++];
         ref->config_index = i;
         ref->entity_id = badge->data.entity;
-        ref->name_label = lv_label_create(pill);
-        lv_label_set_text(ref->name_label, text ? text : "");
-        lv_obj_set_style_text_color(ref->name_label, lv_color_hex(0xE4E7EE), 0);
-        lv_obj_set_style_text_font(ref->name_label, &lv_font_montserrat_14, 0);
+        ref->badge_name = badge->data.name;
+        ref->badge_pill = pill;
+        main_view_apply_badge_action_config(ref, badge);
+        ha_badge_set_body_click_cb(pill,
+                                   ref->body_tap_enabled
+                                       ? main_view_badge_body_click_cb : NULL,
+                                   ref);
+        ha_badge_set_body_hold_cb(pill,
+                                  ref->body_hold_enabled
+                                      ? main_view_badge_body_hold_cb : NULL,
+                                  ref);
+        ha_badge_set_body_clickable(pill, ref->body_clickable);
 
-        ref->state_label = lv_label_create(pill);
-        lv_label_set_text(ref->state_label, "");
-        lv_obj_set_style_text_color(ref->state_label, lv_color_hex(0x79D6A3), 0);
-        lv_obj_set_style_text_font(ref->state_label, &lv_font_montserrat_14, 0);
+        entity_display_model_t model;
+        entity_display_model_init(ref->entity_id, &model);
+        main_view_apply_badge_model(ref, &model, NULL);
     }
 }
 
@@ -379,20 +424,13 @@ static void main_view_render_cards(main_view_t *main_view, const screen_view_t *
         lv_obj_set_style_text_font(name_label, &lv_font_montserrat_14, 0);
 
     }
-
-    ha_entity_store_t *entity_store = app_get_ha_entity_store();
-    if (entity_store && main_view_set_entity_store(main_view, entity_store) > 0) {
-        esp_err_t err = ha_entity_store_sync(entity_store);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Failed to request entity state sync: %s", esp_err_to_name(err));
-        }
-    }
 }
 
 static bool main_view_apply_cached_entity(main_view_entity_ref_t *ref,
                                           ha_entity_store_t *store)
 {
-    if (!ref || !store || !ref->entity_id || !ref->tile_card) {
+    if (!ref || !store || !ref->entity_id ||
+        (!ref->tile_card && !ref->badge_pill)) {
         return false;
     }
 
@@ -401,8 +439,79 @@ static bool main_view_apply_cached_entity(main_view_entity_ref_t *ref,
         return false;
     }
 
-    main_view_apply_display_model(ref, &display_model);
+    if (ref->badge_pill) {
+        main_view_apply_badge_model(ref, &display_model, store);
+    } else {
+        main_view_apply_display_model(ref, &display_model);
+    }
     return true;
+}
+
+static void main_view_apply_badge_model(main_view_entity_ref_t *ref,
+                                        entity_display_model_t *model,
+                                        ha_entity_store_t *store)
+{
+    if (!ref || !ref->badge_pill || !model) {
+        return;
+    }
+
+    char text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
+    badge_display_format(store, ref->entity_id, ref->badge_name,
+                          model, text, sizeof(text));
+    ha_badge_set_icon(ref->badge_pill, model->icon);
+    ha_badge_set_icon_color(ref->badge_pill, model->icon_color);
+    ha_badge_set_text(ref->badge_pill, text);
+    ha_badge_set_text_color(ref->badge_pill,
+                            model->unavailable ? lv_color_hex(0x909090)
+                                               : lv_color_hex(0xE4E7EE));
+}
+
+static bool main_view_badge_domain_is(const char *entity_id, const char *domain)
+{
+    const size_t length = strlen(domain);
+    return entity_id && strncmp(entity_id, domain, length) == 0 &&
+           entity_id[length] == '.';
+}
+
+static void main_view_apply_badge_action_config(main_view_entity_ref_t *ref,
+                                                const screen_badge_config_t *badge)
+{
+    if (!ref || !badge) {
+        return;
+    }
+
+    screen_action_config_t config = {0};
+    config.has_tap_action = true;
+    if(main_view_badge_domain_is(ref->entity_id, "event"))
+    {
+        config.tap_action.action = SCREEN_ACTION_MORE_INFO;
+        config.has_hold_action = true;
+        config.hold_action.action = SCREEN_ACTION_NOTHING;
+    }else{
+    config.tap_action.action =
+        main_view_badge_domain_is(ref->entity_id, "sensor") ||
+        main_view_badge_domain_is(ref->entity_id, "binary_sensor")
+            ? SCREEN_ACTION_NOTHING : SCREEN_ACTION_TOGGLE;
+        config.has_hold_action = true;
+        config.hold_action.action = SCREEN_ACTION_MORE_INFO;
+    }
+    if (badge->data.has_action_config) {
+        const screen_action_config_t *override = &badge->data.action_config;
+        if (override->has_tap_action) {
+            config.tap_action = override->tap_action;
+        }
+        if (override->has_hold_action) {
+            config.hold_action = override->hold_action;
+        }
+    }
+
+    ref->action_config = config;
+    ref->has_action_config = true;
+    ref->body_tap_enabled = main_view_action_is_enabled(
+        config.has_tap_action, &config.tap_action);
+    ref->body_hold_enabled = main_view_action_is_enabled(
+        config.has_hold_action, &config.hold_action);
+    ref->body_clickable = ref->body_tap_enabled || ref->body_hold_enabled;
 }
 
 static void main_view_apply_display_model(main_view_entity_ref_t *ref,
@@ -460,10 +569,22 @@ static void main_view_tile_icon_click_cb(lv_obj_t *tile_card, void *user_data)
     main_view_dispatch_action(user_data, ENTITY_ACTION_TRIGGER_ICON_TAP);
 }
 
+static void main_view_badge_body_click_cb(lv_obj_t *badge_pill, void *user_data)
+{
+    (void)badge_pill;
+    main_view_dispatch_badge_action(user_data, ENTITY_ACTION_TRIGGER_TAP);
+}
+
 static void main_view_tile_body_click_cb(lv_obj_t *tile_card, void *user_data)
 {
     (void)tile_card;
     main_view_dispatch_action(user_data, ENTITY_ACTION_TRIGGER_TAP);
+}
+
+static void main_view_badge_body_hold_cb(lv_obj_t *badge_pill, void *user_data)
+{
+    (void)badge_pill;
+    main_view_dispatch_badge_action(user_data, ENTITY_ACTION_TRIGGER_HOLD);
 }
 
 static void main_view_tile_body_hold_cb(lv_obj_t *tile_card, void *user_data)
@@ -478,11 +599,17 @@ static bool main_view_update_ref(main_view_entity_ref_t *ref, const char *name, 
         return false;
     }
 
-    if (ref->tile_card) {
-        /* A tile is always rebuilt as a complete strategy model so that text,
-         * icons and colors cannot get out of sync. */
+    if (ref->tile_card || ref->badge_pill) {
+        /* Keep the icon, text and colors in sync with the cached entity. */
         ha_entity_store_t *store = app_get_ha_entity_store();
-        return store && main_view_apply_cached_entity(ref, store);
+        if (store) {
+            return main_view_apply_cached_entity(ref, store);
+        }
+    }
+
+    if (ref->badge_pill) {
+        ha_badge_set_text(ref->badge_pill, state ? state : name);
+        return true;
     }
 
     if (name && ref->name_label) {
@@ -566,6 +693,80 @@ static void main_view_apply_action_config(main_view_entity_ref_t *ref,
     ref->body_clickable = ref->body_tap_enabled || ref->body_hold_enabled;
 }
 
+static void main_view_dispatch_badge_action(main_view_entity_ref_t *ref,
+                                            entity_action_trigger_t trigger)
+{
+    if (!ref || !ref->entity_id || !ref->has_action_config) {
+        return;
+    }
+    const screen_action_t *action = trigger == ENTITY_ACTION_TRIGGER_HOLD
+                                        ? &ref->action_config.hold_action
+                                        : &ref->action_config.tap_action;
+    if (action->action == SCREEN_ACTION_NOTHING) {
+        return;
+    }
+    if (action->action == SCREEN_ACTION_MORE_INFO) {
+        main_view_open_more_info_cb(ref->entity_id, ref);
+        return;
+    }
+
+    /* Cover cards and badges share the domain handler's toggle semantics. */
+    if (main_view_badge_domain_is(ref->entity_id, "cover")) {
+        main_view_dispatch_action(ref, trigger);
+        return;
+    }
+
+    const char *domain = NULL;
+    const char *service = NULL;
+    if (main_view_badge_domain_is(ref->entity_id, "climate")) {
+        ha_entity_store_t *store = app_get_ha_entity_store();
+        ha_entity_snapshot_t snapshot = {0};
+        if (!store || ha_entity_store_get(store, ref->entity_id, &snapshot) != ESP_OK ||
+            strcmp(snapshot.state, "unavailable") == 0 ||
+            strcmp(snapshot.state, "unknown") == 0) {
+            ESP_LOGW(TAG, "Cannot toggle badge %s without an available state",
+                     ref->entity_id);
+            return;
+        }
+        domain = "climate";
+        service = strcmp(snapshot.state, "off") == 0
+                      ? "turn_on" : "turn_off";
+    } 
+    // else if (main_view_badge_domain_is(ref->entity_id, "fan")) {
+        // ha_entity_store_t *store = app_get_ha_entity_store();
+        // ha_entity_snapshot_t snapshot = {0};
+        // if (!store ||
+            // ha_entity_store_get(store, ref->entity_id, &snapshot) != ESP_OK ||
+            // (strcmp(snapshot.state, "on") != 0 &&
+            //  strcmp(snapshot.state, "off") != 0)) {
+            // ESP_LOGW(TAG, "Cannot toggle badge %s without an available state",
+                    //  ref->entity_id);
+            // return;
+        // }
+        // domain = "fan";
+        // service = "toggle";
+    // } 
+    else if (main_view_badge_domain_is(ref->entity_id, "event") ||
+               main_view_badge_domain_is(ref->entity_id, "sensor") ||
+               main_view_badge_domain_is(ref->entity_id, "binary_sensor")) {
+        ESP_LOGW(TAG, "Badge entity %s has no toggle service", ref->entity_id);
+        return;
+    } else {
+        main_view_dispatch_action(ref, trigger);
+        return;
+    }
+
+    if (!service) {
+        ESP_LOGW(TAG, "Cannot toggle badge %s in this state", ref->entity_id);
+        return;
+    }
+    esp_err_t err = app_ha_call_entity_service(domain, service, ref->entity_id);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Badge %s.%s for %s failed: %s",
+                 domain, service, ref->entity_id, esp_err_to_name(err));
+    }
+}
+
 static void main_view_dispatch_action(main_view_entity_ref_t *ref,
                                       entity_action_trigger_t trigger)
 {
@@ -591,6 +792,9 @@ static void main_view_open_more_info_cb(const char *entity_id,
     main_view_entity_ref_t *ref = user_data;
     ha_entity_store_t *store = app_get_ha_entity_store();
     if (ref && store) {
+        if (ref->badge_pill) {
+            ha_badge_stop_ripple(ref->badge_pill);
+        }
         if (ref->tile_card) {
             ha_tile_card_stop_ripple(ref->tile_card);
         }
