@@ -1,9 +1,9 @@
-import { updateDeviceInfo } from '@/stores/device';
+import { updateDeviceField, updateDeviceInfo } from '@/stores/device';
 //import { esp32Version } from '@/stores/firmware';
 import { applyDeviceLanguage } from '@/stores/language';
 import { registerTimer } from '@/stores/timer';
 import ETimerType from '@/types/timer';
-import type { IDeviceInfoNotify } from '@/types/device';
+import type { IDeviceInfoNotify, IScreenRotationNotify } from '@/types/device';
 import type { IResponse } from '@/types/websocket';
 import { get, has } from 'lodash-es';
 import { get as getSvelteStoreValue } from 'svelte/store';
@@ -37,4 +37,8 @@ export async function handleDeviceInfoNotify(params: IResponse<IDeviceInfoNotify
             return initial + elapsed * 1000;
         });
     }
+}
+
+export async function handleScreenRotationNotify(params: IResponse<IScreenRotationNotify>) {
+    updateDeviceField('screenRotation', params.data);
 }

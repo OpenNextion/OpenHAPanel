@@ -1,3 +1,5 @@
+#include <inttypes.h>
+
 #include "driver/i2c_master.h"
 #include "driver/ledc.h"
 #include "driver/spi_common.h"
@@ -33,6 +35,7 @@ static esp_err_t bsp_lcd_lvgl_add_extra_memory_pool(void);
 
 static const char *TAG = "bsp_lcd";
 static volatile uint8_t s_applied_brightness;
+static bsp_lcd_rotation_t s_applied_rotation = BSP_LCD_ROTATION_0;
 
 static i2c_master_bus_handle_t s_i2c_0_bus_handle = NULL;
 
@@ -61,6 +64,92 @@ esp_err_t bsp_lcd_init(void)
     /* Keep the backlight off until the application has rendered its first frame. */
 
     ESP_LOGI(TAG, "Init BSP LCD success");
+    return ESP_OK;
+}
+
+esp_err_t bsp_lcd_set_rotation(bsp_lcd_rotation_t rotation)
+{
+    lv_display_rotation_t lv_rotation;
+    switch (rotation) {
+    case BSP_LCD_ROTATION_0:
+        lv_rotation = LV_DISPLAY_ROTATION_0;
+        break;
+    case BSP_LCD_ROTATION_90:
+        lv_rotation = LV_DISPLAY_ROTATION_90;
+        break;
+    case BSP_LCD_ROTATION_180:
+        lv_rotation = LV_DISPLAY_ROTATION_180;
+        break;
+    case BSP_LCD_ROTATION_270:
+        lv_rotation = LV_DISPLAY_ROTATION_270;
+        break;
+    default:
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!s_lvgl_display) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_applied_rotation == rotation) {
+        return ESP_OK;
+    }
+
+    if (!lvgl_port_lock(0)) {
+        return ESP_ERR_TIMEOUT;
+    }
+    lv_display_set_rotation(s_lvgl_display, lv_rotation);
+    const int32_t width = lv_display_get_horizontal_resolution(s_lvgl_display);
+    const int32_t height = lv_display_get_vertical_resolution(s_lvgl_display);
+    s_applied_rotation = rotation;
+    lvgl_port_unlock();
+
+    ESP_LOGI(TAG,
+             "LCD rotation applied: rotation=%d logical_resolution=%" PRId32
+             "x%" PRId32 " software_rotation=disabled",
+             (int)rotation,
+             width,
+             height);
+    return ESP_OK;
+}
+
+bsp_lcd_rotation_t bsp_lcd_get_rotation(void)
+{
+    return s_applied_rotation;
+}
+
+bsp_lcd_orientation_t bsp_lcd_get_orientation(void)
+{
+    switch (s_applied_rotation) {
+    case BSP_LCD_ROTATION_90:
+    case BSP_LCD_ROTATION_270:
+        return BSP_LCD_ORIENTATION_LANDSCAPE;
+    case BSP_LCD_ROTATION_0:
+    case BSP_LCD_ROTATION_180:
+    default:
+        return BSP_LCD_ORIENTATION_PORTRAIT;
+    }
+}
+
+bool bsp_lcd_is_landscape(void)
+{
+    return bsp_lcd_get_orientation() == BSP_LCD_ORIENTATION_LANDSCAPE;
+}
+
+esp_err_t bsp_lcd_get_logical_resolution(int32_t *width, int32_t *height)
+{
+    if (!width || !height) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_lvgl_display) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!lvgl_port_lock(0)) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    *width = lv_display_get_horizontal_resolution(s_lvgl_display);
+    *height = lv_display_get_vertical_resolution(s_lvgl_display);
+    lvgl_port_unlock();
     return ESP_OK;
 }
 

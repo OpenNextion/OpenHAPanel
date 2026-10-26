@@ -9,6 +9,7 @@ typedef void (*light_assumed_power_buttons_change_cb_t)(bool on,
                                                         void *user_data);
 
 lv_obj_t *light_assumed_power_buttons_create(lv_obj_t *parent);
+void light_assumed_power_buttons_set_height(lv_obj_t *obj, int32_t height);
 void light_assumed_power_buttons_set_state(lv_obj_t *obj,
                                            bool known,
                                            bool on);

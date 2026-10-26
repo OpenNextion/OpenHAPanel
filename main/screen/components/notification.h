@@ -52,6 +52,11 @@ typedef struct {
     uint16_t icon_size;
     /** Place the status row below the title, alongside the title icon. */
     bool status_in_header;
+    /**
+     * In landscape mode, place the status row below the title and use the
+     * compact landscape spacing. Portrait mode keeps the regular layout.
+     */
+    bool landscape_compact_layout;
     /** Keep the page below the notification at its original brightness. */
     bool transparent_overlay;
     /** Optional 0xRRGGBB overrides; zero keeps the component default. */
@@ -79,6 +84,9 @@ notification_t *notification_show(const notification_config_t *config);
 
 /** Close a displayed notification instance. */
 void notification_close(notification_t *notification);
+
+/** Reapply the portrait or landscape layout after the display rotates. */
+void notification_apply_orientation(notification_t *notification);
 
 #ifdef __cplusplus
 }

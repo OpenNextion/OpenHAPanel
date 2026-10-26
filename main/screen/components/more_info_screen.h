@@ -20,6 +20,13 @@ void more_info_screen_close(void);
 bool more_info_screen_refresh_entity(ha_entity_store_t *store,
                                      const char *entity_id);
 bool more_info_screen_is_open(void);
+/**
+ * Remove the complete visible More Info layout before the display resolution
+ * changes. Call with the LVGL lock held.
+ */
+bool more_info_screen_prepare_for_rotation(void);
+/** Rebuild a More Info page cleared by prepare_for_rotation(). */
+bool more_info_screen_complete_rotation(void);
 
 #ifdef __cplusplus
 }

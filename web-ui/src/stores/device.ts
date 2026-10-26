@@ -1,6 +1,6 @@
 import { cloneDeep, merge, omit, set } from 'lodash-es';
 import { get, writable, derived } from 'svelte/store';
-import type { IDeviceInfoNotify, IThemeModeNotify } from '@/types/device';
+import type { IDeviceInfoNotify, INightModeSettings, IScreenRotationNotify, IThemeModeNotify } from '@/types/device';
 import EThemeMode from '@/types/EThemeMode';
 import sendForReply from '@/ws/sendForReply';
 import { ERROR_CODE } from '@/constant';
@@ -8,6 +8,8 @@ import { EWsMethods } from '@/types/websocket';
 
 interface IDevice extends IDeviceInfoNotify, IThemeModeNotify {
     debugLogEnabled: boolean;
+    nightMode: INightModeSettings;
+    screenRotation: IScreenRotationNotify;
 }
 
 type TBootstrapTheme = 'light' | 'dark';
@@ -51,6 +53,18 @@ const INIT_VALUE: IDevice = {
     debugLogEnabled: false,
     brightness: 50,
     idleTime: 300,
+    nightMode: {
+        enable: false,
+        brightness: 30,
+        from: '20:00',
+        to: '07:00',
+    },
+    screenRotation: {
+        rotation: 0,
+        orientation: 'portrait',
+        width: 320,
+        height: 480,
+    },
 };
 
 export const deviceStore = writable<IDevice>(cloneDeep(INIT_VALUE), () => {

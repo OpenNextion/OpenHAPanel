@@ -18,6 +18,7 @@ extern const lv_font_t ha_font_misan_medium_36;
 extern const lv_font_t ha_font_misan_regular_12;
 extern const lv_font_t ha_font_misan_regular_14;
 extern const lv_font_t ha_font_misan_regular_16;
+extern const lv_font_t ha_font_misan_regular_16_tnum;
 extern const lv_font_t ha_font_misan_regular_20;
 
 extern const lv_image_dsc_t hass_grey_48x48;

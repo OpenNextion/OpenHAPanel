@@ -7,6 +7,7 @@
 #define POWER_BUTTONS_HEIGHT       230
 #define POWER_BUTTON_HEIGHT        110
 #define POWER_BUTTON_GAP           10
+#define POWER_BUTTON_GAP_LAND      8
 #define POWER_BUTTON_RADIUS        18
 
 #define POWER_BUTTON_INACTIVE      0x202020
@@ -152,6 +153,19 @@ lv_obj_t *light_assumed_power_buttons_create(lv_obj_t *parent)
 
     refresh_visual(context);
     return root;
+}
+
+void light_assumed_power_buttons_set_height(lv_obj_t *obj, int32_t height)
+{
+    light_assumed_power_buttons_context_t *context = get_context(obj);
+    if (!context || height <= POWER_BUTTON_GAP) {
+        return;
+    }
+    const int32_t button_height = (height - POWER_BUTTON_GAP_LAND) / 2;
+    lv_obj_set_height(obj, height);
+    lv_obj_set_style_pad_gap(obj, POWER_BUTTON_GAP_LAND, 0);
+    lv_obj_set_height(context->on_button, button_height);
+    lv_obj_set_height(context->off_button, button_height);
 }
 
 void light_assumed_power_buttons_set_state(lv_obj_t *obj,

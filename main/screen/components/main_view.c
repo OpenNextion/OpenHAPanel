@@ -5,6 +5,7 @@
 #include "app.h"
 #include "assets/ha_ui_assets.h"
 #include "badge_display.h"
+#include "bsp_lcd.h"
 #include "entity_display.h"
 #include "entity_handlers/entity_handler_registry.h"
 #include "esp_log.h"
@@ -15,7 +16,11 @@
 
 static const char *TAG = "main_view";
 
+#define MAIN_VIEW_CARD_GAP 8
+#define MAIN_VIEW_CARD_SIDE_PADDING 20
+
 typedef struct {
+    main_view_t *owner;
     size_t config_index;
     const char *entity_id;
     lv_obj_t *name_label;
@@ -35,16 +40,26 @@ typedef struct {
 
 struct main_view {
     lv_obj_t *container;
+    lv_obj_t *cards_container;
+    lv_indev_t *pointer_indev;
+    lv_indev_t *scroll_interrupted_indev;
     main_view_entity_ref_t *badges;
     size_t badge_count;
     main_view_entity_ref_t *entities;
     size_t entity_count;
+    int32_t cards_content_width;
+    bool suppress_actions_for_press;
 };
 
 static void main_view_apply_container_style(lv_obj_t *container);
+static void main_view_scroll_end_cb(lv_event_t *event);
+static void main_view_indev_pressed_cb(lv_event_t *event);
+static bool main_view_action_suppressed(const main_view_entity_ref_t *ref);
 static void main_view_clear_refs(main_view_t *main_view);
 static void main_view_render_badges(main_view_t *main_view, const screen_view_t *view);
 static void main_view_render_cards(main_view_t *main_view, const screen_view_t *view);
+static void main_view_apply_card_layout(main_view_t *main_view);
+static void main_view_cards_size_changed_cb(lv_event_t *event);
 static const char *main_view_card_name(const screen_card_config_t *card);
 static bool main_view_action_is_enabled(bool has_action,
                                         const screen_action_t *action);
@@ -84,9 +99,27 @@ main_view_t *main_view_create(lv_obj_t *parent, const screen_view_t *view)
         return NULL;
     }
     memset(main_view, 0, sizeof(main_view_t));
+    main_view->cards_content_width = -1;
 
     main_view->container = lv_obj_create(parent);
     main_view_apply_container_style(main_view->container);
+    lv_obj_add_event_cb(main_view->container,
+                        main_view_scroll_end_cb,
+                        LV_EVENT_SCROLL_END,
+                        main_view);
+
+    lv_indev_t *indev = lv_indev_get_next(NULL);
+    while (indev) {
+        if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER) {
+            main_view->pointer_indev = indev;
+            lv_indev_add_event_cb(indev,
+                                  main_view_indev_pressed_cb,
+                                  LV_EVENT_PRESSED,
+                                  main_view);
+            break;
+        }
+        indev = lv_indev_get_next(indev);
+    }
     main_view_update(main_view, view);
 
     return main_view;
@@ -98,6 +131,12 @@ void main_view_destroy(main_view_t *main_view)
         return;
     }
 
+    if (main_view->pointer_indev) {
+        lv_indev_remove_event_cb_with_user_data(main_view->pointer_indev,
+                                                main_view_indev_pressed_cb,
+                                                main_view);
+        main_view->pointer_indev = NULL;
+    }
     main_view_clear_refs(main_view);
     lv_free(main_view);
 }
@@ -265,6 +304,47 @@ static void main_view_apply_container_style(lv_obj_t *container)
                           LV_FLEX_ALIGN_START);
 }
 
+static void main_view_scroll_end_cb(lv_event_t *event)
+{
+    main_view_t *main_view = lv_event_get_user_data(event);
+    lv_indev_t *indev = lv_event_get_indev(event);
+    if (!main_view || !indev ||
+        lv_indev_get_state(indev) != LV_INDEV_STATE_PRESSED) {
+        return;
+    }
+
+    /* A new press stopped the previous momentum scroll. Treat that entire
+     * press cycle as scroll interception, never as a card action. */
+    main_view->scroll_interrupted_indev = indev;
+}
+
+static void main_view_indev_pressed_cb(lv_event_t *event)
+{
+    main_view_t *main_view = lv_event_get_user_data(event);
+    lv_indev_t *indev = lv_event_get_current_target(event);
+    if (!main_view || !indev) {
+        return;
+    }
+
+    main_view->suppress_actions_for_press =
+        main_view->scroll_interrupted_indev == indev;
+    main_view->scroll_interrupted_indev = NULL;
+}
+
+static bool main_view_action_suppressed(const main_view_entity_ref_t *ref)
+{
+    if (!ref || !ref->owner) {
+        return false;
+    }
+    if (ref->owner->suppress_actions_for_press) {
+        return true;
+    }
+
+    lv_indev_t *indev = lv_indev_active();
+    return indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER &&
+           lv_indev_get_press_moved(indev);
+}
+
 static void main_view_clear_refs(main_view_t *main_view)
 {
     if (!main_view) {
@@ -288,6 +368,8 @@ static void main_view_clear_refs(main_view_t *main_view)
     main_view->badge_count = 0;
     main_view->entities = NULL;
     main_view->entity_count = 0;
+    main_view->cards_container = NULL;
+    main_view->cards_content_width = -1;
 }
 
 static void main_view_render_badges(main_view_t *main_view, const screen_view_t *view)
@@ -336,6 +418,7 @@ static void main_view_render_badges(main_view_t *main_view, const screen_view_t 
         }
 
         main_view_entity_ref_t *ref = &main_view->badges[main_view->badge_count++];
+        ref->owner = main_view;
         ref->config_index = i;
         ref->entity_id = badge->data.entity;
         ref->badge_name = badge->data.name;
@@ -370,23 +453,26 @@ static void main_view_render_cards(main_view_t *main_view, const screen_view_t *
     memset(main_view->entities, 0, sizeof(main_view_entity_ref_t) * view->card_count);
 
     lv_obj_t *cards_row = lv_obj_create(main_view->container);
+    main_view->cards_container = cards_row;
     lv_obj_remove_style_all(cards_row);
     lv_obj_remove_flag(cards_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(cards_row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_layout(cards_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(cards_row, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_flow(cards_row, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_flex_align(cards_row,
                           LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_all(cards_row, 0, 0);
-    lv_obj_set_style_pad_gap(cards_row, 8, 0);
+    lv_obj_set_style_pad_hor(cards_row, MAIN_VIEW_CARD_SIDE_PADDING, 0);
+    lv_obj_set_style_pad_gap(cards_row, MAIN_VIEW_CARD_GAP, 0);
 
     for (size_t i = 0; i < view->card_count; i++) {
         const screen_card_config_t *card_config = &view->cards[i];
 
         if (card_config->type == SCREEN_CARD_TYPE_TILE) {
             main_view_entity_ref_t *ref = &main_view->entities[main_view->entity_count++];
+            ref->owner = main_view;
             ref->config_index = i;
             ref->entity_id = card_config->data.tile.entity;
             main_view_apply_action_config(ref, &card_config->data.tile);
@@ -424,6 +510,54 @@ static void main_view_render_cards(main_view_t *main_view, const screen_view_t *
         lv_obj_set_style_text_font(name_label, &lv_font_montserrat_14, 0);
 
     }
+
+    lv_obj_update_layout(cards_row);
+    main_view_apply_card_layout(main_view);
+    lv_obj_add_event_cb(cards_row,
+                        main_view_cards_size_changed_cb,
+                        LV_EVENT_SIZE_CHANGED,
+                        main_view);
+}
+
+static void main_view_apply_card_layout(main_view_t *main_view)
+{
+    if (!main_view || !main_view->cards_container) {
+        return;
+    }
+
+    int32_t cards_width = lv_obj_get_content_width(main_view->cards_container);
+    if (cards_width <= 0 || cards_width == main_view->cards_content_width) {
+        return;
+    }
+    main_view->cards_content_width = cards_width;
+
+    size_t columns = bsp_lcd_is_landscape() ? 2 : 1;
+    size_t max_columns = ((size_t)cards_width + MAIN_VIEW_CARD_GAP) /
+                         (MAIN_VIEW_CARD_GAP + 1);
+    if (columns > max_columns) {
+        columns = max_columns;
+    }
+
+    int32_t column_width = columns > 1
+                               ? (cards_width - (int32_t)((columns - 1) * MAIN_VIEW_CARD_GAP)) /
+                                     (int32_t)columns
+                               : cards_width;
+
+    for (size_t i = 0; i < main_view->entity_count; i++) {
+        main_view_entity_ref_t *ref = &main_view->entities[i];
+        if (!ref->tile_card || !ref->tile_config) {
+            continue;
+        }
+        lv_obj_set_width(ref->tile_card,
+                         ref->tile_config->full_width || columns == 1
+                             ? LV_PCT(100)
+                             : column_width);
+    }
+}
+
+static void main_view_cards_size_changed_cb(lv_event_t *event)
+{
+    main_view_apply_card_layout(lv_event_get_user_data(event));
 }
 
 static bool main_view_apply_cached_entity(main_view_entity_ref_t *ref,
@@ -538,10 +672,6 @@ static void main_view_apply_display_model(main_view_entity_ref_t *ref,
     ha_tile_card_set_icon_color(tile_card, model->icon_color);
     ha_tile_card_set_icon_circle_background_color(tile_card,
                                                   model->icon_circle_background_color);
-    ha_tile_card_set_ripple_color(tile_card,
-                                  model->has_ripple_color
-                                      ? model->ripple_color
-                                      : model->icon_circle_background_color);
     ha_tile_card_set_title_color(tile_card, model->title_color);
     ha_tile_card_set_state_color(tile_card, model->state_color);
     ha_tile_card_set_icon_click_cb(tile_card,
@@ -566,31 +696,46 @@ static void main_view_apply_display_model(main_view_entity_ref_t *ref,
 static void main_view_tile_icon_click_cb(lv_obj_t *tile_card, void *user_data)
 {
     (void)tile_card;
-    main_view_dispatch_action(user_data, ENTITY_ACTION_TRIGGER_ICON_TAP);
+    main_view_entity_ref_t *ref = user_data;
+    if (!main_view_action_suppressed(ref)) {
+        main_view_dispatch_action(ref, ENTITY_ACTION_TRIGGER_ICON_TAP);
+    }
 }
 
 static void main_view_badge_body_click_cb(lv_obj_t *badge_pill, void *user_data)
 {
     (void)badge_pill;
-    main_view_dispatch_badge_action(user_data, ENTITY_ACTION_TRIGGER_TAP);
+    main_view_entity_ref_t *ref = user_data;
+    if (!main_view_action_suppressed(ref)) {
+        main_view_dispatch_badge_action(ref, ENTITY_ACTION_TRIGGER_TAP);
+    }
 }
 
 static void main_view_tile_body_click_cb(lv_obj_t *tile_card, void *user_data)
 {
     (void)tile_card;
-    main_view_dispatch_action(user_data, ENTITY_ACTION_TRIGGER_TAP);
+    main_view_entity_ref_t *ref = user_data;
+    if (!main_view_action_suppressed(ref)) {
+        main_view_dispatch_action(ref, ENTITY_ACTION_TRIGGER_TAP);
+    }
 }
 
 static void main_view_badge_body_hold_cb(lv_obj_t *badge_pill, void *user_data)
 {
     (void)badge_pill;
-    main_view_dispatch_badge_action(user_data, ENTITY_ACTION_TRIGGER_HOLD);
+    main_view_entity_ref_t *ref = user_data;
+    if (!main_view_action_suppressed(ref)) {
+        main_view_dispatch_badge_action(ref, ENTITY_ACTION_TRIGGER_HOLD);
+    }
 }
 
 static void main_view_tile_body_hold_cb(lv_obj_t *tile_card, void *user_data)
 {
     (void)tile_card;
-    main_view_dispatch_action(user_data, ENTITY_ACTION_TRIGGER_HOLD);
+    main_view_entity_ref_t *ref = user_data;
+    if (!main_view_action_suppressed(ref)) {
+        main_view_dispatch_action(ref, ENTITY_ACTION_TRIGGER_HOLD);
+    }
 }
 
 static bool main_view_update_ref(main_view_entity_ref_t *ref, const char *name, const char *state)
@@ -794,9 +939,6 @@ static void main_view_open_more_info_cb(const char *entity_id,
     if (ref && store) {
         if (ref->badge_pill) {
             ha_badge_stop_ripple(ref->badge_pill);
-        }
-        if (ref->tile_card) {
-            ha_tile_card_stop_ripple(ref->tile_card);
         }
         more_info_screen_open(store, entity_id, ref->tile_config);
     }

@@ -11,7 +11,7 @@ const INIT_VALUE: IScreenConfigStore = {
     screens: [],
 };
 
-export const MAX_SCREEN_BADGE_COUNT = 3;
+export const MAX_SCREEN_BADGE_COUNT = 4;
 
 export function shouldShowScreenEntityIconBackground(entityId: string, actionConfig?: IHassScreenActionConfig) {
     const domain = entityId.split('.', 1)[0] ?? '';
@@ -21,12 +21,27 @@ export function shouldShowScreenEntityIconBackground(entityId: string, actionCon
 
 export const screenConfigStore = writable<IScreenConfigStore>(cloneDeep(INIT_VALUE));
 
+function normalizeScreens(screens: IHassScreenConfigItem[]) {
+    return screens.map((screen) => ({
+        ...screen,
+        columns: Number.isInteger(screen.columns) && screen.columns > 0 ? screen.columns : 1,
+        cards: screen.cards?.map((card) => ({ ...card, data: { ...card.data, full_width: card.data.full_width ?? true } })),
+    }));
+}
+
 export function setScreenConfigs(screens: IHassScreenConfigItem[]) {
-    screenConfigStore.set({ screens: cloneDeep(screens) });
+    screenConfigStore.set({ screens: cloneDeep(normalizeScreens(screens)) });
 }
 
 export function updateScreenConfigs(screens: IHassScreenConfigItem[]) {
-    screenConfigStore.update((store) => ({ ...store, screens: cloneDeep(screens) }));
+    screenConfigStore.update((store) => ({ ...store, screens: cloneDeep(normalizeScreens(screens)) }));
+}
+
+export function updateScreenColumns(index: number, columns: number) {
+    screenConfigStore.update((store) => ({
+        ...store,
+        screens: store.screens.map((screen) => (screen.index === index ? { ...screen, columns } : screen)),
+    }));
 }
 
 export function updateScreenTitle(index: number, title: string) {
@@ -136,7 +151,7 @@ export function updateScreenCardActionConfig(index: number, entityId: string, ac
     }));
 }
 
-export function updateScreenCard(index: number, currentEntityId: string, entityId: string, actionConfig: IHassScreenActionConfig) {
+export function updateScreenCard(index: number, currentEntityId: string, entityId: string, actionConfig: IHassScreenActionConfig, fullWidth?: boolean) {
     screenConfigStore.update((store) => ({
         ...store,
         screens: store.screens.map((screen) =>
@@ -145,7 +160,15 @@ export function updateScreenCard(index: number, currentEntityId: string, entityI
                       ...screen,
                       cards: (screen.cards ?? []).map((card) =>
                           card.data.entity === currentEntityId
-                              ? { ...card, data: { ...card.data, entity: entityId, actionConfig: cloneDeep(actionConfig) } }
+                              ? {
+                                    ...card,
+                                    data: {
+                                        ...card.data,
+                                        entity: entityId,
+                                        actionConfig: cloneDeep(actionConfig),
+                                        ...(fullWidth === undefined ? {} : { full_width: fullWidth }),
+                                    },
+                                }
                               : card,
                       ),
                   }

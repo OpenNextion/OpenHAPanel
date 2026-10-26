@@ -205,7 +205,8 @@ static bool webserver_auth_constant_time_string_equal(const char *a, const char 
  * configuration (including the password), regenerates the expected response string using
  * `webserver_generate_auth_str`, and compares it with the client-provided `response`.
  *
- * If the credentials are valid, an `WEB_SERVER_EVENT_AUTH_OK` event is posted.
+ * If the credentials are valid, the caller sends the login response and then
+ * posts `WEB_SERVER_EVENT_AUTH_OK` with the authenticated socket descriptor.
  *
  * Note:
  * - The digest is calculated using SHA-256.
@@ -268,7 +269,6 @@ esp_err_t verify_password_is_correct(cJSON *root, int sock_fd)
     if (webserver_auth_constant_time_string_equal(result, response, SHA256_STR_LEN - 1)) {
         auth_result = ESP_OK;
         webserver_client_set_auth_context(sock_fd, true, WEB_AUTH_SOURCE_PASSWORD, NULL);
-        esp_event_post(WEB_SERVER_EVENT, WEB_SERVER_EVENT_AUTH_OK, NULL, 0, portMAX_DELAY);
         goto cleanup;
     }
 
@@ -296,7 +296,8 @@ cleanup:
  *         - ESP_OK if notification was successfully sent
  *         - ESP_FAIL if JSON object creation failed
  */
-static int webserver_network_connection_status_response(uint8_t is_ap_connect)
+static int webserver_network_connection_status_response(uint8_t is_ap_connect,
+                                                        int socket_fd)
 {
     cJSON *data = cJSON_CreateObject();
     if (!data) {
@@ -304,8 +305,8 @@ static int webserver_network_connection_status_response(uint8_t is_ap_connect)
         return ESP_FAIL;
     }
     cJSON_AddBoolToObject(data, "connectWithAp", is_ap_connect ? true : false);
-    webserver_data_response_to_current_client(data, WEB_API_METHOD_NET_CONN_STATUS_NOTIFY, 0);
-    return ESP_OK;
+    return webserver_data_response_to_special_client(
+        data, WEB_API_METHOD_NET_CONN_STATUS_NOTIFY, 0, socket_fd);
 }
 
 /**
@@ -380,16 +381,21 @@ esp_err_t webserver_login_authentication(async_resp_arg *resp_arg, bool is_ap_su
     ESP_LOGI(TAG, "webserver_login_authentication: fd=%d, is_ap=%d, pwdInit=%d",
              resp_arg->fd, is_ap_subnet, passwordInitRequired);
 
-    esp_err_t send_err = webserver_data_response_to_current_client(data, WEB_API_METHOD_SYS_AUTH_NTY, 0);
+    esp_err_t send_err = webserver_data_response_to_special_client(
+        data, WEB_API_METHOD_SYS_AUTH_NTY, 0, resp_arg->fd);
     ESP_LOGI(TAG, "webserver_data_response_to_current_client returned: %d", send_err);
 
-    webserver_network_connection_status_response(is_ap_subnet);
-    
-    webserver_theme_mode_notify();
-    webserver_language_notify();
-    webserver_cur_mdns_scan_result_notify();
+    webserver_network_connection_status_response(is_ap_subnet, resp_arg->fd);
+
+    webserver_theme_mode_notify_to_client(resp_arg->fd);
+    webserver_language_notify_to_client(resp_arg->fd);
+    webserver_cur_mdns_scan_result_notify_to_client(resp_arg->fd);
     if (is_ap_subnet) {
-        esp_event_post(WEB_SERVER_EVENT, WEB_SERVER_EVENT_SKIP_AUTH, NULL, 0, portMAX_DELAY);
+        esp_event_post(WEB_SERVER_EVENT,
+                       WEB_SERVER_EVENT_SKIP_AUTH,
+                       &resp_arg->fd,
+                       sizeof(resp_arg->fd),
+                       portMAX_DELAY);
     }
     return ESP_OK;
 }

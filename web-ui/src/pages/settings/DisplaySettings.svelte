@@ -55,9 +55,11 @@
     <SettingRow title={$_('settingsDetail.brightness')} content={`${brightness}%`}>
         {#snippet footerSnippet()}<div class="brightness-control" style={`--brightness: ${brightness}%`}><i class="bi bi-sun-fill"></i><input id="display-brightness" type="range" min="1" max="100" value={brightness} oninput={(event) => updateBrightness(Number(event.currentTarget.value))} /></div>{/snippet}
     </SettingRow>
-    <SettingRowGroup>
-        <!--<SettingRow title={$_('page.settings.nightMode')} content={$_('common.disabled')} route={ROUTES_PATH.SETTINGS_NIGHT_MODE} />-->
+    <SettingRow
+        title={$_('page.settings.nightMode')}
+        content={$_($deviceStore.nightMode.enable ? 'common.enabled' : 'common.disabled')}
+        route={ROUTES_PATH.SETTINGS_NIGHT_MODE}
+    />
         <SettingRow title={$_('settingsDetail.screenLock')} content={formatIdleTime($deviceStore.idleTime)} route={ROUTES_PATH.SETTINGS_SCREEN_LOCK} />
-    </SettingRowGroup>
     <Button type="primary" class="settings-save" style="width: min(70%, 560px)" {loading} onclick={save}>{$_('common.save')}</Button>
 </div>

@@ -5,9 +5,10 @@
     import Modal from '@/component/Modal/Modal.svelte';
     import DropDown from '@/component/Dropdown/DropDown.svelte';
     import { getHassEntityPresentation, normalizeHassEntityAction } from '@/hooks/useHassEntity';
+    import { deviceStore } from '@/stores/device';
     import { haRegistryStore } from '@/stores/haRegistry';
     import { EMessageType, sendMessage } from '@/stores/message';
-    import { shouldShowScreenEntityIconBackground } from '@/stores/screenConfig';
+    import { screenConfigStore, shouldShowScreenEntityIconBackground } from '@/stores/screenConfig';
     import {
         deleteScreenEntity,
         getScreenActionOptions,
@@ -30,9 +31,12 @@
     let tapAction = $state<TActionSelection>('default');
     let holdAction = $state<TActionSelection>('default');
     let iconTapAction = $state<TActionSelection>('default');
+    let activeTab = $state<'config' | 'layout'>('config');
+    let fullWidth = $state(true);
     let draftEntityId = $state('');
     let entityQuery = $state('');
     let initializedKey = '';
+    const isLandscape = $derived($deviceStore.screenRotation.rotation === 90);
     const entityResults = $derived.by(() => {
         void $haRegistryStore.tree;
         return searchScreenEntities(entityQuery);
@@ -61,6 +65,10 @@
         const key = `${mode}:${screenIndex}:${entityId}`;
         if (initializedKey === key) return;
         initializedKey = key;
+        activeTab = 'config';
+        fullWidth = $screenConfigStore.screens
+            .find((screen) => screen.index === screenIndex)
+            ?.cards?.find((card) => card.data.entity === entityId)?.data.full_width ?? true;
         const actions = getScreenEntityActionSelections(mode, screenIndex, entityId);
         const entity = getHassEntityPresentation(entityId, $haRegistryStore);
         const entityInteractions = mode === 'badge' ? entity.config?.badgeInteractions ?? entity.interactions : entity.interactions;
@@ -82,6 +90,7 @@
             tapAction,
             longPressSupported ? holdAction : 'default',
             iconTapAction,
+            mode === 'entity' ? fullWidth : undefined,
         );
         onclose();
     }
@@ -117,8 +126,19 @@
                 <button type="button" aria-label={$_('common.close')} onclick={onclose}><SvgIcon name="mdi:close" /></button>
                 <strong>{mode === 'badge' ? 'Badge configuration' : 'Tile card configuration'}</strong>
             </header>
-            <div class="entity-settings-dialog-content">
+            <div class:layout-active={mode === 'entity' && isLandscape && activeTab === 'layout'} class="entity-settings-dialog-content">
                 <div class="entity-settings">
+                    {#if mode === 'entity' && isLandscape}
+                        <div class="entity-settings-tabs" role="tablist">
+                            <button class:active={activeTab === 'config'} type="button" role="tab" aria-selected={activeTab === 'config'} onclick={() => (activeTab = 'config')}>
+                                {$_('page.screen.config')}
+                            </button>
+                            <button class:active={activeTab === 'layout'} type="button" role="tab" aria-selected={activeTab === 'layout'} onclick={() => (activeTab = 'layout')}>
+                                {$_('page.screen.layout')}
+                            </button>
+                        </div>
+                    {/if}
+                    {#if mode === 'badge' || !isLandscape || activeTab === 'config'}
                     <section class="configured-entity">
                         <span>Entity</span>
                         <DropDown
@@ -146,7 +166,7 @@
                     </section>
                     <details class="entity-config-section" open>
                         <summary
-                            ><span class="section-leading-icon"><SvgIcon name="mdi:gesture-tap-button" /></span><span>Interactions</span><span class="section-chevron"
+                            ><span class="section-leading-icon"><SvgIcon name="interactions.svg" /></span><span>Interactions</span><span class="section-chevron"
                                 ><SvgIcon name="arrowRight.svg" /></span
                             ></summary
                         >
@@ -171,19 +191,37 @@
                         </div>
                     </details>
                     {#if mode === 'entity'}
-                        <details class="entity-config-section">
+                        <details class="entity-config-section" open>
                             <summary
-                                ><span class="section-leading-icon"><SvgIcon name="mdi:format-list-bulleted-square" /></span><span>Features</span><span class="section-chevron"
+                                ><span class="section-leading-icon"><SvgIcon name="features.svg" /></span><span>Features</span><span class="section-chevron"
                                     ><SvgIcon name="arrowRight.svg" /></span
                                 ></summary
                             >
-                            <div class="feature-placeholder"><SvgIcon name="mdi:message-text-outline" /><span>{$_('page.screen.comingSoon')}</span></div>
+                            <div class="feature-placeholder"><SvgIcon name="coming.svg" /><span>{$_('page.screen.comingSoon')}</span></div>
                         </details>
+                    {/if}
+                    {:else}
+                        <section class="layout-settings">
+                            <div class="layout-setting-copy">
+                                <strong>{$_('page.screen.fullWidth')}</strong>
+                                <p>{$_('page.screen.fullWidthHint')}</p>
+                            </div>
+                            <span class="form-check form-switch">
+                                <input
+                                    class="form-check-input"
+                                    type="checkbox"
+                                    role="switch"
+                                    aria-label={$_('page.screen.fullWidth')}
+                                    checked={fullWidth}
+                                    onchange={(event) => (fullWidth = event.currentTarget.checked)}
+                                />
+                            </span>
+                        </section>
                     {/if}
                 </div>
                 <div class="entity-settings-preview">
                     <span class="preview-title">{$_('page.screen.suggestions')}</span>
-                    <div class="preview-surface">
+                    <div class:badge-preview={mode === 'badge'} class="preview-surface">
                         {#if draftEntitySupported}
                             <HassEntityRow
                                 variant={mode}
@@ -206,85 +244,140 @@
 
 <style lang="scss">
     .entity-settings-dialog {
+        --entity-field-bg: #f2f2f7;
+        --entity-preview-bg: rgb(249, 249, 249);
+        --modal-badge-bg: rgb(47, 47, 47);
+        --interaction-menu-bg: #fff;
+        --interaction-menu-border: rgba(25, 40, 60, 0.18);
         box-sizing: border-box;
+        display: flex;
         width: min(50rem, calc(100vw - 2rem));
+        height: min(44.1875rem, calc(100dvh - 2rem));
         overflow: hidden;
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.75rem;
+        flex-direction: column;
+        border-radius: 1.25rem;
         background: var(--body-inner-level-2);
         color: var(--bs-body-color);
+        font-size: 0.875rem;
+    }
+    :global([data-bs-theme='dark']) .entity-settings-dialog {
+        --entity-field-bg: #454545;
+        --entity-preview-bg: #1d1d1d;
+        --interaction-menu-bg: #303132;
+        --interaction-menu-border: rgba(207, 220, 234, 0.85);
+        --body-inner-level-2: #303132;
+        --bs-border-color: #515253;
     }
     header {
         display: flex;
-        height: 50px;
-        padding: 0 0.9rem;
+        min-height: 4.0625rem;
+        padding: 0 1.25rem;
+        flex: 0 0 auto;
         align-items: center;
         gap: 0.75rem;
-        border-bottom: 1px solid var(--bs-border-color);
+        border-bottom: 0.0625rem solid var(--bs-border-color);
     }
     header button {
         display: inline-flex;
         padding: 0;
+        flex: 0 0 auto;
         border: 0;
         background: transparent;
         color: inherit;
-        font-size: 1.25rem;
+        font-size: 1.5rem;
+    }
+    header strong {
+        min-width: 0;
+        overflow: hidden;
+        font-size: 1.125rem;
+        font-weight: 500;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     .entity-settings-dialog-content {
         display: grid;
-        min-height: 390px;
-        grid-template-columns: 24.9375rem minmax(0, 1fr);
-        border-bottom: 1px solid var(--bs-border-color);
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow-y: auto;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        border-bottom: 0.0625rem solid var(--bs-border-color);
     }
     .entity-settings {
-        padding: 1rem;
+        min-width: 0;
+        padding: 0.75rem;
+    }
+    .entity-settings-tabs {
+        display: flex;
+        height: 2.8125rem;
+        margin: -0.75rem -0.75rem 1.25rem;
+        border-bottom: 0.0625rem solid var(--bs-border-color);
+    }
+    .entity-settings-tabs button {
+        width: 50%;
+        padding: 0;
+        color: inherit;
+        border: 0;
+        border-bottom: 0.0625rem solid transparent;
+        background: transparent;
+        font-size: 0.875rem;
+    }
+    .entity-settings-tabs button.active {
+        border-bottom-color: var(--primary-button-bg);
+        background: color-mix(in srgb, var(--primary-button-bg) 12%, transparent);
     }
     .configured-entity {
         position: relative;
         display: flex;
-        margin-bottom: 0.75rem;
+        margin-bottom: 1.25rem;
         flex-direction: column;
-        gap: 0.15rem;
+        gap: 0.625rem;
     }
     .configured-entity > span {
-        margin-bottom: 0.35rem;
-        font-size: 1rem;
+        font-size: 0.875rem;
     }
     .configured-entity :global(.dropdown) {
         width: 100%;
-        border-radius: 0.75rem;
+        min-width: 0;
     }
     .configured-entity :global(.dropdown-menu) {
-        max-height: 220px;
+        max-width: 100%;
+        max-height: 13.75rem;
         overflow-y: auto;
+        border-radius: 0.625rem;
+    }
+    .configured-entity :global(.custom-searchable-trigger) {
+        min-height: 3.5rem;
+    }
+    .configured-entity :global(.searchable-trigger) {
+        width: calc(100% - 1.5rem);
+        min-height: 2.375rem;
+        margin: 0.75rem 0.75rem 0.625rem;
+        padding-inline: 0.75rem;
+        border: 0.0625rem solid var(--bs-border-color);
+        border-radius: 0.625rem;
+        background: transparent;
+    }
+    .configured-entity :global(.searchable-trigger > .sf-icon) {
+        flex: 0 0 auto;
+        color: var(--bs-body-color);
+        font-size: 1.25rem;
     }
     .configured-entity-value {
         display: grid;
         width: 100%;
-        min-height: 4rem;
+        min-height: 3.5rem;
         min-width: 0;
         padding: 0.5rem 0.75rem;
         align-items: center;
-        grid-template-columns: 2rem minmax(0, 1fr) 1rem;
-        gap: 0.75rem;
-        color: rgba(48, 49, 50, 1);
-        border-bottom: 1px solid rgba(142, 142, 147, 0.28);
-        border-radius: 0.75rem 0.75rem 0 0;
-        background: rgba(245, 245, 245, 1);
-    }
-    :global([data-bs-theme='dark']) .configured-entity-value {
-        color: #e5e5e5;
-        border-bottom-color: rgba(225, 225, 225, 0.35);
-        background: rgba(72, 72, 72, 1);
+        grid-template-columns: 1.25rem minmax(0, 1fr) 0.75rem;
+        gap: 0.625rem;
+        border-bottom: 0.0625rem solid var(--bs-secondary-color);
+        border-radius: 0.5rem 0.5rem 0 0;
+        background: var(--entity-field-bg);
     }
     .configured-entity-value > :global(.sf-icon:first-child) {
-        display: inline-flex;
-        width: 1.75rem;
-        height: 1.75rem;
-        align-items: center;
-        justify-content: center;
-        color: rgba(142, 142, 147, 1);
-        font-size: 1.5rem;
+        color: var(--bs-secondary-color);
+        font-size: 1.25rem;
     }
     .configured-entity-value > span {
         display: flex;
@@ -298,26 +391,33 @@
         white-space: nowrap;
     }
     .configured-entity-value strong {
-        font-size: 1rem;
+        font-size: 0.875rem;
         font-weight: 400;
-        line-height: 1.4;
+        line-height: 1.25rem;
     }
     .configured-entity-value small {
-        color: rgba(142, 142, 147, 1);
-        font-size: 0.875rem;
-        line-height: 1.35;
+        color: var(--bs-secondary-color);
+        font-size: 0.75rem;
+        line-height: 1.125rem;
     }
     .configured-entity-value > :global(.sf-icon:last-child) {
-        color: rgba(142, 142, 147, 1);
+        color: var(--bs-secondary-color);
+        font-size: 0.625rem;
         transform: rotate(90deg);
     }
     .configured-entity :global(.dropdown-item) {
         display: flex;
-        min-height: 48px;
-        padding: 0.45rem 0.7rem;
+        min-height: 3rem;
+        padding: 0.5rem 0.75rem;
         align-items: center;
-        gap: 0.65rem;
+        gap: 0.625rem;
         color: inherit;
+    }
+    .entity-settings-dialog :global(.dropdown-item:hover),
+    .entity-settings-dialog :global(.dropdown-item.active),
+    .entity-settings-dialog :global(.dropdown-item:active) {
+        background: var(--web-10, rgba(1, 119, 253, 0.1));
+        color: var(--bs-body-color);
     }
     .configured-entity :global(.dropdown-item > span) {
         display: flex;
@@ -334,19 +434,20 @@
         color: var(--bs-secondary-color);
     }
     .entity-config-section {
-        margin-top: 0.6rem;
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.35rem;
+        margin-top: 1.25rem;
+        border: 0.0625rem solid var(--bs-border-color);
+        border-radius: 0.625rem;
     }
     .entity-config-section > summary {
         display: grid;
-        min-height: 50px;
-        padding: 0.7rem;
+        min-height: 3.375rem;
+        padding: 0.75rem;
         align-items: center;
         grid-template-columns: auto 1fr auto;
-        gap: 0.65rem;
+        gap: 0.625rem;
         cursor: pointer;
         list-style: none;
+        font-size: 1rem;
     }
     .entity-config-section > summary::-webkit-details-marker {
         display: none;
@@ -354,8 +455,13 @@
     .section-leading-icon,
     .section-chevron {
         display: inline-flex;
+        font-size: 1.25rem;
+    }
+    .section-leading-icon {
         color: var(--bs-secondary-color);
-        font-size: 1.15rem;
+    }
+    .section-chevron {
+        font-size: 0.875rem;
     }
     .section-chevron :global(.sf-icon) {
         transition: transform 0.15s ease;
@@ -366,147 +472,209 @@
     }
     .interaction-fields {
         display: grid;
-        padding: 0 0.5rem 0.75rem;
-        gap: 0.65rem;
+        padding: 0 0.625rem 0.75rem;
+        gap: 1.25rem;
     }
-    .interaction-fields .behavior-field {
+    .behavior-field {
         display: flex;
-        padding: 0.35rem 0.55rem 0;
+        min-width: 0;
+        min-height: 3.5rem;
+        padding: 0.5rem 0.75rem 0.375rem;
         flex-direction: column;
-        background: var(--bs-body-bg);
+        border-bottom: 0.0625rem solid var(--bs-secondary-color);
+        border-radius: 0.5rem 0.5rem 0 0;
+        background: var(--entity-field-bg);
         color: var(--bs-secondary-color);
         font-size: 0.75rem;
     }
     .interaction-fields :global(.dropdown) {
         width: 100%;
-        min-height: 30px;
-        border-bottom: 1px solid var(--bs-border-color);
-        background: transparent;
+        min-width: 0;
         color: var(--bs-body-color);
-        font-size: 0.9rem;
+        font-size: 0.875rem;
     }
     .interaction-fields :global(.dropdown-toggle) {
-        min-height: 30px;
+        min-height: 1.3125rem;
+    }
+    .interaction-fields :global(.dropdown-menu) {
+        left: -0.75rem;
+        width: calc(100% + 1.5rem) !important;
+        max-width: none;
+        max-height: 12rem;
+        margin-top: 0.375rem;
+        padding: 0;
+        overflow-y: auto;
+        border-radius: 0.75rem;
+        background: var(--interaction-menu-bg);
+    }
+    .interaction-fields :global(.dropdown-item) {
+        display: flex;
+        min-height: 2.5rem;
+        padding: 0 0.75rem;
+        align-items: center;
+        color: var(--bs-body-color);
+        line-height: 1.25rem;
+    }
+    .interaction-fields :global(.label-content) {
+        overflow: hidden;
+    }
+    .interaction-fields :global(.label-content > span) {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .interaction-fields :global(.arrow) {
+        font-size: 0.625rem;
     }
     .feature-placeholder {
         display: flex;
-        min-height: 78px;
-        padding: 0 1rem 1rem;
+        min-height: 2.375rem;
+        padding: 0 0.75rem 0.75rem;
         align-items: center;
         justify-content: center;
-        gap: 0.65rem;
-        color: var(--bs-body-color);
-        font-size: 1rem;
+        gap: 0.625rem;
     }
     .feature-placeholder :global(.sf-icon) {
-        font-size: 1.65rem;
+        font-size: 1.5rem;
+    }
+    .layout-settings {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+    .layout-setting-copy {
+        min-width: 0;
+    }
+    .layout-setting-copy > strong {
+        display: block;
+        margin-bottom: 0.375rem;
+        font-size: 1rem;
+        font-weight: 500;
+    }
+    .layout-setting-copy > p {
+        margin: 0;
+        color: var(--bs-secondary-color);
+        font-size: 0.75rem;
+        line-height: 1.125rem;
+    }
+    .layout-settings .form-check {
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        flex: 0 0 auto;
+    }
+    .layout-settings .form-check-input {
+        width: 3rem;
+        height: 1.5rem;
+        margin: 0;
+        border: 0;
+        cursor: pointer;
     }
     .entity-settings-preview {
-        padding: 1.25rem 1rem;
-        border-left: 1px solid var(--bs-border-color);
-        background: var(--body-inner-level-2);
+        min-width: 0;
+        padding: 0.75rem;
+        border-left: 0.0625rem solid var(--bs-border-color);
     }
     .preview-title {
         display: block;
-        margin-bottom: 0.75rem;
+        margin-bottom: 0.5rem;
         color: var(--bs-secondary-color);
-        font-size: 1rem;
+        font-size: 0.875rem;
     }
     .preview-surface {
         display: flex;
         width: 100%;
-        //min-height: 115px;
-        padding: 1.4rem 3rem;
+        min-height: 7.75rem;
+        padding: 1.75rem 0.75rem;
         align-items: center;
         justify-content: center;
         border-radius: 0.75rem;
-        background: rgba(24, 24, 24, 1);
+        background: var(--entity-preview-bg);
+    }
+    .preview-surface :global(.hass-entity-row:not(.badge)) {
+        border: 0;
+        background: #1e2329;
+    }
+    .preview-surface.badge-preview {
+        min-height: 5.25rem;
+        padding-block: 1.6875rem;
+    }
+    .preview-surface :global(.hass-entity-row.badge) {
+        min-height: 1.875rem;
+        padding: 0.1875rem 0.5rem;
+        border-radius: 1rem;
+        background: var(--modal-badge-bg);
+    }
+    .preview-surface :global(.badge-value) {
+        font-size: 0.875rem;
     }
     .unavailable-preview {
         display: inline-flex;
-        min-height: 40px;
-        padding: 0.4rem 0.9rem;
+        min-height: 1.875rem;
+        padding: 0.1875rem 0.5rem;
         align-items: center;
-        gap: 0.4rem;
-        border-radius: 999px;
-        background: rgba(58, 58, 58, 1);
+        gap: 0.25rem;
+        border-radius: 1rem;
+        background: #333;
         color: #f2f2f7;
-        font-size: 1rem;
+        font-size: 0.875rem;
     }
     .unavailable-preview :global(.sf-icon) {
         color: #8e8e93;
-        font-size: 1.2rem;
+        font-size: 1.125rem;
     }
     footer {
         display: flex;
-        padding: 1.25rem 11%;
-        justify-content: center;
-        gap: min(14%, 6rem);
+        min-height: 5rem;
+        padding: 1.25rem 1.125rem;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 1.5rem;
     }
     footer button {
-        width: min(180px, 42%);
-        min-height: 40px;
-        color: white;
+        width: 7.5rem;
+        max-width: calc((100% - 1.5rem) / 2);
+        min-height: 2.5rem;
         border: 0;
-        border-radius: 0.45rem;
+        border-radius: 1.25rem;
+        font-size: 1rem;
     }
     .delete-entity-button {
-        background: #ef8388;
+        background: rgba(241, 82, 75, 0.2);
+        color: #f1524b;
     }
     .save-entity-button {
         background: var(--primary-button-bg);
+        color: white;
     }
-    @media (max-width: 700px) {
+    @media (max-width: 43.75rem) {
         .entity-settings-dialog {
-            display: flex;
             width: 100vw;
             max-width: 100%;
-            height: min(88dvh, 46rem);
-            max-height: 100dvh;
-            overflow: hidden;
-            flex-direction: column;
+            height: min(42.875rem, calc(100dvh - 1rem));
             border-radius: 1.25rem 1.25rem 0 0;
         }
-        header,
-        .entity-settings-dialog-content,
-        .entity-settings,
-        .configured-entity,
-        .entity-settings-preview,
-        .preview-surface {
-            min-width: 0;
-            max-width: 100%;
-        }
-        header strong {
-            min-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        header {
+            padding-inline: 0.75rem;
         }
         .entity-settings-dialog-content {
-            flex: 1 1 auto;
-            min-height: 0;
+            display: block;
             overflow-x: hidden;
-            overflow-y: auto;
-            grid-template-columns: 1fr;
-        }
-        .configured-entity :global(.dropdown),
-        .configured-entity :global(.dropdown-menu),
-        .interaction-fields :global(.dropdown),
-        .interaction-fields :global(.dropdown-menu) {
-            max-width: 100%;
+            border-bottom: 0;
         }
         .entity-settings-preview {
-            min-height: 100px;
-            border-top: 1px solid var(--bs-border-color);
+            padding: 0 0.75rem 0.75rem;
             border-left: 0;
         }
-        footer {
-            flex: 0 0 auto;
-            padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
-            gap: 1rem;
+        .entity-settings-preview > .preview-title,
+        .layout-active .entity-settings-preview {
+            display: none;
         }
-        footer button {
-            width: 50%;
+        footer {
+            justify-content: center;
+            padding: 1.25rem 0.75rem calc(1.25rem + env(safe-area-inset-bottom));
         }
     }
 </style>

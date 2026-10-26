@@ -44,6 +44,7 @@ device_info_t *webserver_config_get_device_info(void);
  * @return ESP_OK on success, ESP_FAIL on failure.
  */
 int webserver_whitelist_notify(void);
+int webserver_whitelist_notify_to_client(int socket_fd);
 
 /**
  * @brief Notify clients about the current theme mode configuration.
@@ -54,6 +55,7 @@ int webserver_whitelist_notify(void);
  * @return ESP_OK on success, ESP_FAIL on failure.
  */
 int webserver_theme_mode_notify(void);
+int webserver_theme_mode_notify_to_client(int socket_fd);
 
 /**
  * @brief Notify clients about the current language configuration.
@@ -63,6 +65,7 @@ int webserver_theme_mode_notify(void);
  * @return ESP_OK on success, ESP_FAIL on failure.
  */
 int webserver_language_notify(void);
+int webserver_language_notify_to_client(int socket_fd);
 
 /**
  * @brief Notify clients with device information updates.
@@ -75,6 +78,7 @@ int webserver_language_notify(void);
  * @return ESP_OK always.
  */
 int webserver_device_info_notify(uint8_t update_info);
+int webserver_device_info_notify_to_client(uint8_t update_info, int socket_fd);
 
 /**
  * @brief Restore device factory settings and reboot.

@@ -30,6 +30,7 @@ esp_err_t webserver_firmware_update_status_set(
 
 /** Send the current cached OTA status to authenticated WebSocket clients. */
 esp_err_t webserver_firmware_update_status_notify(void);
+esp_err_t webserver_firmware_update_status_notify_to_client(int socket_fd);
 
 /** Return whether normal WebSocket API operations are currently blocked. */
 bool webserver_firmware_update_operations_blocked(void);

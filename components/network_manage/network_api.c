@@ -66,10 +66,12 @@ static const char *TAG = "network_info";
  * operations to correlate requests and responses.
  */
 static double scan_seq = 0;
+static int scan_socket_fd = -1;
 
 typedef struct
 {
     double seq;
+    int socket_fd;
     uint32_t duration_ms;
 } hass_scan_task_context_t;
 
@@ -280,13 +282,15 @@ esp_err_t method_api_handle_net_set_ap_pass(cJSON *data, async_resp_arg *now_res
     cJSON_Delete(json_wifi_info);
 
     error = 0;
-    webserver_code_response_to_all_client(error, WEB_API_METHOD_NET_SET_AP_PASS_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        error, WEB_API_METHOD_NET_SET_AP_PASS_RSP, now_resp_arg->seq, now_resp_arg->fd);
     vTaskDelay(pdMS_TO_TICKS(500));
     network_wifi_ap_set_password(params.password);
     return ESP_OK;
 
 exit:
-    webserver_code_response_to_all_client(error, WEB_API_METHOD_NET_SET_AP_PASS_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        error, WEB_API_METHOD_NET_SET_AP_PASS_RSP, now_resp_arg->seq, now_resp_arg->fd);
     return ESP_FAIL;
 }
 
@@ -478,14 +482,22 @@ esp_err_t method_api_handle_net_scan(cJSON *data, async_resp_arg *now_resp_arg)
     int error_code = 0;
     if (network_get_if_wifi_scan()) {
         ESP_LOGW(TAG, "Wi-Fi scan already in progress");
+        webserver_code_response_to_special_client(
+            WEB_API_ERROR_FAIL,
+            WEB_API_METHOD_NET_SCAN_RSP,
+            now_resp_arg->seq,
+            now_resp_arg->fd);
         return ESP_FAIL;
     }
 
     cJSON *json_scan_duration = cJSON_GetObjectItemCaseSensitive(data, NETWORK_SCAN_DURATION);
     int duration = json_scan_duration ? (int)cJSON_GetNumberValue(json_scan_duration) : 3;
+    scan_seq = now_resp_arg->seq;
+    scan_socket_fd = now_resp_arg->fd;
     network_wifi_scan(duration);
 // exit:
-    webserver_code_response_to_all_client(error_code, WEB_API_METHOD_NET_SCAN_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        error_code, WEB_API_METHOD_NET_SCAN_RSP, now_resp_arg->seq, now_resp_arg->fd);
     return res;
 }
 
@@ -575,6 +587,7 @@ static void hass_instance_scan_task(void *param)
 {
     hass_scan_task_context_t *context = (hass_scan_task_context_t *)param;
     double seq = context->seq;
+    int socket_fd = context->socket_fd;
     uint32_t duration_ms = context->duration_ms;
     free(context);
 
@@ -607,7 +620,11 @@ static void hass_instance_scan_task(void *param)
         ESP_LOGI(TAG, "Home Assistant mDNS scan finished in %u ms: %u unique result(s), %u duplicate(s), error=%s",
                  (unsigned)duration_ms, (unsigned)result_count, (unsigned)duplicate_count,
                  esp_err_to_name(scan_error));
-        webserver_data_response_to_all_client(data_json, WEB_API_METHOD_NET_HASS_INSTANCE_SCAN_RES_NOTIFY, seq);
+        webserver_data_response_to_special_client(
+            data_json,
+            WEB_API_METHOD_NET_HASS_INSTANCE_SCAN_RES_NOTIFY,
+            seq,
+            socket_fd);
     }
     else {
         ESP_LOGE(TAG, "Failed to allocate Home Assistant scan result JSON");
@@ -665,6 +682,7 @@ esp_err_t method_api_handle_net_scan_hass_instance(cJSON *data, async_resp_arg *
         }
         else {
             context->seq = now_resp_arg->seq;
+            context->socket_fd = now_resp_arg->fd;
             context->duration_ms = duration_seconds * 1000;
             BaseType_t task_result = xTaskCreatePinnedToCore(hass_instance_scan_task, "HASS_SCAN",
                                                              HASS_SCAN_TASK_STACK_SIZE, context, 5,
@@ -678,7 +696,11 @@ esp_err_t method_api_handle_net_scan_hass_instance(cJSON *data, async_resp_arg *
         }
     }
 
-    webserver_code_response_to_all_client(error_code, WEB_API_METHOD_NET_SCAN_HASS_INSTANCE_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        error_code,
+        WEB_API_METHOD_NET_SCAN_HASS_INSTANCE_RSP,
+        now_resp_arg->seq,
+        now_resp_arg->fd);
     return error_code == WEB_API_ERROR_OK ? ESP_OK : ESP_FAIL;
 }
 
@@ -747,7 +769,8 @@ static bool parse_static_ip_config(cJSON *data, network_ip_config_t *out)
  */
 esp_err_t method_api_handle_net_set_eth_config(cJSON *data, async_resp_arg *now_resp_arg)
 {
-    webserver_code_response_to_all_client(400, WEB_API_METHOD_NET_SET_ETH_CONFIG_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        400, WEB_API_METHOD_NET_SET_ETH_CONFIG_RSP, now_resp_arg->seq, now_resp_arg->fd);
     return ESP_FAIL;
 }
 
@@ -804,13 +827,15 @@ esp_err_t method_api_handle_net_set_wifi_config(cJSON *data, async_resp_arg *now
         }
     }
 
-    webserver_code_response_to_all_client(error_code, WEB_API_METHOD_NET_SET_WIFI_CONFIG_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        error_code, WEB_API_METHOD_NET_SET_WIFI_CONFIG_RSP, now_resp_arg->seq, now_resp_arg->fd);
     vTaskDelay(pdMS_TO_TICKS(500));
     network_wifi_sta_apply_ip_mode(ip_cfg);
     return ESP_OK;
 
 respond:
-    webserver_code_response_to_all_client(error_code, WEB_API_METHOD_NET_SET_WIFI_CONFIG_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        error_code, WEB_API_METHOD_NET_SET_WIFI_CONFIG_RSP, now_resp_arg->seq, now_resp_arg->fd);
     return ESP_FAIL;
 }
 
@@ -893,7 +918,8 @@ esp_err_t method_api_handle_net_set_ap_config(cJSON *data, async_resp_arg *now_r
         network_save_config_to_file(net_state);
         webserver_network_mode_info_notify(NET_MODE_AP_ONLY);
     }
-    webserver_code_response_to_all_client(error_code, WEB_API_METHOD_NET_SET_AP_CONFIG_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        error_code, WEB_API_METHOD_NET_SET_AP_CONFIG_RSP, now_resp_arg->seq, now_resp_arg->fd);
     return ESP_OK;
 }
 
@@ -902,12 +928,19 @@ esp_err_t method_api_handle_net_set_ap_ssid(cJSON *data, async_resp_arg *now_res
     char *ssid = NULL;
     if (cjson_parse_string_field(data, NETWORK_AP_SSID, &ssid)) {
         if (strlen(ssid) > sizeof(net_state.ap_params.ssid) - 1) {
-            webserver_code_response_to_all_client(WEB_API_ERROR_PARAM_LEN, WEB_API_METHOD_NET_SET_AP_SSID_RSP,
-                                                  now_resp_arg->seq);
+            webserver_code_response_to_special_client(
+                WEB_API_ERROR_PARAM_LEN,
+                WEB_API_METHOD_NET_SET_AP_SSID_RSP,
+                now_resp_arg->seq,
+                now_resp_arg->fd);
             return ESP_OK;
         }
     }
-    webserver_code_response_to_all_client(WEB_API_ERROR_OK, WEB_API_METHOD_NET_SET_AP_SSID_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        WEB_API_ERROR_OK,
+        WEB_API_METHOD_NET_SET_AP_SSID_RSP,
+        now_resp_arg->seq,
+        now_resp_arg->fd);
     vTaskDelay(pdMS_TO_TICKS(500));
     network_wifi_ap_set_ssid(ssid);
     return ESP_OK;
@@ -1185,7 +1218,7 @@ network_mode_t network_get_current_mode(void)
  *
  * The function also triggers synchronization of the network mode configuration.
  */
-void webserver_network_info_notify(void)
+static void webserver_network_info_notify_internal(int socket_fd)
 {
     NetworkState *network_state = network_get_state();
     cJSON *data_json = cJSON_CreateObject();
@@ -1211,8 +1244,25 @@ void webserver_network_info_notify(void)
     cJSON_AddItemToObject(data_json, NETWORK_ETHERNET, eth_info);
     cJSON_AddItemToObject(data_json, NETWORK_WIFI, wifi_info);
     cJSON_AddItemToObject(data_json, NETWORK_AP, ap_info);
-    webserver_data_response_to_all_client(data_json, WEB_API_METHOD_NET_INFO_NOTIFY, 0);
+    if (socket_fd >= 0) {
+        webserver_data_response_to_special_client(
+            data_json, WEB_API_METHOD_NET_INFO_NOTIFY, 0, socket_fd);
+    }
+    else {
+        webserver_data_response_to_authenticated_clients(
+            data_json, WEB_API_METHOD_NET_INFO_NOTIFY, 0);
+    }
     // basic_config_network_mode_sync(network_get_current_mode());
+}
+
+void webserver_network_info_notify(void)
+{
+    webserver_network_info_notify_internal(-1);
+}
+
+void webserver_network_info_notify_to_client(int socket_fd)
+{
+    webserver_network_info_notify_internal(socket_fd);
 }
 
 /**
@@ -1265,22 +1315,23 @@ void webserver_network_mode_info_notify(int current_mode)
     default:
         break;
     }
-    webserver_data_response_to_all_client(data_json, WEB_API_METHOD_NET_INFO_NOTIFY, 0);
+    webserver_data_response_to_authenticated_clients(
+        data_json, WEB_API_METHOD_NET_INFO_NOTIFY, 0);
     // basic_config_network_mode_sync(network_get_current_mode());
 }
 
 /**
- * @brief Notify all connected clients of the WiFi connection attempt result.
+ * @brief Notify the requesting client of the WiFi connection attempt result.
  *
  * Sends a response code indicating success or error of a WiFi connection attempt
- * to all connected clients.
+ * to the socket that started the attempt.
  *
  * @param[in] error Integer error code representing the WiFi connection result.
  */
 void webserver_network_wifi_connect_result_notify(int error)
 {
     if (switch_wifi_socket_fd < 0) {
-        webserver_code_response_to_all_client(error, WEB_API_METHOD_NET_SWITCH_WIFI_RSP, switch_wifi_seq);
+        ESP_LOGW(TAG, "Dropping WiFi switch result without a requesting socket");
         return;
     }
 
@@ -1305,11 +1356,11 @@ void webserver_network_wifi_connect_result_notify(int error)
 }
 
 /**
- * @brief Notify all connected clients with WiFi scan results.
+ * @brief Notify the requesting client with WiFi scan results.
  *
  * This function processes a list of scanned WiFi access points, converts the
- * information into a JSON format, and sends a notification containing the scan
- * results to all connected web clients.
+ * information into a JSON format, and sends a notification to the client that
+ * started the scan.
  *
  * @param[in] ap_list Pointer to an array of wifi_ap_record_t structures representing the scanned access points.
  *                    Must not be NULL.
@@ -1355,5 +1406,16 @@ void webserver_network_wifi_scan_info_notify(wifi_ap_record_t *ap_list, uint16_t
 
         cJSON_AddItemToArray(results_json, wifi_info);
     }
-    webserver_data_response_to_all_client(data_json, WEB_API_METHOD_NET_WIFI_SCAN_RES_NOTIFY, scan_seq);
+    if (scan_socket_fd >= 0) {
+        webserver_data_response_to_special_client(
+            data_json,
+            WEB_API_METHOD_NET_WIFI_SCAN_RES_NOTIFY,
+            scan_seq,
+            scan_socket_fd);
+        scan_socket_fd = -1;
+    }
+    else {
+        ESP_LOGW(TAG, "Dropping WiFi scan results without a requesting socket");
+        cJSON_Delete(data_json);
+    }
 }

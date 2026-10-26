@@ -1,3 +1,9 @@
+#ifndef OPEN_NEXTION_COMPONENTS_BSP_LCD_H
+#define OPEN_NEXTION_COMPONENTS_BSP_LCD_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "esp_err.h"
 
 #define LCD_I2C_0_SCL_PIN       GPIO_NUM_7
@@ -16,8 +22,41 @@
 
 #define LVGL_BUF_LINES          80
 
+typedef enum {
+    BSP_LCD_ROTATION_0 = 0,
+    BSP_LCD_ROTATION_90 = 90,
+    BSP_LCD_ROTATION_180 = 180,
+    BSP_LCD_ROTATION_270 = 270,
+} bsp_lcd_rotation_t;
+
+typedef enum {
+    BSP_LCD_ORIENTATION_PORTRAIT,
+    BSP_LCD_ORIENTATION_LANDSCAPE,
+} bsp_lcd_orientation_t;
 
 esp_err_t bsp_lcd_init(void);
 esp_err_t bsp_lcd_br_set(uint8_t br);
 /** Last brightness successfully written to the backlight PWM (0-100). */
 uint8_t bsp_lcd_br_get(void);
+
+/**
+ * Set the logical and hardware display rotation.
+ *
+ * esp_lvgl_port software rotation remains disabled, so the display driver
+ * applies the requested rotation using the LCD hardware.
+ */
+esp_err_t bsp_lcd_set_rotation(bsp_lcd_rotation_t rotation);
+
+/** Return the last successfully applied display rotation. */
+bsp_lcd_rotation_t bsp_lcd_get_rotation(void);
+
+/** Return the orientation derived from the applied display rotation. */
+bsp_lcd_orientation_t bsp_lcd_get_orientation(void);
+
+/** Return true when the applied display rotation uses a landscape layout. */
+bool bsp_lcd_is_landscape(void);
+
+/** Read the display's current LVGL logical resolution. */
+esp_err_t bsp_lcd_get_logical_resolution(int32_t *width, int32_t *height);
+
+#endif // OPEN_NEXTION_COMPONENTS_BSP_LCD_H

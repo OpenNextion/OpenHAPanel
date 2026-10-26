@@ -41,7 +41,8 @@ static const char *webserver_firmware_update_source_to_string(
 }
 
 static esp_err_t webserver_firmware_update_send_status(
-    const webserver_firmware_update_status_t *status)
+    const webserver_firmware_update_status_t *status,
+    int socket_fd)
 {
     cJSON *data = cJSON_CreateObject();
     if (!data) {
@@ -60,10 +61,15 @@ static esp_err_t webserver_firmware_update_send_status(
         return ESP_ERR_NO_MEM;
     }
 
+    if (socket_fd >= 0) {
+        return webserver_data_response_to_special_client(
+            data,
+            WEB_API_METHOD_FIRMWARE_UPDATE_STATUS_NOTIFY,
+            0,
+            socket_fd);
+    }
     return webserver_data_response_to_authenticated_clients(
-        data,
-        WEB_API_METHOD_FIRMWARE_UPDATE_STATUS_NOTIFY,
-        0);
+        data, WEB_API_METHOD_FIRMWARE_UPDATE_STATUS_NOTIFY, 0);
 }
 
 esp_err_t webserver_firmware_update_status_set(
@@ -109,7 +115,16 @@ esp_err_t webserver_firmware_update_status_notify(void)
     taskENTER_CRITICAL(&s_status_guard);
     snapshot = s_status;
     taskEXIT_CRITICAL(&s_status_guard);
-    return webserver_firmware_update_send_status(&snapshot);
+    return webserver_firmware_update_send_status(&snapshot, -1);
+}
+
+esp_err_t webserver_firmware_update_status_notify_to_client(int socket_fd)
+{
+    webserver_firmware_update_status_t snapshot;
+    taskENTER_CRITICAL(&s_status_guard);
+    snapshot = s_status;
+    taskEXIT_CRITICAL(&s_status_guard);
+    return webserver_firmware_update_send_status(&snapshot, socket_fd);
 }
 
 bool webserver_firmware_update_operations_blocked(void)

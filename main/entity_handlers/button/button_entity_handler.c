@@ -7,6 +7,7 @@
 #include "app.h"
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "bsp_lcd.h"
 #include "entity_handlers/ha_datetime_format.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
@@ -14,12 +15,14 @@
 #include "screen/components/ha_relative_time_label.h"
 #include "screen/components/more_info_screen.h"
 
-#define SCREEN_DEFAULT_CONTENT_WIDTH 280
+#define SCREEN_DEFAULT_CONTENT_WIDTH_PORTRAIT 280
+#define SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE 440
+#define BUTTON_ACTION_WIDTH_LANDSCAPE 100
 #define BUTTON_HISTORY_DAYS 3
 #define BUTTON_HISTORY_MAX_RECORDS 14
 #define BUTTON_HISTORY_PRESSED_STATE "pressed"
 #define BUTTON_ACTION_COLOR 0x039BE5
-#define BUTTON_ACTION_DISABLED_COLOR 0x075F91
+#define BUTTON_ACTION_DISABLED_COLOR 0x0f4c92
 #define BUTTON_ACTION_PRESSED_BG_COLOR 0x193E63
 
 static const char *TAG = "button_entity_handler";
@@ -505,8 +508,6 @@ static esp_err_t button_render_tile(ha_entity_store_t *store,
     model->icon_circle_background_color = lv_color_hex(0x242d36);
     model->title_color = lv_color_hex(0xFFFFFF);
     model->state_color = lv_color_hex(0x666666);
-    model->has_ripple_color = true;
-    model->ripple_color = lv_color_hex(0xD9D9D9);
 
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
@@ -536,17 +537,24 @@ static esp_err_t button_render_more_info(
     }
 
     lv_obj_t *main_ctn = button_more_info_build_page(context);
+    const bool landscape = bsp_lcd_is_landscape();
 
     lv_obj_t *content = lv_obj_create(main_ctn);
     lv_obj_remove_style_all(content);
-    lv_obj_set_width(content, SCREEN_DEFAULT_CONTENT_WIDTH);
+    lv_obj_set_width(content,
+                     landscape
+                         ? SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE
+                         : SCREEN_DEFAULT_CONTENT_WIDTH_PORTRAIT);
     lv_obj_set_height(content, LV_SIZE_CONTENT);
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_flow(content,
+                         landscape ? LV_FLEX_FLOW_ROW
+                                   : LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content,
                           LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START,
+                          landscape ? LV_FLEX_ALIGN_CENTER
+                                    : LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_hor(content, 12, 0);
     lv_obj_set_style_pad_ver(content, 8, 0);
@@ -560,7 +568,12 @@ static esp_err_t button_render_more_info(
 
     lv_obj_t *tile_box = lv_obj_create(content);
     lv_obj_remove_style_all(tile_box);
-    lv_obj_set_size(tile_box, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_size(tile_box,
+                    landscape ? 0 : LV_PCT(100),
+                    LV_SIZE_CONTENT);
+    if (landscape) {
+        lv_obj_set_flex_grow(tile_box, 1);
+    }
     lv_obj_set_layout(tile_box, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(tile_box, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(tile_box,
@@ -629,7 +642,10 @@ static esp_err_t button_render_more_info(
     lv_obj_t *press_button = lv_button_create(content);
     lv_obj_remove_style_all(press_button);
     lv_obj_add_flag(press_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(press_button, LV_PCT(100), 48);
+    lv_obj_set_size(press_button,
+                    landscape ? BUTTON_ACTION_WIDTH_LANDSCAPE
+                              : LV_PCT(100),
+                    48);
     lv_obj_set_style_radius(press_button, 12, 0);
     lv_obj_set_style_border_width(press_button, 0, 0);
     lv_obj_set_style_shadow_width(press_button, 0, 0);

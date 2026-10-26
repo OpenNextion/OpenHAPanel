@@ -9,13 +9,19 @@
 #define NOTIFICATION_DIALOG_WIDTH      LV_PCT(100)
 #define NOTIFICATION_ICON_SIZE         32
 #define NOTIFICATION_DIALOG_PADDING    20
+#define NOTIFICATION_LANDSCAPE_PADDING 15
 #define NOTIFICATION_CONTENT_GAP       6
 #define NOTIFICATION_SWIPE_AREA_HEIGHT 44
 
 struct notification_t {
     lv_obj_t *overlay;
+    lv_obj_t *dialog;
+    lv_obj_t *header_title_ctn;
+    lv_obj_t *status_ctn;
     lv_timer_t *timer;
     bool closing;
+    bool status_in_header;
+    bool landscape_compact_layout;
     notification_close_reason_t close_reason;
     notification_dialog_click_cb_t dialog_click_cb;
     void *dialog_click_user_data;
@@ -58,6 +64,8 @@ notification_t *notification_show(const notification_config_t *config)
     notification->closed_cb = config->closed_cb;
     notification->closed_user_data = config->closed_user_data;
     notification->close_reason = NOTIFICATION_CLOSE_PARENT_DELETED;
+    notification->status_in_header = config->status_in_header;
+    notification->landscape_compact_layout = config->landscape_compact_layout;
 
     lv_obj_t *overlay = lv_obj_create(lv_layer_sys());
     notification->overlay = overlay;
@@ -89,6 +97,7 @@ notification_t *notification_show(const notification_config_t *config)
                             ? (int32_t)config->icon_size
                             : NOTIFICATION_ICON_SIZE;
     lv_obj_t *dialog = lv_obj_create(overlay);
+    notification->dialog = dialog;
     lv_obj_set_width(dialog, NOTIFICATION_DIALOG_WIDTH);
     lv_obj_set_height(dialog, LV_SIZE_CONTENT);
     lv_obj_align(dialog, LV_ALIGN_TOP_MID, 0, 0);
@@ -140,6 +149,7 @@ notification_t *notification_show(const notification_config_t *config)
     }
 
     lv_obj_t *header_title_ctn = lv_obj_create(header_ctn);
+    notification->header_title_ctn = header_title_ctn;
     notification_apply_clear_style(header_title_ctn);
     lv_obj_set_height(header_title_ctn, LV_SIZE_CONTENT);
     lv_obj_set_flex_grow(header_title_ctn, 1);
@@ -161,6 +171,7 @@ notification_t *notification_show(const notification_config_t *config)
                                       ? header_title_ctn
                                       : dialog;
         lv_obj_t *status_ctn = lv_obj_create(status_parent);
+        notification->status_ctn = status_ctn;
         notification_apply_clear_style(status_ctn);
         lv_obj_set_size(status_ctn, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_layout(status_ctn, LV_LAYOUT_FLEX);
@@ -225,6 +236,8 @@ notification_t *notification_show(const notification_config_t *config)
         lv_label_set_long_mode(tips_label, LV_LABEL_LONG_MODE_WRAP);
     }
 
+    notification_apply_orientation(notification);
+
     if (config->durations > 0) {
         notification->timer = lv_timer_create(notification_timer_cb, config->durations, notification);
         if (notification->timer) {
@@ -261,6 +274,46 @@ notification_t *notification_show(const notification_config_t *config)
 void notification_close(notification_t *notification)
 {
     notification_begin_close(notification, NOTIFICATION_CLOSE_PROGRAMMATIC);
+}
+
+void notification_apply_orientation(notification_t *notification)
+{
+    if (!notification || notification->closing || !notification->dialog ||
+        !notification->header_title_ctn || !notification->landscape_compact_layout) {
+        return;
+    }
+
+    lv_display_t *display = lv_display_get_default();
+    const bool landscape = display &&
+                           lv_display_get_horizontal_resolution(display) >
+                               lv_display_get_vertical_resolution(display);
+    const bool status_in_header = notification->status_in_header || landscape;
+
+    lv_obj_set_style_pad_ver(notification->dialog,
+                            landscape ? NOTIFICATION_LANDSCAPE_PADDING
+                                      : NOTIFICATION_DIALOG_PADDING,
+                            0);
+    lv_obj_set_style_pad_row(notification->header_title_ctn,
+                            landscape ? 2 : 0,
+                            0);
+
+    if (!notification->status_ctn) {
+        return;
+    }
+
+    lv_obj_t *status_parent = status_in_header
+                                  ? notification->header_title_ctn
+                                  : notification->dialog;
+    if (lv_obj_get_parent(notification->status_ctn) != status_parent) {
+        lv_obj_set_parent(notification->status_ctn, status_parent);
+    }
+    if (!status_in_header) {
+        /* Keep the portrait order: header, status, description. */
+        lv_obj_move_to_index(notification->status_ctn, 1);
+    }
+
+    lv_obj_update_layout(notification->dialog);
+    lv_obj_invalidate(notification->dialog);
 }
 
 static lv_color_t notification_level_color(notification_level_t level)

@@ -7,6 +7,7 @@
 #include "app.h"
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "bsp_lcd.h"
 #include "entity_handlers/ha_datetime_format.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
@@ -14,9 +15,19 @@
 #include "screen/components/ha_relative_time_label.h"
 #include "screen/components/more_info_screen.h"
 
-#define SCREEN_DEFAULT_CONTENT_WIDTH 280
+#define SCREEN_DEFAULT_CONTENT_WIDTH_PORTRAIT 280
+#define SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE 440
+#define BINARY_SENSOR_TITLE_MIN_WIDTH_LANDSCAPE 120
+#define BINARY_SENSOR_TITLE_STATE_GAP_LANDSCAPE 10
 #define BINARY_SENSOR_HISTORY_DAYS 3
 #define BINARY_SENSOR_HISTORY_MAX_RECORDS 14
+
+#define BINARY_SENSOR_COLOR_ALERT       0xF44336
+#define BINARY_SENSOR_COLOR_ACTIVE      0xFFC107
+#define BINARY_SENSOR_COLOR_INACTIVE    0x9E9E9E
+#define BINARY_SENSOR_COLOR_STATE_ICON  0x44739E
+#define BINARY_SENSOR_COLOR_UNAVAILABLE 0x6F6F6F
+#define BINARY_SENSOR_TILE_ICON_BG      0x1C1C1C
 
 static const char *TAG = "binary_sensor_entity_handler";
 
@@ -55,7 +66,7 @@ static const binary_sensor_state_text_t s_binary_sensor_state_texts[] = {
     {"door", "Open", "Closed"},
     {"garage_door", "Open", "Closed"},
     {"gas", "Detected", "Clear"},
-    {"glass_break", "Detected", "Clear"},
+    {"glass_break", "Glass break Detected", "Clear"},
     {"heat", "Hot", "Normal"},
     {"light", "Light detected", "No light"},
     {"lock", "Unlocked", "Locked"},
@@ -96,6 +107,7 @@ static const binary_sensor_icon_t s_binary_sensor_icons[] = {
     {"door", MDI_SYMBOL_DOOR_CLOSED, MDI_SYMBOL_DOOR_OPEN},
     {"garage_door", MDI_SYMBOL_GARAGE, MDI_SYMBOL_GARAGE_OPEN},
     {"gas", MDI_SYMBOL_CHECK_CIRCLE, MDI_SYMBOL_ALERT_CIRCLE},
+    {"glass_break", MDI_SYMBOL_GLASS_FRAGILE, MDI_SYMBOL_GLASS_FRAGILE},
     {"heat", MDI_SYMBOL_THERMOMETER, MDI_SYMBOL_FIRE},
     {"light", MDI_SYMBOL_BRIGHTNESS_5, MDI_SYMBOL_BRIGHTNESS_7},
     {"lock", MDI_SYMBOL_LOCK, MDI_SYMBOL_LOCK_OPEN},
@@ -124,6 +136,67 @@ static bool binary_sensor_is_on(const ha_entity_snapshot_t *snapshot)
     return snapshot &&
            snapshot->sync_status != HA_ENTITY_SYNC_REMOVED &&
            strcmp(snapshot->state, "on") == 0;
+}
+
+static bool binary_sensor_uses_alert_color(const char *device_class)
+{
+    if (!device_class || !device_class[0]) {
+        return false;
+    }
+
+    static const char *const alert_device_classes[] = {
+        "battery",
+        "carbon_monoxide",
+        "gas",
+        "glass_break",
+        "heat",
+        "lock",
+        "moisture",
+        "problem",
+        "safety",
+        "smoke",
+        "sound",
+        "tamper",
+    };
+
+    for (size_t i = 0;
+         i < sizeof(alert_device_classes) / sizeof(alert_device_classes[0]);
+         i++) {
+        if (strcmp(device_class, alert_device_classes[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static uint32_t binary_sensor_active_color(const char *device_class)
+{
+    return binary_sensor_uses_alert_color(device_class)
+               ? BINARY_SENSOR_COLOR_ALERT
+               : BINARY_SENSOR_COLOR_ACTIVE;
+}
+
+static uint32_t binary_sensor_icon_color(
+    const ha_entity_snapshot_t *snapshot,
+    bool more_info)
+{
+    if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
+        return BINARY_SENSOR_COLOR_UNAVAILABLE;
+    }
+    if (binary_sensor_is_on(snapshot)) {
+        return binary_sensor_active_color(snapshot->device_class);
+    }
+    return more_info ? BINARY_SENSOR_COLOR_STATE_ICON
+                     : BINARY_SENSOR_COLOR_INACTIVE;
+}
+
+static lv_color_t binary_sensor_tile_icon_background_color(
+    uint32_t icon_color)
+{
+    /* ha-tile-icon renders the state color over its background at 20%. */
+    return lv_color_mix(lv_color_hex(icon_color),
+                        lv_color_hex(BINARY_SENSOR_TILE_ICON_BG),
+                        LV_OPA_20);
 }
 
 static const char *binary_sensor_get_icon(
@@ -219,6 +292,19 @@ static void binary_sensor_format_state(const ha_entity_snapshot_t *snapshot,
                                      snapshot->device_class,
                                      output,
                                      output_size);
+}
+
+static lv_obj_t *binary_sensor_create_more_info_state_label(
+    lv_obj_t *parent,
+    const ha_entity_snapshot_t *snapshot)
+{
+    lv_obj_t *label = lv_label_create(parent);
+    char state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
+    binary_sensor_format_state(snapshot, state_text, sizeof(state_text));
+    lv_label_set_text(label, state_text);
+    lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    return label;
 }
 
 static void binary_sensor_history_prepare(
@@ -627,23 +713,13 @@ static esp_err_t binary_sensor_render_tile(ha_entity_store_t *store,
     binary_sensor_format_state(snapshot,
                                model->state_text,
                                sizeof(model->state_text));
-    const bool is_on = binary_sensor_is_on(snapshot);
     model->background_color = lv_color_hex(0x1E2228);
-    char *device_class = snapshot->device_class;
-    if(strcmp(device_class, "battery") == 0 || strcmp(device_class, "gas") == 0 || strcmp(device_class, "heat") == 0 || strcmp(device_class, "lock") == 0
-    || strcmp(device_class, "moisture") == 0 || strcmp(device_class, "problem") == 0 || strcmp(device_class, "safety") == 0 
-    || strcmp(device_class, "smoke") == 0 || strcmp(device_class, "sound") == 0 || strcmp(device_class, "tamper") == 0)
-    {
-        model->icon_color = lv_color_hex(is_on ? 0xF44336 : 0x9E9E9E);
-    }else{
-        model->icon_color = lv_color_hex(is_on ? 0xFFC107 : 0x9E9E9E);
-    }
+    const uint32_t icon_color = binary_sensor_icon_color(snapshot, false);
+    model->icon_color = lv_color_hex(icon_color);
     model->icon_circle_background_color =
-        lv_color_hex(is_on ? 0x493D17 : 0x363636);
+        binary_sensor_tile_icon_background_color(icon_color);
     model->title_color = lv_color_hex(0xFFFFFF);
     model->state_color = lv_color_hex(0x666666);
-    model->has_ripple_color = true;
-    model->ripple_color = lv_color_hex(0xD9D9D9);
     return ESP_OK;
 }
 
@@ -656,17 +732,24 @@ static esp_err_t binary_sensor_render_more_info(
     }
 
     lv_obj_t *main_ctn = binary_sensor_more_info_build_page(context);
+    const bool landscape = bsp_lcd_is_landscape();
 
     lv_obj_t *content = lv_obj_create(main_ctn);
     lv_obj_remove_style_all(content);
-    lv_obj_set_width(content, SCREEN_DEFAULT_CONTENT_WIDTH);
+    lv_obj_set_width(content,
+                     landscape
+                         ? SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE
+                         : SCREEN_DEFAULT_CONTENT_WIDTH_PORTRAIT);
     lv_obj_set_height(content, LV_SIZE_CONTENT);
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_flow(content,
+                         landscape ? LV_FLEX_FLOW_ROW
+                                   : LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content,
                           LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START,
+                          landscape ? LV_FLEX_ALIGN_CENTER
+                                    : LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_hor(content, 12, 0);
     lv_obj_set_style_pad_ver(content, 8, 0);
@@ -675,12 +758,14 @@ static esp_err_t binary_sensor_render_more_info(
     lv_obj_set_style_bg_opa(content, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(content, 12, 0);
 
-    const bool unavailable = entity_handler_snapshot_is_service_unavailable(
-        &context->snapshot);
-
     lv_obj_t *tile_box = lv_obj_create(content);
     lv_obj_remove_style_all(tile_box);
-    lv_obj_set_size(tile_box, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_size(tile_box,
+                    landscape ? 0 : LV_PCT(100),
+                    LV_SIZE_CONTENT);
+    if (landscape) {
+        lv_obj_set_flex_grow(tile_box, 1);
+    }
     lv_obj_set_layout(tile_box, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(tile_box, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(tile_box,
@@ -694,13 +779,8 @@ static esp_err_t binary_sensor_render_more_info(
     lv_obj_t *tile_icon = lv_label_create(tile_box);
     lv_label_set_text(tile_icon, binary_sensor_get_icon(&context->snapshot));
     lv_obj_set_style_text_font(tile_icon, &ha_font_mdi_26, 0);
-    const bool icon_unavailable =
-        entity_handler_snapshot_is_unavailable(&context->snapshot);
-    const uint32_t icon_color = icon_unavailable
-                                    ? 0x6F6F6F
-                                    : (binary_sensor_is_on(&context->snapshot)
-                                           ? 0xFFC107
-                                           : 0x44739E);
+    const uint32_t icon_color =
+        binary_sensor_icon_color(&context->snapshot, true);
     lv_obj_set_style_text_color(tile_icon, lv_color_hex(icon_color), 0);
 
 
@@ -718,7 +798,9 @@ static esp_err_t binary_sensor_render_more_info(
 
     lv_obj_t *tile_content_title = lv_label_create(tile_content_ctx);
     lv_obj_set_style_text_font(tile_content_title, &ha_font_misan_medium_24, 0);
-    lv_obj_set_size(tile_content_title, LV_PCT(100), lv_font_get_line_height(&ha_font_misan_medium_24));
+    lv_obj_set_size(tile_content_title,
+                    landscape ? 0 : LV_PCT(100),
+                    lv_font_get_line_height(&ha_font_misan_medium_24));
     lv_label_set_long_mode(tile_content_title, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_title, lv_color_hex(0xFFFFFF), 0);
     // 展示实体的friendly_name
@@ -727,15 +809,10 @@ static esp_err_t binary_sensor_render_more_info(
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
 
-    lv_obj_t *tile_content_cur_state = lv_label_create(tile_content_ctx);
-    lv_obj_set_style_text_font(tile_content_cur_state, &ha_font_misan_regular_16, 0);
-    lv_obj_set_style_text_color(tile_content_cur_state, lv_color_white(), 0);
-    char cur_state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
-    binary_sensor_format_state(&context->snapshot,
-                    cur_state_text,
-                    sizeof(cur_state_text));
-
-    lv_label_set_text(tile_content_cur_state, cur_state_text);
+    if (!landscape) {
+        binary_sensor_create_more_info_state_label(tile_content_ctx,
+                                                   &context->snapshot);
+    }
 
     lv_obj_t *tile_content_state = lv_label_create(tile_content_ctx);
     // 展示 binary_sensor 最近一次状态变化的相对时间
@@ -743,7 +820,7 @@ static esp_err_t binary_sensor_render_more_info(
     const char *changed_at = context->snapshot.last_changed[0]
                                  ? context->snapshot.last_changed
                                  : context->snapshot.last_updated;
-    if (!unavailable && changed_at[0] &&
+    if (changed_at[0] &&
         ha_datetime_format_relative_now(changed_at,
                                         state_text,
                                         sizeof(state_text)) != ESP_OK) {
@@ -764,6 +841,41 @@ static esp_err_t binary_sensor_render_more_info(
     lv_obj_set_size(tile_content_state, LV_PCT(100), lv_font_get_line_height(&ha_font_misan_regular_16));
     lv_label_set_long_mode(tile_content_state, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_state, lv_color_hex(0x666666), 0);
+
+    if (landscape) {
+        lv_obj_t *state_box = lv_obj_create(content);
+        lv_obj_remove_style_all(state_box);
+        lv_obj_remove_flag(state_box, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_size(state_box, 0, 48);
+
+        lv_obj_t *current_state =
+            binary_sensor_create_more_info_state_label(state_box,
+                                                       &context->snapshot);
+        lv_obj_update_layout(content);
+        lv_point_t state_size;
+        lv_text_get_size(&state_size, lv_label_get_text(current_state),
+                         &ha_font_misan_regular_16,
+                         lv_obj_get_style_text_letter_space(
+                             current_state, LV_PART_MAIN),
+                         0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        const int32_t max_state_width =
+            lv_obj_get_content_width(content) -
+            lv_obj_get_width(tile_icon) - 12 -
+            BINARY_SENSOR_TITLE_MIN_WIDTH_LANDSCAPE -
+            BINARY_SENSOR_TITLE_STATE_GAP_LANDSCAPE;
+        const int32_t state_width =
+            LV_MIN(state_size.x, LV_MAX(max_state_width, 0));
+        lv_obj_set_width(state_box, state_width);
+        lv_obj_set_size(current_state, state_width,
+                        lv_font_get_line_height(&ha_font_misan_regular_16));
+        lv_label_set_long_mode(current_state, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(current_state, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_center(current_state);
+
+        lv_obj_update_layout(content);
+        lv_obj_set_width(tile_content_title,
+                         lv_obj_get_content_width(tile_content_ctx));
+    }
 
     binary_sensor_history_prepare(context);
     binary_sensor_history_render(main_ctn);

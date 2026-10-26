@@ -12,11 +12,26 @@ export interface IDeviceInfoNotify {
     language: string;
     brightness: number;
     idleTime: number;
+    nightMode?: INightModeSettings;
     esp32?: {
         model: string;
         currentVersion: string;
     };
     //IEEEAddress: IEEEAddress;
+}
+
+export interface INightModeSettings {
+    enable: boolean;
+    brightness: number;
+    from: string;
+    to: string;
+}
+
+export interface IScreenRotationNotify {
+    rotation: 0 | 90;
+    orientation: 'portrait' | 'landscape';
+    width: number;
+    height: number;
 }
 
 export interface NtpServers {

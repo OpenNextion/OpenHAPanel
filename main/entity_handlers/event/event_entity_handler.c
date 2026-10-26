@@ -12,13 +12,15 @@
 #include "screen/components/ha_history_list.h"
 #include "screen/components/ha_relative_time_label.h"
 #include "screen/components/more_info_screen.h"
+#include "bsp_lcd.h"
 
 #define EVENT_TILE_BG           0x1E2228
 #define EVENT_TILE_ICON         0x44739E
 #define EVENT_TILE_TITLE        0xFFFFFF
 #define EVENT_TILE_STATE        0x666666
 
-#define SCREEN_DEFAULT_CONTENT_WIDTH 280
+#define SCREEN_DEFAULT_CONTENT_WIDTH_PORTAIT 280
+#define SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE 440
 #define EVENT_HISTORY_MAX_RECORDS 14
 #define EVENT_HISTORY_DAYS 3
 
@@ -484,8 +486,6 @@ static esp_err_t event_render_tile(ha_entity_store_t *store,
     // model->icon_circle_background_color = lv_color_hex(0x242d36);
     model->title_color = lv_color_hex(EVENT_TILE_TITLE);
     model->state_color = lv_color_hex(EVENT_TILE_STATE);
-    model->has_ripple_color = true;
-    model->ripple_color = lv_color_hex(0xD9D9D9);
 
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
@@ -564,6 +564,17 @@ static lv_obj_t *event_more_info_build_page(
     lv_obj_set_style_text_font(title, &ha_font_misan_medium_24, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_height(title, lv_font_get_line_height(&ha_font_misan_medium_24));
+
+    lv_obj_t *close_hitbox = lv_obj_create(context->overlay);
+    lv_obj_remove_style_all(close_hitbox);
+    lv_obj_remove_flag(close_hitbox, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(close_hitbox, 50, 50);
+    lv_obj_align(close_hitbox, LV_ALIGN_TOP_LEFT, 20, 12);
+    lv_obj_add_event_cb(close_hitbox,
+                        event_more_info_close_event_cb,
+                        LV_EVENT_CLICKED,
+                        (void *)context);
     
     lv_obj_t *main_ctn = lv_obj_create(screen);
     lv_obj_remove_style_all(main_ctn);
@@ -607,7 +618,7 @@ static esp_err_t event_render_more_info(
 
     lv_obj_t *content = lv_obj_create(main_ctn);
     lv_obj_remove_style_all(content);
-    lv_obj_set_width(content, SCREEN_DEFAULT_CONTENT_WIDTH);
+    lv_obj_set_width(content, bsp_lcd_is_landscape() ? SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE : SCREEN_DEFAULT_CONTENT_WIDTH_PORTAIT);
     lv_obj_set_height(content, LV_SIZE_CONTENT);
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
@@ -640,7 +651,12 @@ static esp_err_t event_render_more_info(
     lv_obj_t *tile_icon = lv_label_create(tile_box);
     lv_label_set_text(tile_icon, event_get_icon(&context->snapshot));
     lv_obj_set_style_text_font(tile_icon, &ha_font_mdi_20, 0);
-    lv_obj_set_style_text_color(tile_icon, lv_color_hex(0x44739e), 0);
+    if (entity_handler_snapshot_is_service_unavailable(&context->snapshot)) {
+        lv_obj_set_style_text_color(tile_icon, lv_color_hex(0xBDBDBD), 0);
+        // model->icon_circle_background_color = lv_color_hex(0x2c2c2c);
+    }else{
+        lv_obj_set_style_text_color(tile_icon, lv_color_hex(0x44739e), 0);
+    }
 
     lv_obj_t *tile_content_ctx = lv_obj_create(tile_box);
     lv_obj_remove_style_all(tile_content_ctx);

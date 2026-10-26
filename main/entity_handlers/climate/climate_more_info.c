@@ -8,6 +8,7 @@
 #include "app.h"
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "bsp_lcd.h"
 #include "components/climate_dial.h"
 #include "components/climate_selector.h"
 #include "components/climate_step_buttons.h"
@@ -16,6 +17,20 @@
 
 #define CLIMATE_SELECTOR_COUNT 5
 #define CLIMATE_OPTION_MAX 16
+
+#define CLIMATE_LANDSCAPE_DIAL_WIDTH       226
+#define CLIMATE_LANDSCAPE_CONTROL_X        210
+#define CLIMATE_LANDSCAPE_CONTROL_X_ALL    212
+#define CLIMATE_LANDSCAPE_CONTROL_WIDTH    258
+#define CLIMATE_LANDSCAPE_CONTROL_COLUMN   125
+#define CLIMATE_LANDSCAPE_CONTROL_GAP      8
+#define CLIMATE_LANDSCAPE_SELECTOR_TOP     163
+#define CLIMATE_LANDSCAPE_SELECTOR_TOP_ALL 130
+#define CLIMATE_LANDSCAPE_SELECTOR_STEP    60
+#define CLIMATE_LANDSCAPE_TOGGLE_X         291
+#define CLIMATE_LANDSCAPE_TOGGLE_X_ALL     293
+#define CLIMATE_LANDSCAPE_TOGGLE_Y         99
+#define CLIMATE_LANDSCAPE_TOGGLE_Y_ALL     66
 
 typedef struct climate_page climate_page_t;
 typedef struct {
@@ -28,6 +43,7 @@ struct climate_page {
     lv_obj_t *root;
     lv_obj_t *title;
     char entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
+    bool landscape;
     bool available;
     bool humidity_mode;
     bool humidity_supported;
@@ -203,10 +219,16 @@ static void climate_refresh_dial(climate_page_t *page)
 {
     char current_temp[48] = "";
     char current_humidity[48] = "";
-    if (page->has_current_temp)
-        snprintf(current_temp, sizeof(current_temp), "Current %.1f°C", page->current_temp);
-    if (page->has_current_humidity)
-        snprintf(current_humidity, sizeof(current_humidity), "Humidity %.1f%%", page->current_humidity);
+    if (page->has_current_temp) {
+        snprintf(current_temp, sizeof(current_temp),
+                 page->landscape ? "Temperature\n%.1f°C" : "Temperature %.1f°C",
+                 page->current_temp);
+    }
+    if (page->has_current_humidity) {
+        snprintf(current_humidity, sizeof(current_humidity),
+                 page->landscape ? "Humidity\n%.1f%%" : "Humidity %.1f%%",
+                 page->current_humidity);
+    }
     if (page->humidity_mode) {
         climate_dial_set_dual(page->dial, false);
         climate_dial_set_range(page->dial, page->min_humidity,
@@ -232,6 +254,7 @@ static void climate_refresh_dial(climate_page_t *page)
     climate_dial_set_currents(page->dial, current_temp, current_humidity);
     climate_dial_set_action(page->dial, page->hvac_action);
     climate_dial_set_theme(page->dial, page->hvac_mode, page->humidity_mode);
+    climate_dial_set_unavailable(page->dial, !page->available);
     bool controls_enabled = page->available;
     climate_dial_set_disabled(page->dial, !controls_enabled ||
                              (page->humidity_mode && !page->humidity_supported));
@@ -394,6 +417,54 @@ static bool climate_set_selector_options(climate_page_t *page, size_t index,
 static void climate_layout_selectors(climate_page_t *page,
                                      const size_t *visible, size_t count)
 {
+    if (page->landscape) {
+        const bool full_layout = count == CLIMATE_SELECTOR_COUNT;
+        const int selector_top = full_layout ? CLIMATE_LANDSCAPE_SELECTOR_TOP_ALL
+                                             : CLIMATE_LANDSCAPE_SELECTOR_TOP;
+        lv_obj_align(page->toggle,
+                     LV_ALIGN_TOP_LEFT,
+                     full_layout ? CLIMATE_LANDSCAPE_TOGGLE_X_ALL
+                                 : CLIMATE_LANDSCAPE_TOGGLE_X,
+                     full_layout ? CLIMATE_LANDSCAPE_TOGGLE_Y_ALL
+                                 : CLIMATE_LANDSCAPE_TOGGLE_Y);
+
+        for (size_t slot = 0; slot < count; ++slot) {
+            int x = full_layout ? CLIMATE_LANDSCAPE_CONTROL_X_ALL
+                                : CLIMATE_LANDSCAPE_CONTROL_X;
+            int y = selector_top;
+            int width = CLIMATE_LANDSCAPE_CONTROL_WIDTH;
+
+            if (count <= 2) {
+                y += (int)slot * CLIMATE_LANDSCAPE_SELECTOR_STEP;
+            } else if (count == 4) {
+                size_t column = slot % 2;
+                size_t row = slot / 2;
+                x += (int)column * (CLIMATE_LANDSCAPE_CONTROL_COLUMN +
+                                    CLIMATE_LANDSCAPE_CONTROL_GAP);
+                y += (int)row * CLIMATE_LANDSCAPE_SELECTOR_STEP;
+                width = CLIMATE_LANDSCAPE_CONTROL_COLUMN;
+            } else if (slot > 0) {
+                size_t column_slot = slot - 1;
+                size_t column = column_slot % 2;
+                size_t row = column_slot / 2 + 1;
+
+                /* The three-item reference keeps Fan left and Preset right. */
+                if (count == 3) column = 1 - column;
+
+                x += (int)column * (CLIMATE_LANDSCAPE_CONTROL_COLUMN +
+                                    CLIMATE_LANDSCAPE_CONTROL_GAP);
+                y += (int)row * CLIMATE_LANDSCAPE_SELECTOR_STEP;
+                width = CLIMATE_LANDSCAPE_CONTROL_COLUMN;
+            }
+
+            lv_obj_t *selector = page->selectors[visible[slot]];
+            lv_obj_set_pos(selector, x, y);
+            lv_obj_set_size(selector, width, 52);
+            climate_selector_set_content_layout(selector, width >= 200);
+        }
+        return;
+    }
+
     for (size_t slot = 0; slot < count; ++slot) {
         int x, y, width;
         if (count <= 2 || (count == 3 && slot == 0)) {
@@ -550,6 +621,7 @@ esp_err_t climate_more_info_render(const entity_more_info_context_t *context)
     climate_page_t *page = lv_calloc(1, sizeof(*page));
     if (!page) return ESP_ERR_NO_MEM;
     page->store = context->store;
+    page->landscape = bsp_lcd_is_landscape();
     snprintf(page->entity_id, sizeof(page->entity_id), "%s", context->snapshot.entity_id);
     if (strcmp(s_selected_entity, page->entity_id) != 0) {
         snprintf(s_selected_entity, sizeof(s_selected_entity), "%s", page->entity_id);
@@ -588,7 +660,7 @@ esp_err_t climate_more_info_render(const entity_more_info_context_t *context)
     lv_obj_t *title = lv_label_create(header);
     page->title = title;
     lv_obj_set_pos(title, 72, 22);
-    lv_obj_set_width(title, 228);
+    lv_obj_set_width(title, page->landscape ? 388 : 228);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
     lv_label_set_text(title, context->snapshot.friendly_name[0] ?
                             context->snapshot.friendly_name : page->entity_id);
@@ -607,7 +679,14 @@ esp_err_t climate_more_info_render(const entity_more_info_context_t *context)
     page->steps = climate_step_buttons_create(page->dial);
     page->toggle = climate_target_toggle_create(root);
     if (!page->dial || !page->steps || !page->toggle) return ESP_ERR_NO_MEM;
-    lv_obj_align(page->dial, LV_ALIGN_TOP_MID, 0, 74);
+    if (page->landscape) {
+        lv_obj_set_size(page->dial, CLIMATE_LANDSCAPE_DIAL_WIDTH, 238);
+        lv_obj_set_pos(page->dial, 0, 74);
+        climate_dial_set_compact_layout(page->dial, true);
+        climate_step_buttons_set_compact_layout(page->steps, true);
+    } else {
+        lv_obj_align(page->dial, LV_ALIGN_TOP_MID, 0, 74);
+    }
     lv_obj_add_flag(page->steps, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_align(page->steps, LV_ALIGN_BOTTOM_MID, 0, -24);
     lv_obj_align(page->toggle, LV_ALIGN_TOP_MID, 0, 300);

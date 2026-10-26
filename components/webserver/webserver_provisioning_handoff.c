@@ -202,7 +202,6 @@ esp_err_t method_api_handle_exchange_provisioning_handoff(cJSON *data,
         cJSON_AddStringToObject(response, "sessionIssueReason", login_session_reason_to_string(reason));
     }
     error = WEB_API_ERROR_OK;
-    esp_event_post(WEB_SERVER_EVENT, WEB_SERVER_EVENT_AUTH_OK, NULL, 0, portMAX_DELAY);
 
 send_response:
     esp_err_t send_error = webserver_data_code_response_to_special_client_not_log(
@@ -211,6 +210,13 @@ send_response:
         now_resp_arg->seq,
         error,
         now_resp_arg->fd);
+    if (error == WEB_API_ERROR_OK && send_error == ESP_OK) {
+        esp_event_post(WEB_SERVER_EVENT,
+                       WEB_SERVER_EVENT_AUTH_OK,
+                       &now_resp_arg->fd,
+                       sizeof(now_resp_arg->fd),
+                       portMAX_DELAY);
+    }
     login_session_secure_zero(&credential, sizeof(credential));
     return send_error;
 }

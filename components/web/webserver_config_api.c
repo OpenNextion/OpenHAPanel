@@ -35,6 +35,17 @@ extern webserver_config_t config_info;
 extern device_info_t device_info;
 extern night_mode_config_t s_night_mode_config;
 
+static esp_err_t webserver_config_notification_send(cJSON *data,
+                                                    char *method,
+                                                    int socket_fd)
+{
+    if (socket_fd >= 0) {
+        return webserver_data_response_to_special_client(
+            data, method, 0, socket_fd);
+    }
+    return webserver_data_response_to_authenticated_clients(data, method, 0);
+}
+
 /**
  * @brief Get the pointer to the global configuration structure.
  *
@@ -68,7 +79,7 @@ night_mode_config_t *webserver_config_get_night_mode_config(void)
  *
  * @return ESP_OK on success, ESP_FAIL on failure.
  */
-int webserver_whitelist_notify()
+static int webserver_whitelist_notify_internal(int socket_fd)
 {
     cJSON *data = cJSON_CreateObject();
     if (!data) {
@@ -89,8 +100,18 @@ int webserver_whitelist_notify()
         cJSON_AddItemToArray(ip_list, cJSON_CreateString(config_info.ip_White_list[i]));
     }
     cJSON_AddItemToObject(data, "ipWhitelist", ip_list);
-    webserver_data_response_to_all_client(data, WEB_API_METHOD_SECU_INFO_NOTIFY, 0);
-    return ESP_OK;
+    return webserver_config_notification_send(
+        data, WEB_API_METHOD_SECU_INFO_NOTIFY, socket_fd);
+}
+
+int webserver_whitelist_notify(void)
+{
+    return webserver_whitelist_notify_internal(-1);
+}
+
+int webserver_whitelist_notify_to_client(int socket_fd)
+{
+    return webserver_whitelist_notify_internal(socket_fd);
 }
 
 /**
@@ -101,7 +122,7 @@ int webserver_whitelist_notify()
  *
  * @return ESP_OK on success, ESP_FAIL on failure.
  */
-int webserver_theme_mode_notify()
+static int webserver_theme_mode_notify_internal(int socket_fd)
 {
     cJSON *data = cJSON_CreateObject();
     if (!data) {
@@ -110,8 +131,18 @@ int webserver_theme_mode_notify()
     }
     cJSON_AddStringToObject(data, "currentMode", device_info.theme_mode.current_mode);
     cJSON_AddBoolToObject(data, "followSystem", device_info.theme_mode.follow_system);
-    webserver_data_response_to_all_client(data, WEB_API_METHOD_THEME_MODE_NOTIFY, 0);
-    return ESP_OK;
+    return webserver_config_notification_send(
+        data, WEB_API_METHOD_THEME_MODE_NOTIFY, socket_fd);
+}
+
+int webserver_theme_mode_notify(void)
+{
+    return webserver_theme_mode_notify_internal(-1);
+}
+
+int webserver_theme_mode_notify_to_client(int socket_fd)
+{
+    return webserver_theme_mode_notify_internal(socket_fd);
 }
 
 /**
@@ -121,7 +152,7 @@ int webserver_theme_mode_notify()
  *
  * @return ESP_OK on success, ESP_FAIL on failure.
  */
-int webserver_language_notify()
+static int webserver_language_notify_internal(int socket_fd)
 {
     cJSON *data = cJSON_CreateObject();
     if (!data) {
@@ -129,8 +160,18 @@ int webserver_language_notify()
         return ESP_FAIL;
     }
     cJSON_AddStringToObject(data, "language", device_info.language);
-    webserver_data_response_to_all_client(data, WEB_API_METHOD_LANGUAGE_NOTIFY, 0);
-    return ESP_OK;
+    return webserver_config_notification_send(
+        data, WEB_API_METHOD_LANGUAGE_NOTIFY, socket_fd);
+}
+
+int webserver_language_notify(void)
+{
+    return webserver_language_notify_internal(-1);
+}
+
+int webserver_language_notify_to_client(int socket_fd)
+{
+    return webserver_language_notify_internal(socket_fd);
 }
 
 /**
@@ -143,7 +184,8 @@ int webserver_language_notify()
  * @param update_info Flags indicating which parts of device info to update (e.g. UPDATE_DEVICE_ALL).
  * @return ESP_OK always.
  */
-int webserver_device_info_notify(uint8_t update_info)
+static int webserver_device_info_notify_internal(uint8_t update_info,
+                                                 int socket_fd)
 {
     time_t now = time(NULL);
     int64_t timestamp_ms = now * 1000;
@@ -220,8 +262,18 @@ int webserver_device_info_notify(uint8_t update_info)
     //     cJSON_AddItemToObject(data, "IEEEAddress", ieee_address);
     // }
 
-    webserver_data_response_to_all_client(data, WEB_API_METHOD_DEVICE_INFO_NOTIFY, 0);
-    return ESP_OK;
+    return webserver_config_notification_send(
+        data, WEB_API_METHOD_DEVICE_INFO_NOTIFY, socket_fd);
+}
+
+int webserver_device_info_notify(uint8_t update_info)
+{
+    return webserver_device_info_notify_internal(update_info, -1);
+}
+
+int webserver_device_info_notify_to_client(uint8_t update_info, int socket_fd)
+{
+    return webserver_device_info_notify_internal(update_info, socket_fd);
 }
 
 /**

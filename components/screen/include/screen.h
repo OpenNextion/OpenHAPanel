@@ -5,8 +5,11 @@ extern "C" {
 #ifndef OPEN_NEXTION_COMPONENTS_SCREEN_INCLUDE_SCREEN_H
 #define OPEN_NEXTION_COMPONENTS_SCREEN_INCLUDE_SCREEN_H
 
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
+#include "bsp_lcd.h"
 #include "cJSON.h"
 #include "esp_err.h"
 #include "esp_event.h"
@@ -17,7 +20,17 @@ ESP_EVENT_DECLARE_BASE(SCREEN_EVENT);
 
 typedef enum {
     SCREEN_EVENT_CONFIG_CHANGED,
+    SCREEN_EVENT_ORIENTATION_CHANGED,
 } screen_event_t;
+
+typedef struct {
+    bsp_lcd_rotation_t old_rotation;
+    bsp_lcd_rotation_t new_rotation;
+    bsp_lcd_orientation_t old_orientation;
+    bsp_lcd_orientation_t new_orientation;
+    int32_t width;
+    int32_t height;
+} screen_orientation_changed_event_t;
 
 esp_err_t screen_save_config(const cJSON *config);
 cJSON *screen_load_config(void);

@@ -1,17 +1,28 @@
 #include "light_preset_colors.h"
 
-#define LIGHT_PRESET_COLOR_COUNT 8
-#define LIGHT_PRESET_COLUMNS     4
-#define LIGHT_PRESET_BUTTON_SIZE 56
-#define LIGHT_PRESET_GAP         16
-/* Leave room for the button theme's pressed-state scale animation. */
-#define LIGHT_PRESET_PRESS_OVERFLOW 8
+#define LIGHT_PRESET_COLOR_COUNT  8
+#define LIGHT_PRESET_COLUMNS      4
+#define LIGHT_PRESET_BUTTON_SIZE  56
+#define LIGHT_PRESET_GAP          16
+#define LIGHT_PRESET_PARENT_WIDTH 320
+#define LIGHT_PRESET_PARENT_HEIGHT 160
+#define LIGHT_PRESET_BUTTON_DRAW_SIZE (LIGHT_PRESET_BUTTON_SIZE)
+#define LIGHT_PRESET_BUTTON_PRESSED_SIZE \
+    (LIGHT_PRESET_BUTTON_DRAW_SIZE + 4)
+#define LIGHT_PRESET_OFFSET_X \
+    ((LIGHT_PRESET_PARENT_WIDTH - \
+      (LIGHT_PRESET_COLUMNS * LIGHT_PRESET_BUTTON_SIZE + \
+       (LIGHT_PRESET_COLUMNS - 1) * LIGHT_PRESET_GAP)) / \
+     2)
+#define LIGHT_PRESET_OFFSET_Y \
+    ((LIGHT_PRESET_PARENT_HEIGHT - \
+      (2 * LIGHT_PRESET_BUTTON_SIZE + LIGHT_PRESET_GAP)) / \
+     2)
 
 typedef struct {
     lv_obj_t *buttons[LIGHT_PRESET_COLOR_COUNT];
     light_favorite_color_t colors[LIGHT_PRESET_COLOR_COUNT];
     size_t count;
-    int selected_index;
     bool disabled;
     light_preset_select_cb_t callback;
     void *user_data;
@@ -20,6 +31,31 @@ typedef struct {
 static light_preset_colors_context_t *light_preset_colors_context(lv_obj_t *obj)
 {
     return obj ? lv_obj_get_user_data(obj) : NULL;
+}
+
+static void light_preset_colors_set_button_geometry(lv_obj_t *button,
+                                                    size_t index,
+                                                    bool pressed)
+{
+    const int32_t size = pressed ? LIGHT_PRESET_BUTTON_PRESSED_SIZE
+                                 : LIGHT_PRESET_BUTTON_DRAW_SIZE;
+    const int32_t grow_offset =
+        (size - LIGHT_PRESET_BUTTON_DRAW_SIZE) / 2;
+    const int32_t x =
+        LIGHT_PRESET_OFFSET_X +
+        (LIGHT_PRESET_BUTTON_SIZE - LIGHT_PRESET_BUTTON_DRAW_SIZE) / 2 +
+        (int32_t)(index % LIGHT_PRESET_COLUMNS) *
+            (LIGHT_PRESET_BUTTON_SIZE + LIGHT_PRESET_GAP) -
+        grow_offset;
+    const int32_t y =
+        LIGHT_PRESET_OFFSET_Y +
+        (LIGHT_PRESET_BUTTON_SIZE - LIGHT_PRESET_BUTTON_DRAW_SIZE) / 2 +
+        (int32_t)(index / LIGHT_PRESET_COLUMNS) *
+            (LIGHT_PRESET_BUTTON_SIZE + LIGHT_PRESET_GAP) -
+        grow_offset;
+
+    lv_obj_set_pos(button, x, y);
+    lv_obj_set_size(button, size, size);
 }
 
 static void light_preset_colors_refresh(light_preset_colors_context_t *context)
@@ -54,15 +90,22 @@ static void light_preset_colors_refresh(light_preset_colors_context_t *context)
 static void light_preset_colors_event_cb(lv_event_t *event)
 {
     light_preset_colors_context_t *context = lv_event_get_user_data(event);
-    if (!context || context->disabled) {
+    if (!context) {
         return;
     }
+    const lv_event_code_t code = lv_event_get_code(event);
     lv_obj_t *target = lv_event_get_target_obj(event);
-    for (size_t i = 0; i < context->count; i++) {
+    for (size_t i = 0; i < LIGHT_PRESET_COLOR_COUNT; i++) {
         if (target == context->buttons[i]) {
-            context->selected_index = (int)i;
-            light_preset_colors_refresh(context);
-            if (context->callback) {
+            if (code == LV_EVENT_PRESSED && !context->disabled) {
+                light_preset_colors_set_button_geometry(target, i, true);
+            }
+            else if (code == LV_EVENT_RELEASED ||
+                     code == LV_EVENT_PRESS_LOST) {
+                light_preset_colors_set_button_geometry(target, i, false);
+            }
+            else if (code == LV_EVENT_CLICKED && !context->disabled &&
+                     i < context->count && context->callback) {
                 context->callback(i, &context->colors[i], context->user_data);
             }
             return;
@@ -85,7 +128,6 @@ lv_obj_t *light_preset_colors_create(lv_obj_t *parent)
         return NULL;
     }
     context->count = 0;
-    context->selected_index = -1;
 
     lv_obj_t *root = lv_obj_create(parent);
     if (!root) {
@@ -99,44 +141,40 @@ lv_obj_t *light_preset_colors_create(lv_obj_t *parent)
                         context);
     lv_obj_remove_style_all(root);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    /* Keep a fixed drawing canvas around the two rows.  Buttons use absolute
+     * positions so their pressed transform is not constrained by a grid
+     * cell that remains at the untransformed size. */
     lv_obj_set_size(root,
-                    LIGHT_PRESET_COLUMNS * LIGHT_PRESET_BUTTON_SIZE +
-                        (LIGHT_PRESET_COLUMNS - 1) * LIGHT_PRESET_GAP +
-                        2 * LIGHT_PRESET_PRESS_OVERFLOW,
-                    2 * LIGHT_PRESET_BUTTON_SIZE + LIGHT_PRESET_GAP +
-                        2 * LIGHT_PRESET_PRESS_OVERFLOW);
-    static const int32_t column_dsc[] = {
-        LIGHT_PRESET_BUTTON_SIZE,
-        LIGHT_PRESET_BUTTON_SIZE,
-        LIGHT_PRESET_BUTTON_SIZE,
-        LIGHT_PRESET_BUTTON_SIZE,
-        LV_GRID_TEMPLATE_LAST,
-    };
-    static const int32_t row_dsc[] = {
-        LIGHT_PRESET_BUTTON_SIZE,
-        LIGHT_PRESET_BUTTON_SIZE,
-        LV_GRID_TEMPLATE_LAST,
-    };
-    lv_obj_set_grid_dsc_array(root, column_dsc, row_dsc);
-    lv_obj_set_style_pad_all(root, LIGHT_PRESET_PRESS_OVERFLOW, 0);
-    lv_obj_set_style_pad_row(root, LIGHT_PRESET_GAP, 0);
-    lv_obj_set_style_pad_column(root, LIGHT_PRESET_GAP, 0);
+                    LIGHT_PRESET_PARENT_WIDTH,
+                    LIGHT_PRESET_PARENT_HEIGHT);
 
     for (size_t i = 0; i < LIGHT_PRESET_COLOR_COUNT; i++) {
         context->buttons[i] = lv_button_create(root);
-        lv_obj_set_size(context->buttons[i],
-                        LIGHT_PRESET_BUTTON_SIZE,
-                        LIGHT_PRESET_BUTTON_SIZE);
-        lv_obj_set_grid_cell(context->buttons[i],
-                             LV_GRID_ALIGN_CENTER,
-                             i % LIGHT_PRESET_COLUMNS,
-                             1,
-                             LV_GRID_ALIGN_CENTER,
-                             i / LIGHT_PRESET_COLUMNS,
-                             1);
+        light_preset_colors_set_button_geometry(context->buttons[i], i, false);
         lv_obj_set_style_radius(context->buttons[i], LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_shadow_width(context->buttons[i], 0, 0);
         lv_obj_set_style_border_width(context->buttons[i], 0, LV_STATE_PRESSED);
+        /* The default button theme enlarges only the draw area.  Keep that
+         * transform disabled because this component changes the object's
+         * real coordinates and size while it is pressed. */
+        lv_obj_set_style_transform_width(context->buttons[i],
+                                         0,
+                                         LV_STATE_PRESSED);
+        lv_obj_set_style_transform_height(context->buttons[i],
+                                          0,
+                                          LV_STATE_PRESSED);
+        lv_obj_add_event_cb(context->buttons[i],
+                            light_preset_colors_event_cb,
+                            LV_EVENT_PRESSED,
+                            context);
+        lv_obj_add_event_cb(context->buttons[i],
+                            light_preset_colors_event_cb,
+                            LV_EVENT_RELEASED,
+                            context);
+        lv_obj_add_event_cb(context->buttons[i],
+                            light_preset_colors_event_cb,
+                            LV_EVENT_PRESS_LOST,
+                            context);
         lv_obj_add_event_cb(context->buttons[i],
                             light_preset_colors_event_cb,
                             LV_EVENT_CLICKED,
@@ -158,30 +196,6 @@ void light_preset_colors_set_palette(lv_obj_t *obj,
     for (size_t i = 0; i < context->count; i++) {
         context->colors[i] = colors[i];
     }
-    if (context->selected_index >= (int)context->count) {
-        context->selected_index = -1;
-    }
-    const size_t rows = (context->count + LIGHT_PRESET_COLUMNS - 1) /
-                        LIGHT_PRESET_COLUMNS;
-    lv_obj_set_height(obj,
-                      rows > 0
-                          ? (int32_t)(rows * LIGHT_PRESET_BUTTON_SIZE +
-                                      (rows - 1) * LIGHT_PRESET_GAP +
-                                      2 * LIGHT_PRESET_PRESS_OVERFLOW)
-                          : 0);
-    light_preset_colors_refresh(context);
-}
-
-void light_preset_colors_set_selected(lv_obj_t *obj, int selected_index)
-{
-    light_preset_colors_context_t *context = light_preset_colors_context(obj);
-    if (!context) {
-        return;
-    }
-    context->selected_index = selected_index >= 0 &&
-                                      selected_index < (int)context->count
-                                  ? selected_index
-                                  : -1;
     light_preset_colors_refresh(context);
 }
 

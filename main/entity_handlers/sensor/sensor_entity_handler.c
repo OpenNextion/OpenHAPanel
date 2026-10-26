@@ -15,19 +15,32 @@
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 #include "screen/components/ha_history_chart.h"
+#include "screen/components/ha_history_list.h"
 #include "screen/components/ha_relative_time_label.h"
 #include "screen/components/more_info_screen.h"
+#include "bsp_lcd.h"
 
-#define SCREEN_DEFAULT_CONTENT_WIDTH 280
+#define SCREEN_DEFAULT_CONTENT_WIDTH_PORTAIT 280
+#define SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE 440
+#define SENSOR_TITLE_MIN_WIDTH_LANDSCAPE 120
+#define SENSOR_TITLE_STATE_GAP_LANDSCAPE 8
 #define SENSOR_HISTORY_HOURS 12
+#define SENSOR_HISTORY_LIST_DAYS 3
+#define SENSOR_HISTORY_LIST_MAX_RECORDS 14
 
 static const char *TAG = "sensor_entity_handler";
 
 typedef ha_history_chart_point_t sensor_history_point_t;
 
 typedef struct {
+    time_t epoch;
+    char state[HA_ENTITY_STORE_STATE_MAX];
+} sensor_history_record_t;
+
+typedef struct {
     lv_obj_t *screen;
     char entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
+    char device_class[HA_ENTITY_STORE_DEVICE_CLASS_MAX];
     char unit[HA_ENTITY_STORE_UNIT_MAX];
     time_t start_time;
     time_t end_time;
@@ -35,11 +48,14 @@ typedef struct {
     bool loading;
     bool loaded;
     bool failed;
+    bool is_list_history;
     bool observed_state_initialized;
     char observed_state[HA_ENTITY_STORE_STATE_MAX];
     size_t point_count;
     size_t point_capacity;
     sensor_history_point_t *points;
+    size_t record_count;
+    sensor_history_record_t records[SENSOR_HISTORY_LIST_MAX_RECORDS];
 } sensor_history_cache_t;
 
 static sensor_history_cache_t s_sensor_history;
@@ -49,13 +65,19 @@ typedef struct {
     const char *icon;
 } sensor_icon_mapping_t;
 
-/* Keep this mapping aligned with the frontend sensor icon rules. */
+/* Default device-class icons from Home Assistant sensor/icons.json.
+ * The frontend resolves these through src/data/icons.ts. */
 static const sensor_icon_mapping_t s_sensor_icons[] = {
+    {"absolute_humidity", MDI_SYMBOL_WATER_OPACITY},
     {"apparent_power", MDI_SYMBOL_FLASH},
     {"aqi", MDI_SYMBOL_AIR_FILTER},
+    {"area", MDI_SYMBOL_TEXTURE_BOX},
     {"atmospheric_pressure", MDI_SYMBOL_THERMOMETER_LINES},
+    {"battery", MDI_SYMBOL_BATTERY_UNKNOWN},
+    {"blood_glucose_concentration", MDI_SYMBOL_SPOON_SUGAR},
     {"carbon_dioxide", MDI_SYMBOL_MOLECULE_CO2},
     {"carbon_monoxide", MDI_SYMBOL_MOLECULE_CO},
+    {"conductivity", MDI_SYMBOL_SPROUT_OUTLINE},
     {"current", MDI_SYMBOL_CURRENT_AC},
     {"data_rate", MDI_SYMBOL_TRANSMISSION_TOWER},
     {"data_size", MDI_SYMBOL_DATABASE},
@@ -86,25 +108,141 @@ static const sensor_icon_mapping_t s_sensor_icons[] = {
     {"precipitation", MDI_SYMBOL_WEATHER_RAINY},
     {"precipitation_intensity", MDI_SYMBOL_WEATHER_POURING},
     {"pressure", MDI_SYMBOL_GAUGE},
+    {"radon", MDI_SYMBOL_RADIOACTIVE},
+    {"reactive_energy", MDI_SYMBOL_LIGHTNING_BOLT},
     {"reactive_power", MDI_SYMBOL_FLASH},
     {"signal_strength", MDI_SYMBOL_WIFI},
     {"sound_pressure", MDI_SYMBOL_EAR_HEARING},
     {"speed", MDI_SYMBOL_SPEEDOMETER},
-    {"sulfur_dioxide", MDI_SYMBOL_MOLECULE},
+    {"sulphur_dioxide", MDI_SYMBOL_MOLECULE},
     {"temperature", MDI_SYMBOL_THERMOMETER},
+    {"temperature_delta", MDI_SYMBOL_THERMOMETER},
     {"timestamp", MDI_SYMBOL_CLOCK},
     {"uptime", MDI_SYMBOL_CLOCK_START},
     {"volatile_organic_compounds", MDI_SYMBOL_MOLECULE},
     {"volatile_organic_compounds_parts", MDI_SYMBOL_MOLECULE},
     {"voltage", MDI_SYMBOL_SINE_WAVE},
     {"volume", MDI_SYMBOL_CAR_COOLANT_LEVEL},
+    {"volume_flow_rate", MDI_SYMBOL_PIPE_VALVE},
     {"volume_storage", MDI_SYMBOL_STORAGE_TANK},
     {"water", MDI_SYMBOL_WATER},
     {"weight", MDI_SYMBOL_WEIGHT},
+    {"wind_direction", MDI_SYMBOL_COMPASS_ROSE},
     {"wind_speed", MDI_SYMBOL_WEATHER_WINDY},
 };
 
+typedef struct {
+    const char *device_class;
+    double threshold;
+    const char *icon;
+} sensor_range_icon_mapping_t;
+
+/* Select the highest threshold <= state, matching getIconFromRange(). */
+static const sensor_range_icon_mapping_t s_sensor_range_icons[] = {
+    {"battery", 0, MDI_SYMBOL_BATTERY_ALERT},
+    {"battery", 10, MDI_SYMBOL_BATTERY_10},
+    {"battery", 20, MDI_SYMBOL_BATTERY_20},
+    {"battery", 30, MDI_SYMBOL_BATTERY_30},
+    {"battery", 40, MDI_SYMBOL_BATTERY_40},
+    {"battery", 50, MDI_SYMBOL_BATTERY_50},
+    {"battery", 60, MDI_SYMBOL_BATTERY_60},
+    {"battery", 70, MDI_SYMBOL_BATTERY_70},
+    {"battery", 80, MDI_SYMBOL_BATTERY_80},
+    {"battery", 90, MDI_SYMBOL_BATTERY_90},
+    {"battery", 100, MDI_SYMBOL_BATTERY},
+    {"wind_direction", 0, MDI_SYMBOL_ARROW_DOWN},
+    {"wind_direction", 22.5, MDI_SYMBOL_ARROW_BOTTOM_LEFT},
+    {"wind_direction", 67.5, MDI_SYMBOL_ARROW_LEFT},
+    {"wind_direction", 112.5, MDI_SYMBOL_ARROW_TOP_LEFT},
+    {"wind_direction", 157.5, MDI_SYMBOL_ARROW_UP},
+    {"wind_direction", 202.5, MDI_SYMBOL_ARROW_TOP_RIGHT},
+    {"wind_direction", 247.5, MDI_SYMBOL_ARROW_RIGHT},
+    {"wind_direction", 292.5, MDI_SYMBOL_ARROW_BOTTOM_RIGHT},
+    {"wind_direction", 337.5, MDI_SYMBOL_ARROW_DOWN},
+};
+
+/* Home Assistant frontend's SENSOR_NUMERIC_DEVICE_CLASSES. */
+static const char *const s_numeric_sensor_device_classes[] = {
+    "absolute_humidity",
+    "apparent_power",
+    "aqi",
+    "area",
+    "atmospheric_pressure",
+    "battery",
+    "blood_glucose_concentration",
+    "carbon_dioxide",
+    "carbon_monoxide",
+    "conductivity",
+    "current",
+    "data_rate",
+    "data_size",
+    "distance",
+    "duration",
+    "energy",
+    "energy_distance",
+    "energy_storage",
+    "frequency",
+    "gas",
+    "humidity",
+    "illuminance",
+    "irradiance",
+    "moisture",
+    "monetary",
+    "nitrogen_dioxide",
+    "nitrogen_monoxide",
+    "nitrous_oxide",
+    "ozone",
+    "ph",
+    "power",
+    "power_factor",
+    "precipitation",
+    "precipitation_intensity",
+    "pressure",
+    "radon",
+    "reactive_energy",
+    "reactive_power",
+    "signal_strength",
+    "sound_pressure",
+    "speed",
+    "sulphur_dioxide",
+    "temperature",
+    "temperature_delta",
+    "volatile_organic_compounds",
+    "volatile_organic_compounds_parts",
+    "voltage",
+    "volume",
+    "volume_flow_rate",
+    "volume_storage",
+    "water",
+    "weight",
+    "wind_direction",
+    "wind_speed",
+};
+
+static bool sensor_has_chart_history(const ha_entity_snapshot_t *snapshot)
+{
+    if (!snapshot) {
+        return false;
+    }
+    if (snapshot->has_unit_of_measurement || snapshot->has_state_class) {
+        return true;
+    }
+    for (size_t i = 0;
+         i < sizeof(s_numeric_sensor_device_classes) /
+                 sizeof(s_numeric_sensor_device_classes[0]);
+         i++) {
+        if (strcmp(snapshot->device_class,
+                   s_numeric_sensor_device_classes[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool sensor_parse_numeric_state(const char *state, double *value_out);
+static bool sensor_history_parse_epoch(const cJSON *item, time_t *epoch_out);
+static void sensor_history_insert_record(time_t epoch, const char *state);
+static bool sensor_history_parse_list_result(const cJSON *result);
 static bool sensor_history_parse_item(const cJSON *item,
                                       sensor_history_point_t *point_out);
 static bool sensor_history_parse_result(const cJSON *result);
@@ -142,6 +280,97 @@ static bool sensor_parse_numeric_state(const char *state, double *value_out)
     }
 
     *value_out = value;
+    return true;
+}
+
+static bool sensor_history_parse_epoch(const cJSON *item, time_t *epoch_out)
+{
+    if (!cJSON_IsObject(item) || !epoch_out) {
+        return false;
+    }
+
+    const cJSON *timestamp = cJSON_GetObjectItemCaseSensitive(item, "lu");
+    if (cJSON_IsNumber(timestamp) && timestamp->valuedouble > 0.0) {
+        *epoch_out = (time_t)timestamp->valuedouble;
+        return true;
+    }
+
+    timestamp = cJSON_GetObjectItemCaseSensitive(item, "last_changed");
+    if (!cJSON_IsString(timestamp)) {
+        timestamp = cJSON_GetObjectItemCaseSensitive(item, "last_updated");
+    }
+    return cJSON_IsString(timestamp) && timestamp->valuestring &&
+           ha_datetime_parse_epoch(timestamp->valuestring, epoch_out) ==
+               ESP_OK;
+}
+
+static void sensor_history_insert_record(time_t epoch, const char *state)
+{
+    if (epoch <= 0 || !state || !state[0]) {
+        return;
+    }
+
+    size_t position = 0;
+    while (position < s_sensor_history.record_count &&
+           s_sensor_history.records[position].epoch > epoch) {
+        position++;
+    }
+    if (position < s_sensor_history.record_count &&
+        s_sensor_history.records[position].epoch == epoch) {
+        snprintf(s_sensor_history.records[position].state,
+                 sizeof(s_sensor_history.records[position].state),
+                 "%s",
+                 state);
+        return;
+    }
+    if (position >= SENSOR_HISTORY_LIST_MAX_RECORDS) {
+        return;
+    }
+
+    const size_t new_count =
+        s_sensor_history.record_count < SENSOR_HISTORY_LIST_MAX_RECORDS
+            ? s_sensor_history.record_count + 1
+            : SENSOR_HISTORY_LIST_MAX_RECORDS;
+    for (size_t i = new_count - 1; i > position; i--) {
+        s_sensor_history.records[i] = s_sensor_history.records[i - 1];
+    }
+    s_sensor_history.records[position].epoch = epoch;
+    snprintf(s_sensor_history.records[position].state,
+             sizeof(s_sensor_history.records[position].state),
+             "%s",
+             state);
+    s_sensor_history.record_count = new_count;
+}
+
+static bool sensor_history_parse_list_result(const cJSON *result)
+{
+    if (!cJSON_IsObject(result)) {
+        return false;
+    }
+
+    const cJSON *states = cJSON_GetObjectItemCaseSensitive(
+        result,
+        s_sensor_history.entity_id);
+    if (!cJSON_IsArray(states)) {
+        return false;
+    }
+
+    /* Merge the response with live changes received while loading. */
+    const cJSON *item = NULL;
+    cJSON_ArrayForEach(item, states) {
+        time_t epoch = 0;
+        if (!sensor_history_parse_epoch(item, &epoch)) {
+            continue;
+        }
+        const cJSON *state = cJSON_GetObjectItemCaseSensitive(item, "s");
+        if (!cJSON_IsString(state)) {
+            state = cJSON_GetObjectItemCaseSensitive(item, "state");
+        }
+        if (!cJSON_IsString(state) || !state->valuestring) {
+            continue;
+        }
+        sensor_history_insert_record(epoch, state->valuestring);
+    }
     return true;
 }
 
@@ -338,6 +567,17 @@ static void sensor_history_observe_state(
              "%s",
              snapshot->state);
 
+    if (s_sensor_history.is_list_history) {
+        time_t state_epoch = 0;
+        const char *changed_at = snapshot->last_changed[0]
+                                     ? snapshot->last_changed
+                                     : snapshot->last_updated;
+        if (ha_datetime_parse_epoch(changed_at, &state_epoch) == ESP_OK) {
+            sensor_history_insert_record(state_epoch, snapshot->state);
+        }
+        return;
+    }
+
     double value = 0.0;
     const time_t now_epoch = time(NULL);
     if (s_sensor_history.failed || now_epoch <= 0 ||
@@ -381,8 +621,16 @@ static void sensor_history_prepare(
     const bool entity_changed =
         strcmp(s_sensor_history.entity_id, context->snapshot.entity_id) != 0;
 
-    if (entity_changed) {
+    const bool is_list_history =
+        !sensor_has_chart_history(&context->snapshot);
+    const bool history_mode_changed =
+        s_sensor_history.is_list_history != is_list_history;
+
+    if (entity_changed || history_mode_changed) {
+        /* Keep the existing screen delete callback when switching modes. */
+        lv_obj_t *screen = s_sensor_history.screen;
         sensor_history_reset();
+        s_sensor_history.screen = screen;
         snprintf(s_sensor_history.entity_id,
                  sizeof(s_sensor_history.entity_id),
                  "%s",
@@ -402,6 +650,11 @@ static void sensor_history_prepare(
                             NULL);
     }
 
+    s_sensor_history.is_list_history = is_list_history;
+    snprintf(s_sensor_history.device_class,
+             sizeof(s_sensor_history.device_class),
+             "%s",
+             context->snapshot.device_class);
     snprintf(s_sensor_history.unit,
              sizeof(s_sensor_history.unit),
              "%s",
@@ -409,7 +662,8 @@ static void sensor_history_prepare(
     sensor_history_observe_state(&context->snapshot);
 
     const time_t now_epoch = time(NULL);
-    if (s_sensor_history.loaded && now_epoch > 0) {
+    if (s_sensor_history.loaded && now_epoch > 0 &&
+        !s_sensor_history.is_list_history) {
         sensor_history_prune(now_epoch);
     }
 
@@ -425,7 +679,9 @@ static void sensor_history_prepare(
     }
 
     s_sensor_history.start_time =
-        end_time - SENSOR_HISTORY_HOURS * 60 * 60;
+        s_sensor_history.is_list_history
+            ? end_time - SENSOR_HISTORY_LIST_DAYS * 24 * 60 * 60
+            : end_time - SENSOR_HISTORY_HOURS * 60 * 60;
     s_sensor_history.end_time = end_time;
     s_sensor_history.loading = true;
 
@@ -467,7 +723,10 @@ static void sensor_history_result_cb(int request_id,
     }
 
     history->loading = false;
-    history->loaded = err == ESP_OK && sensor_history_parse_result(result);
+    history->loaded =
+        err == ESP_OK && (history->is_list_history
+                              ? sensor_history_parse_list_result(result)
+                              : sensor_history_parse_result(result));
     history->failed = !history->loaded;
     if (history->failed) {
         ESP_LOGW(TAG,
@@ -485,6 +744,37 @@ static void sensor_history_result_cb(int request_id,
 
 static void sensor_history_render(lv_obj_t *parent)
 {
+    if (s_sensor_history.is_list_history) {
+        const char *message = NULL;
+        if (s_sensor_history.loading && s_sensor_history.record_count == 0) {
+            message = "Loading history...";
+        }
+        else if (s_sensor_history.failed &&
+                 s_sensor_history.record_count == 0) {
+            message = "History unavailable";
+        }
+        else if (s_sensor_history.record_count == 0) {
+            message = "No history";
+        }
+
+        ha_history_list_item_t items[SENSOR_HISTORY_LIST_MAX_RECORDS] = {0};
+        for (size_t i = 0; i < s_sensor_history.record_count; i++) {
+            items[i].epoch = s_sensor_history.records[i].epoch;
+            items[i].text = s_sensor_history.records[i].state;
+        }
+
+        const ha_history_list_config_t config = {
+            .title = "History",
+            .items = items,
+            .item_count = s_sensor_history.record_count,
+            .message = message,
+        };
+        if (!ha_history_list_create(parent, &config)) {
+            ESP_LOGW(TAG, "Failed to create sensor history list");
+        }
+        return;
+    }
+
     const char *message = NULL;
     if (s_sensor_history.loading) {
         message = "Loading history...";
@@ -510,16 +800,27 @@ static void sensor_history_render(lv_obj_t *parent)
     }
 }
 
-static bool sensor_device_class_is(const ha_entity_snapshot_t *snapshot,
-                                   const char *device_class)
-{
-    return snapshot && device_class &&
-           strcmp(snapshot->device_class, device_class) == 0;
-}
-
 static const char *sensor_get_icon(const ha_entity_snapshot_t *snapshot)
 {
     if (snapshot && snapshot->device_class[0]) {
+        double value = 0.0;
+        if (sensor_parse_numeric_state(snapshot->state, &value)) {
+            const char *range_icon = NULL;
+            for (size_t i = 0;
+                 i < sizeof(s_sensor_range_icons) / sizeof(s_sensor_range_icons[0]);
+                 i++) {
+                const sensor_range_icon_mapping_t *mapping =
+                    &s_sensor_range_icons[i];
+                if (strcmp(snapshot->device_class, mapping->device_class) == 0 &&
+                    value >= mapping->threshold) {
+                    range_icon = mapping->icon;
+                }
+            }
+            if (range_icon) {
+                return range_icon;
+            }
+        }
+
         for (size_t i = 0;
              i < sizeof(s_sensor_icons) / sizeof(s_sensor_icons[0]);
              i++) {
@@ -533,11 +834,27 @@ static const char *sensor_get_icon(const ha_entity_snapshot_t *snapshot)
     return MDI_SYMBOL_EYE;
 }
 
-static bool sensor_device_class_has_history(
-    const ha_entity_snapshot_t *snapshot)
+/* Match HA's default sensor icon colors in its dark theme. */
+static uint32_t sensor_icon_color(const ha_entity_snapshot_t *snapshot)
 {
-    return sensor_device_class_is(snapshot, "temperature") ||
-           sensor_device_class_is(snapshot, "humidity");
+    if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
+        return 0x6F6F6F;
+    }
+
+    if (strcmp(snapshot->device_class, "battery") == 0) {
+        double level = 0.0;
+        if (sensor_parse_numeric_state(snapshot->state, &level)) {
+            if (level >= 70.0) {
+                return 0x4CAF50;
+            }
+            if (level >= 30.0) {
+                return 0xFF9800;
+            }
+            return 0xF44336;
+        }
+    }
+
+    return 0x44739E;
 }
 
 static void sensor_format_state(const ha_entity_snapshot_t *snapshot,
@@ -553,8 +870,7 @@ static void sensor_format_state(const ha_entity_snapshot_t *snapshot,
         return;
     }
 
-    if (sensor_device_class_has_history(snapshot) &&
-        snapshot->unit_of_measurement[0]) {
+    if (snapshot->unit_of_measurement[0]) {
         snprintf(output,
                  output_size,
                  "%s%s",
@@ -670,10 +986,10 @@ static esp_err_t sensor_render_tile(ha_entity_store_t *store,
         return ESP_ERR_INVALID_ARG;
     }
 
-    /* Keep the retained history current while More Info is closed. Tile
-     * refreshes are driven by entity-store changes, so no HA history request
-     * is needed for new temperature or humidity samples. */
-    if (sensor_device_class_has_history(snapshot) &&
+    /* Entity-store updates append live states to the active history session.
+     * A unit change is handled by rebuilding the history in prepare(). */
+    if (s_sensor_history.is_list_history ==
+            !sensor_has_chart_history(snapshot) &&
         s_sensor_history.entity_id[0] &&
         strcmp(s_sensor_history.entity_id, snapshot->entity_id) == 0) {
         sensor_history_observe_state(snapshot);
@@ -682,18 +998,15 @@ static esp_err_t sensor_render_tile(ha_entity_store_t *store,
     entity_handler_apply_friendly_name(snapshot, model);
     model->icon = sensor_get_icon(snapshot);
     model->background_color = lv_color_hex(0x1E2228);
-    model->icon_color = lv_color_hex(0x44739e);
+    model->icon_color = lv_color_hex(sensor_icon_color(snapshot));
     model->icon_circle_background_color = lv_color_hex(0x242d36);
     model->title_color = lv_color_hex(0xFFFFFF);
     model->state_color = lv_color_hex(0x666666);
-    model->has_ripple_color = true;
-    model->ripple_color = lv_color_hex(0xD9D9D9);
 
     if (entity_handler_snapshot_is_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
                                            sizeof(model->state_text),
                                            snapshot);
-        model->icon_color = lv_color_hex(0x6f6f6f);
         model->icon_circle_background_color = lv_color_hex(0x2c2c2c);
     } else {
         sensor_format_state(snapshot,
@@ -715,7 +1028,7 @@ static esp_err_t sensor_render_more_info(
 
     lv_obj_t *content = lv_obj_create(main_ctn);
     lv_obj_remove_style_all(content);
-    lv_obj_set_width(content, SCREEN_DEFAULT_CONTENT_WIDTH);
+    lv_obj_set_width(content, bsp_lcd_is_landscape() ? SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE : SCREEN_DEFAULT_CONTENT_WIDTH_PORTAIT);
     lv_obj_set_height(content, LV_SIZE_CONTENT);
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
@@ -748,23 +1061,50 @@ static esp_err_t sensor_render_more_info(
     lv_obj_t *tile_icon = lv_label_create(tile_box);
     lv_label_set_text(tile_icon, sensor_get_icon(&context->snapshot));
     lv_obj_set_style_text_font(tile_icon, &ha_font_mdi_20, 0);
-    lv_obj_set_style_text_color(tile_icon, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(
+        tile_icon,
+        lv_color_hex(sensor_icon_color(&context->snapshot)),
+        0);
 
     lv_obj_t *tile_content_ctx = lv_obj_create(tile_box);
     lv_obj_remove_style_all(tile_content_ctx);
     lv_obj_set_flex_grow(tile_content_ctx, 1);
     lv_obj_set_height(tile_content_ctx, LV_SIZE_CONTENT);
     lv_obj_set_layout(tile_content_ctx, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(tile_content_ctx, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(tile_content_ctx,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER);
+    if (bsp_lcd_is_landscape()) {
+        lv_obj_set_flex_flow(tile_content_ctx, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_gap(tile_content_ctx,
+                                 SENSOR_TITLE_STATE_GAP_LANDSCAPE, 0);
+        lv_obj_set_flex_align(tile_content_ctx,
+                              LV_FLEX_ALIGN_SPACE_BETWEEN,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+    } else {
+        lv_obj_set_flex_flow(tile_content_ctx, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(tile_content_ctx,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER);
+    }
     lv_obj_set_style_pad_all(tile_content_ctx, 0, 0);
 
-    lv_obj_t *tile_content_title = lv_label_create(tile_content_ctx);
+    lv_obj_t *left_col = tile_content_ctx;
+    if (bsp_lcd_is_landscape()) {
+        left_col = lv_obj_create(tile_content_ctx);
+        lv_obj_remove_style_all(left_col);
+        lv_obj_set_layout(left_col, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(left_col, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(left_col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_all(left_col, 0, 0);
+        lv_obj_set_size(left_col, 0, LV_SIZE_CONTENT);
+        lv_obj_set_flex_grow(left_col, 1);
+    }
+
+    lv_obj_t *tile_content_title = lv_label_create(left_col);
     lv_obj_set_style_text_font(tile_content_title, &ha_font_misan_medium_24, 0);
-    lv_obj_set_size(tile_content_title, LV_PCT(100), lv_font_get_line_height(&ha_font_misan_medium_24));
+    lv_obj_set_size(tile_content_title,
+                    bsp_lcd_is_landscape() ? 0 : LV_PCT(100),
+                    lv_font_get_line_height(&ha_font_misan_medium_24));
     lv_label_set_long_mode(tile_content_title, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_height(tile_content_title, lv_font_get_line_height(&ha_font_misan_medium_24));
@@ -781,8 +1121,14 @@ static esp_err_t sensor_render_more_info(
                     cur_state_text,
                     sizeof(cur_state_text));
     lv_label_set_text(tile_content_cur_state, cur_state_text);
-
-    lv_obj_t *tile_content_state = lv_label_create(tile_content_ctx);
+    if (bsp_lcd_is_landscape()) {
+        lv_obj_set_size(tile_content_cur_state,
+                        0,
+                        lv_font_get_line_height(&ha_font_misan_regular_16));
+        lv_label_set_long_mode(tile_content_cur_state, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(tile_content_cur_state, LV_TEXT_ALIGN_RIGHT, 0);
+    }
+    lv_obj_t *tile_content_state = lv_label_create(left_col);
     char state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
     time_t last_updated_epoch = 0;
     if (ha_datetime_parse_epoch(context->snapshot.last_updated,
@@ -802,12 +1148,30 @@ static esp_err_t sensor_render_more_info(
     }
 
     lv_obj_set_style_text_font(tile_content_state, &ha_font_misan_regular_16, 0);
-    lv_obj_set_size(tile_content_state, LV_PCT(100), lv_font_get_line_height(&ha_font_misan_regular_16));
+    lv_obj_set_size(tile_content_state,
+                    bsp_lcd_is_landscape() ? 0 : LV_PCT(100),
+                    lv_font_get_line_height(&ha_font_misan_regular_16));
     lv_label_set_long_mode(tile_content_state, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_state, lv_color_hex(0x666666), 0);
 
-    if (!sensor_device_class_has_history(&context->snapshot)) {
-        return ESP_OK;
+    if (bsp_lcd_is_landscape()) {
+        lv_obj_update_layout(content);
+        lv_point_t state_size;
+        lv_text_get_size(&state_size, cur_state_text,
+                         &ha_font_misan_regular_16,
+                         lv_obj_get_style_text_letter_space(
+                             tile_content_cur_state, LV_PART_MAIN),
+                         0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        const int32_t max_state_width =
+            lv_obj_get_content_width(tile_content_ctx) -
+            SENSOR_TITLE_MIN_WIDTH_LANDSCAPE -
+            SENSOR_TITLE_STATE_GAP_LANDSCAPE;
+        lv_obj_set_width(tile_content_cur_state,
+                         LV_MIN(state_size.x, LV_MAX(max_state_width, 0)));
+        lv_obj_update_layout(content);
+        const int32_t left_width = lv_obj_get_content_width(left_col);
+        lv_obj_set_width(tile_content_title, left_width);
+        lv_obj_set_width(tile_content_state, left_width);
     }
 
     sensor_history_prepare(context);

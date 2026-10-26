@@ -89,8 +89,8 @@
 <div class="page-container network-page network-detail ssid-page">
     <NetworkPageHeader title="SSID" back="/network/wlan" />
     <div class="network-form">
-    <p class="wifi-mode-hint">{$_('networkPage.wifiModeResetHint')}</p>
-        <label for="ssid">SSID</label><input id="ssid" class="form-control" maxlength={SSID_MAX_LENGTH} value={ssid} oninput={(event) => updateSsid(event.currentTarget.value)} /><small>{$_('networkPage.only24g')}</small>
+        <label class="ssid-field-label" for="ssid">SSID <small>{$_('networkPage.wifiModeResetHint')}</small></label>
+        <input id="ssid" class="form-control" maxlength={SSID_MAX_LENGTH} value={ssid} oninput={(event) => updateSsid(event.currentTarget.value)} /><small>{$_('networkPage.only24g')}</small>
         <label for="wifi-password">{$_('networkPage.password')}</label>
         <div class="password-input">
             <input
@@ -151,11 +151,14 @@
         font-size: 0.8rem;
         line-height: 1.4;
     }
-    .wifi-mode-hint {
-        margin: 0.75rem 0 0;
-        color: #969696;
-        font-size: 0.8rem;
-        line-height: 1.4;
+    .ssid-field-label {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0 0.25rem;
+    }
+    .ssid-field-label small {
+        font-size: 0.75rem;
     }
     .wifi-scan-list {
         display: flex;

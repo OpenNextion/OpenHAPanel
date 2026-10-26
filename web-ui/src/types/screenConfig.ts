@@ -6,6 +6,7 @@ export interface IHassScreenConfigItem {
     title: string;
     icon: string;
     type: string;
+    columns: number;
     badges?: IHassScreenConfigBadge[];
     cards?: IHassScreenConfigCard[];
     features?: IHassScreenConfigFeature[];

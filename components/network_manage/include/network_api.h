@@ -87,11 +87,12 @@ esp_err_t method_api_handle_net_set_ap_ssid(cJSON *data, async_resp_arg *now_res
 network_mode_t network_get_current_mode(void);
 
 /**
- * @brief Broadcast comprehensive network status information to all clients.
+ * @brief Broadcast comprehensive network status to authenticated clients.
  *
  * Includes network mode, internet connectivity, mDNS domain, and interface details.
  */
 void webserver_network_info_notify(void);
+void webserver_network_info_notify_to_client(int socket_fd);
 
 /**
  * @brief Broadcast current network mode and related info to all clients.
@@ -103,14 +104,14 @@ void webserver_network_info_notify(void);
 void webserver_network_mode_info_notify(int current_mode);
 
 /**
- * @brief Broadcast WiFi connection result to all clients.
+ * @brief Send the WiFi connection result to the requesting client.
  *
  * @param error Error code representing the WiFi connection result.
  */
 void webserver_network_wifi_connect_result_notify(int error);
 
 /**
- * @brief Notify all connected clients with WiFi scan results.
+ * @brief Notify the requesting client with WiFi scan results.
  *
  * Converts the scanned WiFi AP list into JSON and broadcasts it to connected clients.
  *

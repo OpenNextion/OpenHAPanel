@@ -3,24 +3,36 @@
 #include <string.h>
 
 #include "../../assets/ha_ui_assets.h"
+#include "bsp_lcd.h"
 #include "system_status_bar.h"
 
-#define SCREEN_DEVICE_INFO_CARD_WIDTH    296
-#define SCREEN_DEVICE_INFO_INFO_HEIGHT   92
+#define SCREEN_DEVICE_INFO_PORTRAIT_CARD_WIDTH 296
+#define SCREEN_DEVICE_INFO_LANDSCAPE_CARD_WIDTH 440
+#define SCREEN_DEVICE_INFO_PORTRAIT_INFO_HEIGHT 92
+#define SCREEN_DEVICE_INFO_LANDSCAPE_INFO_HEIGHT 60
 #define SCREEN_DEVICE_INFO_OFFLINE_HEIGHT 60
-#define SCREEN_DEVICE_INFO_VERSION_COMPACT_HEIGHT 109
-#define SCREEN_DEVICE_INFO_VERSION_RESULT_HEIGHT 151
-#define SCREEN_DEVICE_INFO_ANIMATION_MS  250
+#define SCREEN_DEVICE_INFO_PORTRAIT_VERSION_COMPACT_HEIGHT 109
+#define SCREEN_DEVICE_INFO_PORTRAIT_VERSION_RESULT_HEIGHT 151
+#define SCREEN_DEVICE_INFO_LANDSCAPE_VERSION_COMPACT_HEIGHT 92
+#define SCREEN_DEVICE_INFO_LANDSCAPE_VERSION_RESULT_HEIGHT 120
+#define SCREEN_DEVICE_INFO_LANDSCAPE_BUTTON_WIDTH 256
+#define SCREEN_DEVICE_INFO_PORTRAIT_INDICATOR_WIDTH 150
+#define SCREEN_DEVICE_INFO_LANDSCAPE_INDICATOR_WIDTH 216
+#define SCREEN_DEVICE_INFO_INDICATOR_HEIGHT 4
+#define SCREEN_DEVICE_INFO_INDICATOR_BOTTOM_OFFSET 8
 
 #define SCREEN_DEVICE_INFO_BG_COLOR      0x010203
 #define SCREEN_DEVICE_INFO_CARD_COLOR    0x262626
 #define SCREEN_DEVICE_INFO_PRIMARY_COLOR 0xFFFFFF
 #define SCREEN_DEVICE_INFO_SECONDARY_COLOR 0xA8A8A8
 #define SCREEN_DEVICE_INFO_BUTTON_COLOR  0x0D84F7
+#define SCREEN_DEVICE_INFO_INDICATOR_COLOR 0x858585
 
 struct screen_device_info {
     lv_obj_t *root;
     system_status_bar_t *status_bar;
+    lv_obj_t *content;
+    lv_obj_t *bottom_indicator;
     lv_obj_t *wifi_card;
     lv_obj_t *wifi_value_label;
     lv_obj_t *wifi_detail_label;
@@ -28,6 +40,7 @@ struct screen_device_info {
     lv_obj_t *ap_value_label;
     lv_obj_t *ap_detail_label;
     lv_obj_t *version_card;
+    lv_obj_t *version_row;
     lv_obj_t *version_value_label;
     lv_obj_t *check_update_button;
     lv_obj_t *check_update_label;
@@ -72,8 +85,8 @@ static void screen_device_info_hide_update_results(screen_device_info_t *view);
 static void screen_device_info_check_update_event_cb(lv_event_t *event);
 static void screen_device_info_upgrade_event_cb(lv_event_t *event);
 static void screen_device_info_set_loading_rotation(void *obj, int32_t angle);
-static void screen_device_info_set_translate_y(void *obj, int32_t y);
-static void screen_device_info_hide_animation_completed(lv_anim_t *animation);
+static int32_t screen_device_info_get_connection_height(bool active);
+static int32_t screen_device_info_get_version_height(bool has_result);
 
 screen_device_info_t *screen_device_info_create(lv_obj_t *parent)
 {
@@ -105,6 +118,7 @@ screen_device_info_t *screen_device_info_create(lv_obj_t *parent)
     view->status_bar = system_status_bar_create(view->root);
 
     lv_obj_t *content = lv_obj_create(view->root);
+    view->content = content;
     screen_device_info_apply_clear_style(content);
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(content, LV_PCT(100), LV_VER_RES - SYSTEM_STATUS_BAR_HEIGHT);
@@ -132,6 +146,18 @@ screen_device_info_t *screen_device_info_create(lv_obj_t *parent)
                                                          &view->ap_value_label,
                                                          &view->ap_detail_label);
     screen_device_info_create_version_card(view, content);
+
+    view->bottom_indicator = lv_obj_create(view->root);
+    screen_device_info_apply_clear_style(view->bottom_indicator);
+    lv_obj_remove_flag(view->bottom_indicator,
+                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(view->bottom_indicator, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(view->bottom_indicator,
+                              lv_color_hex(SCREEN_DEVICE_INFO_INDICATOR_COLOR),
+                              0);
+    lv_obj_set_style_bg_opa(view->bottom_indicator, LV_OPA_COVER, 0);
+
+    screen_device_info_apply_orientation(view);
 
     /* Preserve the layout position and move the overlay independently of the
      * parent layout. Otherwise a layout refresh can reset an animated y. */
@@ -244,8 +270,7 @@ void screen_device_info_set_update_state(
     view->update_state = state;
     screen_device_info_hide_update_results(view);
     lv_obj_set_height(view->version_card,
-                      has_result ? SCREEN_DEVICE_INFO_VERSION_RESULT_HEIGHT
-                                 : SCREEN_DEVICE_INFO_VERSION_COMPACT_HEIGHT);
+                      screen_device_info_get_version_height(has_result));
 
     if (checking != view->checking) {
         view->checking = checking;
@@ -311,20 +336,14 @@ void screen_device_info_show(screen_device_info_t *view)
     if (!view || !view->root) {
         return;
     }
+    if (!lv_obj_has_flag(view->root, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
 
-    lv_anim_delete(view->root, screen_device_info_set_translate_y);
     lv_obj_move_to_index(view->root, -1);
-    lv_obj_set_style_translate_y(view->root, -LV_VER_RES, 0);
+    lv_obj_set_style_translate_y(view->root, 0, 0);
     lv_obj_remove_flag(view->root, LV_OBJ_FLAG_HIDDEN);
-
-    lv_anim_t animation;
-    lv_anim_init(&animation);
-    lv_anim_set_var(&animation, view->root);
-    lv_anim_set_exec_cb(&animation, screen_device_info_set_translate_y);
-    lv_anim_set_values(&animation, -LV_VER_RES, 0);
-    lv_anim_set_duration(&animation, SCREEN_DEVICE_INFO_ANIMATION_MS);
-    lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
-    lv_anim_start(&animation);
+    lv_obj_invalidate(view->root);
 }
 
 void screen_device_info_hide(screen_device_info_t *view)
@@ -337,25 +356,108 @@ void screen_device_info_hide(screen_device_info_t *view)
         return;
     }
 
-    lv_anim_delete(view->root, screen_device_info_set_translate_y);
-
-    lv_anim_t animation;
-    lv_anim_init(&animation);
-    lv_anim_set_var(&animation, view->root);
-    lv_anim_set_exec_cb(&animation, screen_device_info_set_translate_y);
-    lv_anim_set_values(&animation,
-                       lv_obj_get_style_translate_y(view->root, LV_PART_MAIN),
-                       -LV_VER_RES);
-    lv_anim_set_duration(&animation, SCREEN_DEVICE_INFO_ANIMATION_MS);
-    lv_anim_set_path_cb(&animation, lv_anim_path_ease_in);
-    lv_anim_set_user_data(&animation, view);
-    lv_anim_set_completed_cb(&animation, screen_device_info_hide_animation_completed);
-    lv_anim_start(&animation);
+    const int32_t display_height = lv_display_get_vertical_resolution(
+        lv_obj_get_display(view->root));
+    lv_obj_add_flag(view->root, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_translate_y(view->root, -display_height, 0);
+    if (view->hidden_cb) {
+        view->hidden_cb(view, view->hidden_user_data);
+    }
 }
 
 bool screen_device_info_is_visible(const screen_device_info_t *view)
 {
     return view && view->root && !lv_obj_has_flag(view->root, LV_OBJ_FLAG_HIDDEN);
+}
+
+void screen_device_info_apply_orientation(screen_device_info_t *view)
+{
+    if (!view || !view->root || !view->content || !view->bottom_indicator) {
+        return;
+    }
+
+    const bool landscape = bsp_lcd_is_landscape();
+    const int32_t display_height = lv_display_get_vertical_resolution(
+        lv_obj_get_display(view->root));
+    const int32_t card_width = landscape
+                                   ? SCREEN_DEVICE_INFO_LANDSCAPE_CARD_WIDTH
+                                   : SCREEN_DEVICE_INFO_PORTRAIT_CARD_WIDTH;
+    const bool wifi_active = !lv_obj_has_flag(view->wifi_detail_label,
+                                              LV_OBJ_FLAG_HIDDEN);
+    const bool ap_active = !lv_obj_has_flag(view->ap_detail_label,
+                                            LV_OBJ_FLAG_HIDDEN);
+    const bool has_result =
+        view->update_state == SCREEN_DEVICE_INFO_UPDATE_UP_TO_DATE ||
+        view->update_state == SCREEN_DEVICE_INFO_UPDATE_AVAILABLE ||
+        view->update_state == SCREEN_DEVICE_INFO_UPDATE_STAGED ||
+        view->update_state == SCREEN_DEVICE_INFO_UPDATE_CHECK_FAILED;
+
+    lv_obj_set_size(view->root, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_size(view->content,
+                    LV_PCT(100),
+                    display_height - SYSTEM_STATUS_BAR_HEIGHT);
+    lv_obj_align(view->content, LV_ALIGN_TOP_MID, 0, SYSTEM_STATUS_BAR_HEIGHT);
+    lv_obj_set_style_pad_top(view->content, landscape ? 4 : 10, 0);
+    lv_obj_set_style_pad_bottom(view->content, landscape ? 16 : 10, 0);
+
+    lv_obj_set_width(view->wifi_card, card_width);
+    lv_obj_set_height(view->wifi_card,
+                      screen_device_info_get_connection_height(wifi_active));
+    lv_obj_set_style_pad_left(view->wifi_card, 12, 0);
+    lv_obj_set_style_pad_right(view->wifi_card, 12, 0);
+    lv_obj_set_style_pad_top(view->wifi_card, landscape ? 4 : 12, 0);
+    lv_obj_set_style_pad_bottom(view->wifi_card, landscape ? 4 : 12, 0);
+
+    lv_obj_set_width(view->ap_card, card_width);
+    lv_obj_set_height(view->ap_card,
+                      screen_device_info_get_connection_height(ap_active));
+    lv_obj_set_style_pad_left(view->ap_card, 12, 0);
+    lv_obj_set_style_pad_right(view->ap_card, 12, 0);
+    lv_obj_set_style_pad_top(view->ap_card, landscape ? 4 : 12, 0);
+    lv_obj_set_style_pad_bottom(view->ap_card, landscape ? 4 : 12, 0);
+
+    lv_obj_set_width(view->version_card, card_width);
+    lv_obj_set_height(view->version_card,
+                      screen_device_info_get_version_height(has_result));
+    lv_obj_set_style_pad_all(view->version_card, landscape ? 8 : 12, 0);
+    lv_obj_set_style_pad_row(view->version_card, landscape ? 4 : 7, 0);
+    lv_obj_set_height(view->version_row, landscape ? 24 : 30);
+    lv_obj_set_height(view->update_result_row, landscape ? 24 : 32);
+    lv_obj_set_size(view->check_update_button,
+                    landscape ? SCREEN_DEVICE_INFO_LANDSCAPE_BUTTON_WIDTH
+                              : LV_PCT(100),
+                    48);
+    lv_image_set_scale(view->up_to_date_icon, landscape ? 192 : 256);
+    lv_obj_align(view->up_to_date_label,
+                 LV_ALIGN_LEFT_MID,
+                 landscape ? 32 : 40,
+                 0);
+    lv_obj_set_size(view->check_failed_icon,
+                    landscape ? 24 : 32,
+                    landscape ? 24 : 32);
+    lv_obj_align(view->check_failed_label,
+                 LV_ALIGN_LEFT_MID,
+                 landscape ? 32 : 40,
+                 0);
+
+    lv_obj_set_size(view->bottom_indicator,
+                    landscape ? SCREEN_DEVICE_INFO_LANDSCAPE_INDICATOR_WIDTH
+                              : SCREEN_DEVICE_INFO_PORTRAIT_INDICATOR_WIDTH,
+                    SCREEN_DEVICE_INFO_INDICATOR_HEIGHT);
+    lv_obj_align(view->bottom_indicator,
+                 LV_ALIGN_BOTTOM_MID,
+                 0,
+                 -SCREEN_DEVICE_INFO_INDICATOR_BOTTOM_OFFSET);
+    lv_obj_move_to_index(view->bottom_indicator, -1);
+
+    if (lv_obj_has_flag(view->root, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_set_style_translate_y(view->root, -display_height, 0);
+    }
+    else {
+        lv_obj_set_style_translate_y(view->root, 0, 0);
+    }
+    lv_obj_update_layout(view->root);
+    lv_obj_invalidate(view->root);
 }
 
 static void screen_device_info_apply_clear_style(lv_obj_t *obj)
@@ -381,7 +483,9 @@ static lv_obj_t *screen_device_info_create_info_card(lv_obj_t *parent,
 {
     lv_obj_t *card = lv_obj_create(parent);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(card, SCREEN_DEVICE_INFO_CARD_WIDTH, SCREEN_DEVICE_INFO_INFO_HEIGHT);
+    lv_obj_set_size(card,
+                    SCREEN_DEVICE_INFO_PORTRAIT_CARD_WIDTH,
+                    SCREEN_DEVICE_INFO_PORTRAIT_INFO_HEIGHT);
     lv_obj_set_style_radius(card, 12, 0);
     lv_obj_set_style_border_width(card, 0, 0);
     lv_obj_set_style_bg_color(card, lv_color_hex(SCREEN_DEVICE_INFO_CARD_COLOR), 0);
@@ -451,8 +555,8 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
     view->version_card = card;
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(card,
-                    SCREEN_DEVICE_INFO_CARD_WIDTH,
-                    SCREEN_DEVICE_INFO_VERSION_COMPACT_HEIGHT);
+                    SCREEN_DEVICE_INFO_PORTRAIT_CARD_WIDTH,
+                    SCREEN_DEVICE_INFO_PORTRAIT_VERSION_COMPACT_HEIGHT);
     lv_obj_set_style_radius(card, 12, 0);
     lv_obj_set_style_border_width(card, 0, 0);
     lv_obj_set_style_bg_color(card, lv_color_hex(SCREEN_DEVICE_INFO_CARD_COLOR), 0);
@@ -467,6 +571,7 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
                           LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t *version_row = lv_obj_create(card);
+    view->version_row = version_row;
     screen_device_info_apply_clear_style(version_row);
     lv_obj_remove_flag(version_row, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(version_row, LV_PCT(100), 30);
@@ -488,7 +593,9 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
     lv_label_set_long_mode(view->version_value_label, LV_LABEL_LONG_DOT);
     lv_label_set_text(view->version_value_label, "--");
     lv_obj_set_style_text_align(view->version_value_label, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_style_text_color(view->version_value_label, lv_color_hex(SCREEN_DEVICE_INFO_SECONDARY_COLOR), 0);
+    lv_obj_set_style_text_color(view->version_value_label,
+                                lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR),
+                                0);
     lv_obj_set_style_text_font(view->version_value_label, &ha_font_misan_regular_16, 0);
 
     view->update_result_row = lv_obj_create(card);
@@ -629,7 +736,7 @@ static void screen_device_info_set_connection_card(lv_obj_t *card,
     }
 
     if (active) {
-        lv_obj_set_height(card, SCREEN_DEVICE_INFO_INFO_HEIGHT);
+        lv_obj_set_height(card, screen_device_info_get_connection_height(true));
         screen_device_info_set_label_text(value_label,
                                           active_value && active_value[0] ? active_value : "--");
         screen_device_info_set_label_text(detail_label,
@@ -637,7 +744,7 @@ static void screen_device_info_set_connection_card(lv_obj_t *card,
         lv_obj_remove_flag(detail_label, LV_OBJ_FLAG_HIDDEN);
     }
     else {
-        lv_obj_set_height(card, SCREEN_DEVICE_INFO_OFFLINE_HEIGHT);
+        lv_obj_set_height(card, screen_device_info_get_connection_height(false));
         screen_device_info_set_label_text(value_label,
                                           inactive_value ? inactive_value : "--");
         screen_device_info_set_label_text(detail_label, "");
@@ -699,21 +806,21 @@ static void screen_device_info_set_loading_rotation(void *obj, int32_t angle)
     lv_image_set_rotation((lv_obj_t *)obj, angle);
 }
 
-static void screen_device_info_set_translate_y(void *obj, int32_t y)
+static int32_t screen_device_info_get_connection_height(bool active)
 {
-    lv_obj_set_style_translate_y((lv_obj_t *)obj, y, 0);
+    if (bsp_lcd_is_landscape()) {
+        return SCREEN_DEVICE_INFO_LANDSCAPE_INFO_HEIGHT;
+    }
+    return active ? SCREEN_DEVICE_INFO_PORTRAIT_INFO_HEIGHT
+                  : SCREEN_DEVICE_INFO_OFFLINE_HEIGHT;
 }
 
-static void screen_device_info_hide_animation_completed(lv_anim_t *animation)
+static int32_t screen_device_info_get_version_height(bool has_result)
 {
-    screen_device_info_t *view = lv_anim_get_user_data(animation);
-    if (!view || !view->root) {
-        return;
+    if (bsp_lcd_is_landscape()) {
+        return has_result ? SCREEN_DEVICE_INFO_LANDSCAPE_VERSION_RESULT_HEIGHT
+                          : SCREEN_DEVICE_INFO_LANDSCAPE_VERSION_COMPACT_HEIGHT;
     }
-
-    lv_obj_add_flag(view->root, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_translate_y(view->root, -LV_VER_RES, 0);
-    if (view->hidden_cb) {
-        view->hidden_cb(view, view->hidden_user_data);
-    }
+    return has_result ? SCREEN_DEVICE_INFO_PORTRAIT_VERSION_RESULT_HEIGHT
+                      : SCREEN_DEVICE_INFO_PORTRAIT_VERSION_COMPACT_HEIGHT;
 }

@@ -240,6 +240,7 @@ esp_err_t screen_parse_config(const cJSON *json, screen_config_t *out_config)
         const cJSON *index = cJSON_GetObjectItemCaseSensitive(screen_json, "index");
         const cJSON *title = cJSON_GetObjectItemCaseSensitive(screen_json, "title");
         const cJSON *icon = cJSON_GetObjectItemCaseSensitive(screen_json, "icon");
+        const cJSON *columns = cJSON_GetObjectItemCaseSensitive(screen_json, "columns");
         const cJSON *badges = cJSON_GetObjectItemCaseSensitive(screen_json, "badges");
         const cJSON *cards = cJSON_GetObjectItemCaseSensitive(screen_json, "cards");
         screen_view_t *view = &out_config->screens[i];
@@ -248,6 +249,7 @@ esp_err_t screen_parse_config(const cJSON *json, screen_config_t *out_config)
         view->title = screen_strdup(title->valuestring);
         view->icon = cJSON_IsString(icon) ? screen_strdup(icon->valuestring) : NULL;
         view->type = SCREEN_VIEW_TYPE_SECTIONS;
+        view->columns = cJSON_IsNumber(columns) ? (size_t)columns->valueint : 1;
         if (!view->title) {
             screen_free_config(out_config);
             return ESP_ERR_NO_MEM;
@@ -464,6 +466,7 @@ cJSON *screen_config_to_json(const screen_config_t *config)
         if (!cJSON_AddNumberToObject(screen, "index", view->index) ||
             !cJSON_AddStringToObject(screen, "title", view->title) ||
             !add_optional_string(screen, "icon", view->icon) ||
+            !cJSON_AddNumberToObject(screen, "columns", (double)(view->columns > 0 ? view->columns : 1)) ||
             !cJSON_AddStringToObject(screen, "type", "sections")) {
             cJSON_Delete(root);
             return NULL;

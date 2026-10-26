@@ -300,15 +300,17 @@ static void update_tip(light_brightness_slider_context_t *context)
     lv_label_set_text(context->tip_label, text);
     lv_obj_remove_flag(context->tip, LV_OBJ_FLAG_HIDDEN);
 
+    const int32_t width = lv_obj_get_width(context->slider);
+    const int32_t height = lv_obj_get_height(context->slider);
     lv_area_t local_area = {
         .x1 = 0,
         .y1 = 0,
-        .x2 = BRIGHTNESS_SLIDER_WIDTH - 1,
-        .y2 = BRIGHTNESS_SLIDER_HEIGHT - 1,
+        .x2 = width - 1,
+        .y2 = height - 1,
     };
     int32_t y = fill_top(&local_area, context->visual_value) +
                 BRIGHTNESS_HANDLE_Y_OFFSET - 18;
-    y = LV_CLAMP(0, y, BRIGHTNESS_SLIDER_HEIGHT - 36);
+    y = LV_CLAMP(0, y, LV_MAX(0, height - 36));
     lv_obj_set_pos(context->tip, -76, y);
     lv_obj_move_foreground(context->tip);
 }

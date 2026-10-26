@@ -118,6 +118,17 @@ esp_err_t webserver_send_message_to_all_client(char *msg, size_t len);
 esp_err_t webserver_send_message_to_authenticated_clients(char *msg, size_t len);
 
 /**
+ * Send a WebSocket message to authenticated clients except one socket.
+ *
+ * Pass the requester's socket descriptor to avoid echoing a notification back
+ * to the client that initiated a state change.
+ */
+esp_err_t webserver_send_message_to_authenticated_clients_except(
+    char *msg,
+    size_t len,
+    int excluded_socket_fd);
+
+/**
  * @brief Send a WebSocket message to the currently connected client in the async context.
  *
  * This function is used within WebSocket asynchronous callbacks to respond to the specific
@@ -336,6 +347,13 @@ esp_err_t webserver_data_response_to_all_client(cJSON *data, char *method, doubl
 
 /** Broadcast a JSON notification only to authenticated clients. */
 esp_err_t webserver_data_response_to_authenticated_clients(cJSON *data, char *method, double seq);
+
+/** Send a JSON notification to authenticated clients except one socket. */
+esp_err_t webserver_data_response_to_authenticated_clients_except(
+    cJSON *data,
+    char *method,
+    double seq,
+    int excluded_socket_fd);
 
 #endif // OPEN_NEXTION_COMPONENTS_WEBSERVER_INCLUDE_WEBSERVER_API_H
 #ifdef __cplusplus

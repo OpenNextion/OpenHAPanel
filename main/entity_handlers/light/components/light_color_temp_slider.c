@@ -305,14 +305,15 @@ static void update_tip(light_color_temp_slider_context_t *context)
     lv_obj_remove_flag(context->tip, LV_OBJ_FLAG_HIDDEN);
 
     const int32_t range = context->max_kelvin - context->min_kelvin;
-    const int32_t travel = COLOR_TEMP_SLIDER_HEIGHT -
+    const int32_t height = lv_obj_get_height(context->slider);
+    const int32_t travel = height -
                            COLOR_TEMP_CURSOR_HEIGHT;
     int32_t y = range > 0
                     ? (context->visual_value - context->min_kelvin) *
                               travel / range +
                           COLOR_TEMP_CURSOR_HEIGHT / 2 - 18
                     : 0;
-    y = clamp_value(y, 0, COLOR_TEMP_SLIDER_HEIGHT - 36);
+    y = clamp_value(y, 0, LV_MAX(0, height - 36));
     lv_obj_set_pos(context->tip, -76, y);
     lv_obj_move_foreground(context->tip);
 }

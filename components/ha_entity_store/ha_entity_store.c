@@ -1402,6 +1402,10 @@ esp_err_t ha_entity_store_get(ha_entity_store_t *store,
     copy_string(out->friendly_name, sizeof(out->friendly_name), friendly_name);
     copy_string(out->unit_of_measurement, sizeof(out->unit_of_measurement), unit);
     copy_string(out->device_class, sizeof(out->device_class), device_class);
+    out->has_unit_of_measurement = entry->attributes &&
+        cJSON_GetObjectItemCaseSensitive(entry->attributes, "unit_of_measurement") != NULL;
+    out->has_state_class = entry->attributes &&
+        cJSON_GetObjectItemCaseSensitive(entry->attributes, "state_class") != NULL;
     copy_string(out->last_updated,
                 sizeof(out->last_updated),
                 entry->last_updated);

@@ -25,6 +25,7 @@ import NtpServerSettings from '@/pages/settings/NtpServerSettings.svelte';
 import LanguageSettings from '@/pages/settings/LanguageSettings.svelte';
 import DisplaySettings from '@/pages/settings/DisplaySettings.svelte';
 import ScreenLockSettings from '@/pages/settings/ScreenLockSettings.svelte';
+import ScreenRotationSettings from '@/pages/settings/ScreenRotationSettings.svelte';
 import NightMode from '@/pages/settings/NightMode.svelte';
 import DarkMode from '@/pages/settings/DarkMode.svelte';
 import DebugSettings from '@/pages/settings/DebugSettings.svelte';
@@ -64,6 +65,7 @@ export const protectedRoutes: RouteDefinition = {
     [ROUTES_PATH.SETTINGS_LANGUAGE]: LanguageSettings,
     [ROUTES_PATH.SETTINGS_DISPLAY]: DisplaySettings,
     [ROUTES_PATH.SETTINGS_SCREEN_LOCK]: ScreenLockSettings,
+    [ROUTES_PATH.SETTINGS_SCREEN_ROTATION]: ScreenRotationSettings,
     [ROUTES_PATH.SETTINGS_NIGHT_MODE]: NightMode,
     [ROUTES_PATH.SETTINGS_DARK_MODE]: DarkMode,
     [ROUTES_PATH.SETTINGS_DEBUG]: DebugSettings,

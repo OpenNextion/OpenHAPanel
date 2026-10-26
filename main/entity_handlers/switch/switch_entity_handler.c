@@ -6,6 +6,7 @@
 #include "app.h"
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "bsp_lcd.h"
 #include "entity_handlers/ha_datetime_format.h"
 #include "esp_log.h"
 #include "screen/components/ha_relative_time_label.h"
@@ -23,18 +24,25 @@ static const char *TAG = "switch_entity_handler";
 #define SWITCH_DETAIL_CONTENT_WIDTH 280
 
 /* Vertical switch: 88x230 track, 76x109 knob, both rounded 20. */
-#define SWITCH_TRACK_WIDTH   88
-#define SWITCH_TRACK_HEIGHT  230
+/* Portrait (320x480) switch dimensions. */
+#define SWITCH_TRACK_WIDTH_PORT   88
+#define SWITCH_TRACK_HEIGHT_PORT  230
+#define SWITCH_KNOB_WIDTH_PORT    76
+#define SWITCH_KNOB_HEIGHT_PORT   109
+
+#define SWITCH_TRACK_WIDTH_LAND   88
+#define SWITCH_TRACK_HEIGHT_LAND  170
+#define SWITCH_KNOB_WIDTH_LAND    76
+#define SWITCH_KNOB_HEIGHT_LAND   79
+
 #define SWITCH_TRACK_RADIUS  20
 #define SWITCH_TRACK_INSET   6
-#define SWITCH_KNOB_WIDTH    76
-#define SWITCH_KNOB_HEIGHT   109
 #define SWITCH_KNOB_RADIUS   20
 
 /* track: rgba(153,153,153,.2) off / rgba(249,192,0,.2) on */
 #define SWITCH_TRACK_COLOR_OFF 0x999999
 #define SWITCH_TRACK_COLOR_ON  0xF9C000
-#define SWITCH_TRACK_OPA       51
+#define SWITCH_TRACK_OPA       71
 
 /* Press feedback.
  *
@@ -92,7 +100,21 @@ static const char *TAG = "switch_entity_handler";
 #define SWITCH_TILE_DISABLED_STATE 0x7A7A7A
 
 #define SWITCH_KNOB_Y_ON  SWITCH_TRACK_INSET
-#define SWITCH_KNOB_Y_OFF (SWITCH_TRACK_HEIGHT - SWITCH_KNOB_HEIGHT - SWITCH_TRACK_INSET)
+
+static inline int32_t switch_eff_track_height(void)
+{
+    return bsp_lcd_is_landscape() ? SWITCH_TRACK_HEIGHT_LAND
+                                  : SWITCH_TRACK_HEIGHT_PORT;
+}
+
+static inline int32_t switch_eff_knob_height(void)
+{
+    return bsp_lcd_is_landscape() ? SWITCH_KNOB_HEIGHT_LAND
+                                  : SWITCH_KNOB_HEIGHT_PORT;
+}
+
+#define SWITCH_KNOB_Y_OFF(trk_h, knob_h) \
+    ((trk_h) - (knob_h) - SWITCH_TRACK_INSET)
 
 static lv_style_transition_dsc_t switch_track_trans;
 static lv_style_transition_dsc_t switch_knob_trans;
@@ -209,6 +231,12 @@ static void switch_call_toggle(const char *entity_id, const char *source)
     }
 }
 
+static void switch_knob_y_anim_cb(void *var, int32_t v)
+{
+    lv_obj_t *obj = (lv_obj_t *)var;
+    lv_obj_set_y(obj, v);
+}
+
 static void switch_more_info_control_event_cb(lv_event_t *event)
 {
     const entity_more_info_context_t *context = lv_event_get_user_data(event);
@@ -217,7 +245,9 @@ static void switch_more_info_control_event_cb(lv_event_t *event)
         return;
     }
 
-    if (entity_handler_snapshot_is_service_unavailable(&context->snapshot)) {
+    const bool unavailable =
+        entity_handler_snapshot_is_service_unavailable(&context->snapshot);
+    if (unavailable) {
         ESP_LOGW(TAG,
                  "detail control: cached state '%s' (sync_status=%d) looks "
                  "unavailable for %s, refreshing the cache and sending anyway",
@@ -225,6 +255,36 @@ static void switch_more_info_control_event_cb(lv_event_t *event)
                  (int)context->snapshot.sync_status,
                  context->snapshot.entity_id);
         switch_request_store_sync();
+    }
+
+    lv_obj_t *track = lv_event_get_target_obj(event);
+    lv_obj_t *knob = lv_obj_get_child(track, 0);
+    if (knob && !unavailable) {
+        const bool is_on = switch_snapshot_is_on(&context->snapshot);
+
+        lv_color_t new_track_color =
+            lv_color_hex(is_on ? SWITCH_TRACK_COLOR_OFF
+                               : SWITCH_TRACK_COLOR_ON);
+        lv_color_t new_knob_color =
+            lv_color_hex(is_on ? SWITCH_KNOB_COLOR_OFF
+                               : SWITCH_KNOB_COLOR_ON);
+        lv_obj_set_style_bg_color(track, new_track_color, 0);
+        lv_obj_set_style_bg_color(knob, new_knob_color, 0);
+
+        const int32_t trk_h_eff  = switch_eff_track_height();
+        const int32_t knob_h_eff = switch_eff_knob_height();
+        const int32_t knob_y_off = SWITCH_KNOB_Y_OFF(trk_h_eff, knob_h_eff);
+        const int32_t current_y = is_on ? SWITCH_KNOB_Y_ON : knob_y_off;
+        const int32_t target_y = is_on ? knob_y_off : SWITCH_KNOB_Y_ON;
+
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, knob);
+        lv_anim_set_exec_cb(&a, switch_knob_y_anim_cb);
+        lv_anim_set_values(&a, current_y, target_y);
+        lv_anim_set_duration(&a, 180);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+        lv_anim_start(&a);
     }
 
     switch_call_toggle(context->snapshot.entity_id, "detail control:");
@@ -288,12 +348,6 @@ static void switch_build_power_glyph(lv_obj_t *parent,
     lv_obj_align(stem, LV_ALIGN_TOP_MID, 0, -2);
 }
 
-static void switch_knob_y_anim_cb(void *var, int32_t v)
-{
-    lv_obj_t *obj = (lv_obj_t *)var;
-    lv_obj_set_y(obj, v);
-}
-
 static void switch_build_control(lv_obj_t *parent,
                                  const entity_more_info_context_t *context)
 {
@@ -344,7 +398,13 @@ static void switch_build_control(lv_obj_t *parent,
     lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(track, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_pad_all(track, 0, 0);
-    lv_obj_set_size(track, SWITCH_TRACK_WIDTH, SWITCH_TRACK_HEIGHT);
+    const int32_t track_w = bsp_lcd_is_landscape()
+                                 ? SWITCH_TRACK_WIDTH_LAND
+                                 : SWITCH_TRACK_WIDTH_PORT;
+    const int32_t track_h = bsp_lcd_is_landscape()
+                                 ? SWITCH_TRACK_HEIGHT_LAND
+                                 : SWITCH_TRACK_HEIGHT_PORT;
+    lv_obj_set_size(track, track_w, track_h);
     lv_obj_set_style_radius(track, SWITCH_TRACK_RADIUS, 0);
     lv_obj_set_style_border_width(track, 0, 0);
     lv_obj_set_style_bg_color(track, track_color, 0);
@@ -354,9 +414,6 @@ static void switch_build_control(lv_obj_t *parent,
         lv_obj_set_style_bg_color(track,
                                   lv_color_hex(SWITCH_DISABLED_TRACK_COLOR_PRESSED),
                                   LV_STATE_PRESSED);
-    }
-    else {
-        lv_obj_set_style_bg_opa(track, SWITCH_TRACK_OPA_PRESSED, LV_STATE_PRESSED);
     }
     lv_obj_add_event_cb(track,
                         switch_more_info_control_event_cb,
@@ -370,25 +427,24 @@ static void switch_build_control(lv_obj_t *parent,
     lv_obj_t *knob = lv_obj_create(track);
     lv_obj_remove_style_all(knob);
     lv_obj_remove_flag(knob, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(knob, SWITCH_KNOB_WIDTH, SWITCH_KNOB_HEIGHT);
+    const int32_t knob_w = bsp_lcd_is_landscape()
+                                ? SWITCH_KNOB_WIDTH_LAND
+                                : SWITCH_KNOB_WIDTH_PORT;
+    const int32_t knob_h = bsp_lcd_is_landscape()
+                                ? SWITCH_KNOB_HEIGHT_LAND
+                                : SWITCH_KNOB_HEIGHT_PORT;
+    lv_obj_set_size(knob, knob_w, knob_h);
     lv_obj_set_style_radius(knob, SWITCH_KNOB_RADIUS, 0);
     lv_obj_set_style_border_width(knob, 0, 0);
     lv_obj_set_style_bg_color(knob, knob_color, 0);
     lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
     lv_obj_add_style(knob, &switch_knob_trans_style, 0);
 
-    const int32_t target_y = is_on ? SWITCH_KNOB_Y_ON : SWITCH_KNOB_Y_OFF;
-    const int32_t start_y  = is_on ? SWITCH_KNOB_Y_OFF : SWITCH_KNOB_Y_ON;
-    lv_obj_align(knob, LV_ALIGN_TOP_MID, 0, start_y);
-
-    lv_anim_t knob_anim;
-    lv_anim_init(&knob_anim);
-    lv_anim_set_var(&knob_anim, knob);
-    lv_anim_set_exec_cb(&knob_anim, switch_knob_y_anim_cb);
-    lv_anim_set_values(&knob_anim, start_y, target_y);
-    lv_anim_set_time(&knob_anim, 180);
-    lv_anim_set_path_cb(&knob_anim, lv_anim_path_ease_in_out);
-    lv_anim_start(&knob_anim);
+    const int32_t trk_h_eff  = switch_eff_track_height();
+    const int32_t knob_h_eff = switch_eff_knob_height();
+    const int32_t knob_y_off = SWITCH_KNOB_Y_OFF(trk_h_eff, knob_h_eff);
+    const int32_t target_y = is_on ? SWITCH_KNOB_Y_ON : knob_y_off;
+    lv_obj_align(knob, LV_ALIGN_TOP_MID, 0, target_y);
 
     if (is_on) {
         lv_obj_t *glyph = lv_obj_create(knob);
@@ -492,7 +548,7 @@ static lv_obj_t *switch_more_info_build_page(
     lv_obj_set_style_pad_bottom(content, 0, 0);
     lv_obj_set_style_pad_hor(content, 0, 0);
     /* Gap between the state block and the track, matching the design. */
-    lv_obj_set_style_pad_gap(content, 20, 0);
+    lv_obj_set_style_pad_gap(content, bsp_lcd_is_landscape() ? 7 : 16, 0);
     return content;
 }
 
@@ -635,8 +691,6 @@ static esp_err_t switch_render_tile(ha_entity_store_t *store,
         lv_color_hex(is_on ? SWITCH_TILE_CIRCLE_ON : SWITCH_TILE_CIRCLE_OFF);
     model->title_color = lv_color_hex(SWITCH_TILE_TITLE);
     model->state_color = lv_color_hex(SWITCH_TILE_STATE);
-    model->has_ripple_color = true;
-    model->ripple_color = lv_color_hex(0xD9D9D9);
 
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,

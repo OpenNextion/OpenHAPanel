@@ -22,6 +22,7 @@ typedef void (*light_mode_bar_event_cb_t)(
     void *user_data);
 
 lv_obj_t *light_mode_bar_create(lv_obj_t *parent);
+void light_mode_bar_set_vertical(lv_obj_t *obj, bool vertical);
 void light_mode_bar_set_modes(lv_obj_t *obj, uint32_t mode_mask);
 void light_mode_bar_set_active_mode(lv_obj_t *obj, light_mode_t mode);
 void light_mode_bar_set_power(lv_obj_t *obj, bool on);

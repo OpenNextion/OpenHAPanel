@@ -12,6 +12,7 @@
 #include "esp_log.h"
 #include "screen/components/ha_relative_time_label.h"
 #include "screen/components/more_info_screen.h"
+#include "bsp_lcd.h"
 
 static const char *TAG = "cover_entity_handler";
 
@@ -25,9 +26,17 @@ static const char *TAG = "cover_entity_handler";
 #define COVER_FEATURE_SET_TILT_POS   (1U << 7)
 
 #define COVER_DETAIL_WIDTH          280
-#define COVER_CONTROL_HEIGHT        230
-#define COVER_BUTTON_WIDTH          82
-#define COVER_BUTTON_HEIGHT         70
+#define COVER_CONTROL_HEIGHT_PORTRAIT 230
+#define COVER_CONTROL_HEIGHT_LANDSCAPE 166
+#define COVER_BUTTON_WIDTH_PORTRAIT    82
+#define COVER_BUTTON_WIDTH_LANDSCAPE   70
+#define COVER_BUTTON_HEIGHT_PORTRAIT   70
+#define COVER_BUTTON_HEIGHT_LANDSCAPE  50
+#define COVER_LANDSCAPE_CONTROL_X      ((LCD_V_RES - COVER_BUTTON_WIDTH_LANDSCAPE) / 2)
+#define COVER_LANDSCAPE_MODE_X         305
+#define COVER_LANDSCAPE_MODE_Y         34
+#define COVER_LANDSCAPE_PRESETS_WIDTH  302
+#define COVER_LANDSCAPE_PRESETS_Y      38
 #define COVER_BUTTON_RADIUS         20
 #define COVER_MODE_WIDTH            104
 #define COVER_MODE_HEIGHT           48
@@ -36,25 +45,27 @@ static const char *TAG = "cover_entity_handler";
 #define COVER_BG                    0x010203
 #define COVER_CONTROL_BG            0x1F1F1F
 #define COVER_CONTROL_PRESSED       0x353535
-#define COVER_DISABLED_BG           0x171717
+#define COVER_DISABLED_BG           0x999999
 #define COVER_DISABLED_FG           0x666666
-#define COVER_POSITION_TRACK        0x1D142B
+#define COVER_POSITION_TRACK        0x999999
 #define COVER_POSITION_ACTIVE       0x9065CC
-#define COVER_POSITION_WIDTH        80
-#define COVER_POSITION_HEIGHT       COVER_CONTROL_HEIGHT
-#define COVER_POSITION_INNER_RADIUS 12
+#define COVER_POSITION_WIDTH_PORTRAIT   80
+#define COVER_POSITION_WIDTH_LANDSCAPE  COVER_BUTTON_WIDTH_LANDSCAPE
+#define COVER_POSITION_HEIGHT_PORTRAIT  COVER_CONTROL_HEIGHT_PORTRAIT
+#define COVER_POSITION_HEIGHT_LANDSCAPE COVER_CONTROL_HEIGHT_LANDSCAPE
+#define COVER_POSITION_INNER_RADIUS     12
 #define COVER_POSITION_KNOB_WIDTH   52
 #define COVER_POSITION_KNOB_HEIGHT  4
 #define COVER_POSITION_KNOB_MARGIN  10
 #define COVER_POSITION_ANIMATION_MS 180
 #define COVER_POSITION_MIN_VALUE    ((2 * COVER_POSITION_KNOB_MARGIN) + \
                                      COVER_POSITION_KNOB_HEIGHT)
-#define COVER_POSITION_TRAVEL       (COVER_POSITION_HEIGHT - \
-                                     COVER_POSITION_MIN_VALUE)
 #define COVER_TOGGLE_TRACK_WIDTH     88
-#define COVER_TOGGLE_TRACK_HEIGHT    230
+#define COVER_TOGGLE_TRACK_HEIGHT_PORTRAIT  230
+#define COVER_TOGGLE_TRACK_HEIGHT_LANDSCAPE 170
 #define COVER_TOGGLE_KNOB_WIDTH      76
-#define COVER_TOGGLE_KNOB_HEIGHT     109
+#define COVER_TOGGLE_KNOB_HEIGHT_PORTRAIT  109
+#define COVER_TOGGLE_KNOB_HEIGHT_LANDSCAPE 79
 #define COVER_TOGGLE_INSET           6
 #define COVER_TOGGLE_RADIUS          20
 #define COVER_TOGGLE_OPEN            0x9065CC
@@ -65,8 +76,11 @@ static const char *TAG = "cover_entity_handler";
 #define COVER_TOGGLE_PRESSED_OPA     102
 #define COVER_TOGGLE_ANIMATION_MS     180
 #define COVER_TOGGLE_TOP_Y            COVER_TOGGLE_INSET
-#define COVER_TOGGLE_BOTTOM_Y         (COVER_TOGGLE_TRACK_HEIGHT - \
-                                       COVER_TOGGLE_KNOB_HEIGHT - \
+#define COVER_TOGGLE_BOTTOM_Y_PORTRAIT       (COVER_TOGGLE_TRACK_HEIGHT_PORTRAIT - \
+                                       COVER_TOGGLE_KNOB_HEIGHT_PORTRAIT - \
+                                       COVER_TOGGLE_INSET)
+#define COVER_TOGGLE_BOTTOM_Y_LANDSCAPE (COVER_TOGGLE_TRACK_HEIGHT_LANDSCAPE - \
+                                       COVER_TOGGLE_KNOB_HEIGHT_LANDSCAPE - \
                                        COVER_TOGGLE_INSET)
 
 typedef enum {
@@ -87,6 +101,8 @@ typedef struct {
     int32_t visual_value;
     int32_t last_drag_value;
     bool has_last_drag_value;
+    int32_t position_height;
+    int32_t position_width;
 } cover_position_view_t;
 
 static char s_cover_detail_entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
@@ -96,6 +112,13 @@ static bool s_cover_toggle_visual_valid;
 static bool s_cover_toggle_visual_on;
 static bool s_cover_position_visual_valid;
 static int32_t s_cover_position_visual_value;
+static bool s_cover_detail_landscape;
+static uint8_t s_cover_detail_page;
+
+typedef struct {
+    lv_obj_t *pages[2];
+    lv_obj_t *dots[2];
+} cover_pager_t;
 
 static void cover_toggle_set_knob_y(void *object, int32_t y);
 static void cover_toggle_animate_knob(lv_obj_t *knob, int32_t target_y);
@@ -283,6 +306,8 @@ static void cover_more_info_close_event_cb(lv_event_t *event)
         s_cover_detail_screen = NULL;
         s_cover_detail_entity_id[0] = '\0';
         s_cover_toggle_visual_valid = false;
+        s_cover_position_visual_valid = false;
+        s_cover_detail_page = 0;
         context->close(context->close_user_data);
     }
 }
@@ -465,9 +490,10 @@ static void cover_toggle_event_cb(lv_event_t *event)
                                 ? s_cover_toggle_visual_on
                                 : cover_snapshot_is_on(&context->snapshot);
     const bool target_on = !current_on;
+    int32_t bottom_y = bsp_lcd_is_landscape() ? COVER_TOGGLE_BOTTOM_Y_LANDSCAPE : COVER_TOGGLE_BOTTOM_Y_PORTRAIT;
     cover_toggle_animate_knob(knob,
                              target_on ? COVER_TOGGLE_TOP_Y
-                                       : COVER_TOGGLE_BOTTOM_Y);
+                                       : bottom_y);
     s_cover_toggle_visual_valid = true;
     s_cover_toggle_visual_on = target_on;
 
@@ -476,7 +502,8 @@ static void cover_toggle_event_cb(lv_event_t *event)
                        -1);
 }
 
-static int cover_position_to_slider_value(int position)
+static int cover_position_to_slider_value(int position,
+                                          int position_height)
 {
     if (position < 0) {
         position = 0;
@@ -485,17 +512,18 @@ static int cover_position_to_slider_value(int position)
         position = 100;
     }
 
-    /* HA reserves one handle margin at each end. The active bar still reaches
-     * the outer edge, while the handle travels only inside this safe area. */
-    return COVER_POSITION_HEIGHT -
-           ((position * COVER_POSITION_TRAVEL + 50) / 100);
+    const int travel = position_height - COVER_POSITION_MIN_VALUE;
+    return position_height -
+           ((position * travel + 50) / 100);
 }
 
-static int cover_slider_value_to_position(const lv_obj_t *slider)
+static int cover_slider_value_to_position(const lv_obj_t *slider,
+                                          int position_height)
 {
-    int position = ((COVER_POSITION_HEIGHT - lv_slider_get_value(slider)) *
-                    100 + (COVER_POSITION_TRAVEL / 2)) /
-                   COVER_POSITION_TRAVEL;
+    const int travel = position_height - COVER_POSITION_MIN_VALUE;
+    int position = ((position_height - lv_slider_get_value(slider)) *
+                    100 + (travel / 2)) /
+                   travel;
     if (position < 0) {
         return 0;
     }
@@ -505,13 +533,26 @@ static int cover_slider_value_to_position(const lv_obj_t *slider)
     return position;
 }
 
-static int cover_position_hint_y_from_visual(int32_t visual_value)
+static int cover_position_hint_y_from_visual(int32_t visual_value,
+                                            int position_height)
 {
-    const int slider_top = (COVER_CONTROL_HEIGHT - COVER_POSITION_HEIGHT) / 2;
+    const int control_height = bsp_lcd_is_landscape() ? COVER_CONTROL_HEIGHT_LANDSCAPE : COVER_CONTROL_HEIGHT_PORTRAIT;
+    const int slider_top = (control_height - position_height) / 2;
     const int handle_center = visual_value -
                               COVER_POSITION_KNOB_MARGIN -
                               (COVER_POSITION_KNOB_HEIGHT / 2);
     return slider_top + handle_center - 12;
+}
+
+static int cover_position_hint_x(int position_width)
+{
+    if (!bsp_lcd_is_landscape()) {
+        return 42;
+    }
+    /* The landscape hint belongs to the tile page, not the narrow control. */
+    const int track_center = COVER_LANDSCAPE_CONTROL_X +
+                             COVER_BUTTON_WIDTH_LANDSCAPE / 2;
+    return track_center - (position_width / 2) - 58;
 }
 
 static void cover_position_set_visual(void *object, int32_t visual_value)
@@ -524,8 +565,8 @@ static void cover_position_set_visual(void *object, int32_t visual_value)
     if (visual_value < COVER_POSITION_MIN_VALUE) {
         visual_value = COVER_POSITION_MIN_VALUE;
     }
-    else if (visual_value > COVER_POSITION_HEIGHT) {
-        visual_value = COVER_POSITION_HEIGHT;
+    else if (visual_value > view->position_height) {
+        visual_value = view->position_height;
     }
     view->visual_value = visual_value;
 
@@ -538,10 +579,17 @@ static void cover_position_set_visual(void *object, int32_t visual_value)
                          COVER_POSITION_KNOB_HEIGHT);
     }
     if (view->value_label && lv_obj_is_valid(view->value_label)) {
+        int32_t hint_y = cover_position_hint_y_from_visual(
+            visual_value, view->position_height);
+        if (bsp_lcd_is_landscape()) {
+            const int32_t max_y = view->position_height -
+                                  lv_obj_get_height(view->value_label);
+            hint_y = LV_CLAMP(0, hint_y, max_y);
+        }
         lv_obj_align(view->value_label,
                      LV_ALIGN_TOP_LEFT,
-                     42,
-                     cover_position_hint_y_from_visual(visual_value));
+                     cover_position_hint_x(view->position_width),
+                     hint_y);
     }
 }
 
@@ -555,8 +603,8 @@ static void cover_position_animate_visual(cover_position_view_t *view,
     if (target_value < COVER_POSITION_MIN_VALUE) {
         target_value = COVER_POSITION_MIN_VALUE;
     }
-    else if (target_value > COVER_POSITION_HEIGHT) {
-        target_value = COVER_POSITION_HEIGHT;
+    else if (target_value > view->position_height) {
+        target_value = view->position_height;
     }
 
     lv_anim_delete(view, cover_position_set_visual);
@@ -608,11 +656,12 @@ static void cover_position_event_cb(lv_event_t *event)
         lv_obj_is_valid(view->value_label)) {
         lv_obj_add_flag(view->value_label, LV_OBJ_FLAG_HIDDEN);
     }
-    if (!context || !slider ||
+    if (!context || !slider || !view ||
         cover_snapshot_is_unavailable(&context->snapshot)) {
         return;
     }
-    const int position = cover_slider_value_to_position(slider);
+    const int position = cover_slider_value_to_position(slider,
+                                                        view->position_height);
     cover_call_service(context, "set_cover_position", position);
 }
 
@@ -673,7 +722,8 @@ static void cover_position_value_event_cb(lv_event_t *event)
     }
 
     lv_obj_remove_flag(view->value_label, LV_OBJ_FLAG_HIDDEN);
-    const int position = cover_slider_value_to_position(slider);
+    const int position = cover_slider_value_to_position(slider,
+                                                        view->position_height);
     char value_text[16];
     snprintf(value_text, sizeof(value_text), "%d%%", position);
     lv_label_set_text(view->value_label, value_text);
@@ -758,7 +808,7 @@ static lv_obj_t *cover_more_info_build_page(
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(header, 20, 0);
-    lv_obj_set_style_pad_ver(header, 12, 0);
+    lv_obj_set_style_pad_ver(header, bsp_lcd_is_landscape() ? 7 : 12, 0);
     lv_obj_set_style_pad_gap(header, 10, 0);
 
     lv_obj_t *close_button = lv_image_create(header);
@@ -785,7 +835,8 @@ static lv_obj_t *cover_more_info_build_page(
     lv_obj_remove_flag(close_hitbox, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(close_hitbox, 50, 50);
-    lv_obj_align(close_hitbox, LV_ALIGN_TOP_LEFT, 20, 12);
+    lv_obj_align(close_hitbox, LV_ALIGN_TOP_LEFT, 20,
+                 bsp_lcd_is_landscape() ? 7 : 12);
     lv_obj_add_event_cb(close_hitbox,
                         cover_more_info_close_event_cb,
                         LV_EVENT_CLICKED,
@@ -794,7 +845,8 @@ static lv_obj_t *cover_more_info_build_page(
     lv_obj_t *content = lv_obj_create(screen);
     lv_obj_remove_style_all(content);
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_width(content, COVER_DETAIL_WIDTH);
+    lv_obj_set_width(content, bsp_lcd_is_landscape() ? LV_PCT(100)
+                                                      : COVER_DETAIL_WIDTH);
     lv_obj_set_flex_grow(content, 1);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
@@ -912,7 +964,9 @@ static void cover_build_action_button(
     const bool enabled = cover_action_is_enabled(context, action);
     lv_obj_t *button = lv_button_create(parent);
     lv_obj_set_user_data(button, (void *)(uintptr_t)action);
-    lv_obj_set_size(button, COVER_BUTTON_WIDTH, COVER_BUTTON_HEIGHT);
+    lv_obj_set_size(button,
+                    bsp_lcd_is_landscape() ? COVER_BUTTON_WIDTH_LANDSCAPE : COVER_BUTTON_WIDTH_PORTRAIT,
+                    bsp_lcd_is_landscape() ? COVER_BUTTON_HEIGHT_LANDSCAPE : COVER_BUTTON_HEIGHT_PORTRAIT);
     lv_obj_set_style_radius(button, COVER_BUTTON_RADIUS, 0);
     lv_obj_set_style_border_width(button, 0, 0);
     lv_obj_set_style_shadow_width(button, 0, 0);
@@ -923,6 +977,7 @@ static void cover_build_action_button(
     lv_obj_set_style_bg_color(button,
                               lv_color_hex(COVER_DISABLED_BG),
                               LV_STATE_DISABLED);
+    lv_obj_set_style_bg_opa(button, LV_OPA_20, LV_STATE_DISABLED);
     lv_obj_add_event_cb(button,
                         cover_action_event_cb,
                         LV_EVENT_CLICKED,
@@ -939,11 +994,11 @@ static void cover_build_action_button(
                                 lv_color_hex(COVER_DISABLED_FG),
                                 LV_STATE_DISABLED);
     lv_obj_center(label);
-    if (!enabled) {
-        lv_obj_set_style_text_color(label,
-                                    lv_color_hex(COVER_DISABLED_FG),
-                                    0);
-    }
+    // if (!enabled) {
+    //     lv_obj_set_style_text_color(label,
+    //                                 lv_color_hex(COVER_DISABLED_FG),
+    //                                 0);
+    // }
 }
 
 static void cover_build_button_control(
@@ -954,7 +1009,9 @@ static void cover_build_button_control(
     lv_obj_t *group = lv_obj_create(parent);
     lv_obj_remove_style_all(group);
     lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(group, COVER_BUTTON_WIDTH, COVER_CONTROL_HEIGHT);
+    lv_obj_set_size(group,
+                    bsp_lcd_is_landscape() ? COVER_BUTTON_WIDTH_LANDSCAPE : COVER_BUTTON_WIDTH_PORTRAIT,
+                    bsp_lcd_is_landscape() ? COVER_CONTROL_HEIGHT_LANDSCAPE : COVER_CONTROL_HEIGHT_PORTRAIT);
     lv_obj_set_layout(group, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(group, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(group,
@@ -962,7 +1019,7 @@ static void cover_build_button_control(
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(group, 0, 0);
-    lv_obj_set_style_pad_gap(group, 10, 0);
+    lv_obj_set_style_pad_gap(group, bsp_lcd_is_landscape() ? 8 : 10, 0);
 
     const bool horizontal = cover_is_horizontal(&context->snapshot);
     if (features & COVER_FEATURE_OPEN) {
@@ -1031,85 +1088,158 @@ static void cover_build_open_close_toggle(
     const bool animate = !unavailable && s_cover_toggle_visual_valid &&
                          s_cover_toggle_visual_on != is_on;
     const bool initial_on = animate ? s_cover_toggle_visual_on : is_on;
-    const int32_t initial_y = initial_on ? COVER_TOGGLE_TOP_Y
-                                         : COVER_TOGGLE_BOTTOM_Y;
-    const int32_t target_y = is_on ? COVER_TOGGLE_TOP_Y
-                                    : COVER_TOGGLE_BOTTOM_Y;
-    const uint32_t state_color = is_on ? COVER_TOGGLE_OPEN
-                                       : COVER_TOGGLE_CLOSED;
-
-    lv_obj_t *track = lv_obj_create(parent);
-    lv_obj_remove_style_all(track);
-    lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(track,
-                    COVER_TOGGLE_TRACK_WIDTH,
-                    COVER_TOGGLE_TRACK_HEIGHT);
-    lv_obj_set_style_radius(track, COVER_TOGGLE_RADIUS, 0);
-    lv_obj_set_style_border_width(track, 0, 0);
-    lv_obj_set_style_pad_all(track, 0, 0);
-    lv_obj_set_style_bg_color(track,
-                              lv_color_hex(unavailable
-                                               ? COVER_TOGGLE_DISABLED_TRACK
-                                               : state_color),
-                              0);
-    lv_obj_set_style_bg_opa(track,
-                            unavailable ? LV_OPA_COVER
-                                        : COVER_TOGGLE_TRACK_OPA,
-                            0);
-    lv_obj_set_style_bg_opa(track,
-                            unavailable ? LV_OPA_COVER
-                                        : COVER_TOGGLE_PRESSED_OPA,
-                            LV_STATE_PRESSED);
-
-    if (unavailable) {
+    if (bsp_lcd_is_landscape()) {
+        const int32_t initial_y = initial_on ? COVER_TOGGLE_TOP_Y
+                                         : COVER_TOGGLE_BOTTOM_Y_LANDSCAPE;
+        const int32_t target_y = is_on ? COVER_TOGGLE_TOP_Y
+                                        : COVER_TOGGLE_BOTTOM_Y_LANDSCAPE;
+        const uint32_t state_color = is_on ? COVER_TOGGLE_OPEN
+                                        : COVER_TOGGLE_CLOSED;
+        lv_obj_t *track = lv_obj_create(parent);
+        lv_obj_remove_style_all(track);
+        lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_size(track,
+                        COVER_TOGGLE_TRACK_WIDTH,
+                        COVER_TOGGLE_TRACK_HEIGHT_LANDSCAPE);
+        lv_obj_set_style_radius(track, COVER_TOGGLE_RADIUS, 0);
+        lv_obj_set_style_border_width(track, 0, 0);
+        lv_obj_set_style_pad_all(track, 0, 0);
+        lv_obj_set_style_bg_color(track,
+                                lv_color_hex(unavailable
+                                                ? COVER_TOGGLE_DISABLED_TRACK
+                                                : state_color),
+                                0);
+        lv_obj_set_style_bg_opa(track,
+                                unavailable ? LV_OPA_COVER
+                                            : COVER_TOGGLE_TRACK_OPA,
+                                0);
+        lv_obj_set_style_bg_opa(track,
+                                unavailable ? LV_OPA_COVER
+                                            : COVER_TOGGLE_PRESSED_OPA,
+                                LV_STATE_PRESSED);
+        if (unavailable) {
         lv_obj_remove_flag(track, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_state(track, LV_STATE_DISABLED);
-    }
-    else {
+        }else {
+            lv_obj_add_flag(track, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(track,
+                                cover_toggle_event_cb,
+                                LV_EVENT_CLICKED,
+                                (void *)context);
+        }
+        lv_obj_t *knob = lv_obj_create(track);
+        lv_obj_remove_style_all(knob);
+        lv_obj_remove_flag(knob, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_size(knob,
+                        COVER_TOGGLE_KNOB_WIDTH,
+                        COVER_TOGGLE_KNOB_HEIGHT_LANDSCAPE);
+        lv_obj_set_style_radius(knob, COVER_TOGGLE_RADIUS, 0);
+        lv_obj_set_style_border_width(knob, 0, 0);
+        lv_obj_set_style_bg_color(knob,
+                                lv_color_hex(unavailable
+                                                ? COVER_TOGGLE_DISABLED_KNOB
+                                                : state_color),
+                                0);
+        lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
+        lv_obj_set_pos(knob, COVER_TOGGLE_INSET, initial_y);
+        lv_obj_set_user_data(track, knob);
+        const cover_tile_icons_t *icons = cover_find_tile_icons(&context->snapshot);
+        const char *icon = is_on || !icons->icon_closed
+                            ? icons->icon_default
+                            : icons->icon_closed;
+        lv_obj_t *icon_label = lv_label_create(knob);
+        lv_label_set_text(icon_label, icon);
+        lv_obj_set_style_text_font(icon_label, &ha_font_mdi_20, 0);
+        lv_obj_set_style_text_color(icon_label,
+                                    lv_color_hex(unavailable ? 0x999999
+                                                            : 0xFFFFFF),
+                                    0);
+        lv_obj_center(icon_label);
+
+        if (animate) {
+            lv_obj_update_layout(track);
+            cover_toggle_animate_knob(knob, target_y);
+        }
+
+        s_cover_toggle_visual_valid = !unavailable;
+        s_cover_toggle_visual_on = is_on;
+    }else {
+        /* 竖屏布局 */
+        const int32_t initial_y = initial_on ? COVER_TOGGLE_TOP_Y
+                                         : COVER_TOGGLE_BOTTOM_Y_PORTRAIT;
+        const int32_t target_y = is_on ? COVER_TOGGLE_TOP_Y
+                                        : COVER_TOGGLE_BOTTOM_Y_PORTRAIT;
+        const uint32_t state_color = is_on ? COVER_TOGGLE_OPEN
+                                        : COVER_TOGGLE_CLOSED;
+        lv_obj_t *track = lv_obj_create(parent);
+        lv_obj_remove_style_all(track);
+        lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_size(track,
+                        COVER_TOGGLE_TRACK_WIDTH,
+                        COVER_TOGGLE_TRACK_HEIGHT_PORTRAIT);
+        lv_obj_set_style_radius(track, COVER_TOGGLE_RADIUS, 0);
+        lv_obj_set_style_border_width(track, 0, 0);
+        lv_obj_set_style_pad_all(track, 0, 0);
+        lv_obj_set_style_bg_color(track,
+                                lv_color_hex(unavailable
+                                                ? COVER_TOGGLE_DISABLED_TRACK
+                                                : state_color),
+                                0);
+        lv_obj_set_style_bg_opa(track,
+                                unavailable ? LV_OPA_COVER
+                                            : COVER_TOGGLE_TRACK_OPA,
+                                0);
+        lv_obj_set_style_bg_opa(track,
+                                unavailable ? LV_OPA_COVER
+                                            : COVER_TOGGLE_PRESSED_OPA,
+                                LV_STATE_PRESSED);
+        if (unavailable) {
+        lv_obj_remove_flag(track, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_state(track, LV_STATE_DISABLED);
+        }else {
         lv_obj_add_flag(track, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(track,
                             cover_toggle_event_cb,
                             LV_EVENT_CLICKED,
                             (void *)context);
-    }
-
-    lv_obj_t *knob = lv_obj_create(track);
-    lv_obj_remove_style_all(knob);
-    lv_obj_remove_flag(knob, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(knob,
-                    COVER_TOGGLE_KNOB_WIDTH,
-                    COVER_TOGGLE_KNOB_HEIGHT);
-    lv_obj_set_style_radius(knob, COVER_TOGGLE_RADIUS, 0);
-    lv_obj_set_style_border_width(knob, 0, 0);
-    lv_obj_set_style_bg_color(knob,
-                              lv_color_hex(unavailable
-                                               ? COVER_TOGGLE_DISABLED_KNOB
-                                               : state_color),
-                              0);
-    lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
-    lv_obj_set_pos(knob, COVER_TOGGLE_INSET, initial_y);
-    lv_obj_set_user_data(track, knob);
-
-    const cover_tile_icons_t *icons = cover_find_tile_icons(&context->snapshot);
-    const char *icon = is_on || !icons->icon_closed
-                           ? icons->icon_default
-                           : icons->icon_closed;
-    lv_obj_t *icon_label = lv_label_create(knob);
-    lv_label_set_text(icon_label, icon);
-    lv_obj_set_style_text_font(icon_label, &ha_font_mdi_20, 0);
-    lv_obj_set_style_text_color(icon_label,
-                                lv_color_hex(unavailable ? 0x999999
-                                                         : 0xFFFFFF),
+        }
+        lv_obj_t *knob = lv_obj_create(track);
+        lv_obj_remove_style_all(knob);
+        lv_obj_remove_flag(knob, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_size(knob,
+                        COVER_TOGGLE_KNOB_WIDTH,
+                        COVER_TOGGLE_KNOB_HEIGHT_PORTRAIT);
+        lv_obj_set_style_radius(knob, COVER_TOGGLE_RADIUS, 0);
+        lv_obj_set_style_border_width(knob, 0, 0);
+        lv_obj_set_style_bg_color(knob,
+                                lv_color_hex(unavailable
+                                                ? COVER_TOGGLE_DISABLED_KNOB
+                                                : state_color),
                                 0);
-    lv_obj_center(icon_label);
+        lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
+        lv_obj_set_pos(knob, COVER_TOGGLE_INSET, initial_y);
+        lv_obj_set_user_data(track, knob);
+        const cover_tile_icons_t *icons = cover_find_tile_icons(&context->snapshot);
+        const char *icon = is_on || !icons->icon_closed
+                            ? icons->icon_default
+                            : icons->icon_closed;
+        lv_obj_t *icon_label = lv_label_create(knob);
+        lv_label_set_text(icon_label, icon);
+        lv_obj_set_style_text_font(icon_label, &ha_font_mdi_20, 0);
+        lv_obj_set_style_text_color(icon_label,
+                                    lv_color_hex(unavailable ? 0x999999
+                                                            : 0xFFFFFF),
+                                    0);
+        lv_obj_center(icon_label);
 
-    if (animate) {
-        lv_obj_update_layout(track);
-        cover_toggle_animate_knob(knob, target_y);
+        if (animate) {
+            lv_obj_update_layout(track);
+            cover_toggle_animate_knob(knob, target_y);
+        }
+
+        s_cover_toggle_visual_valid = !unavailable;
+        s_cover_toggle_visual_on = is_on;
     }
-
-    s_cover_toggle_visual_valid = !unavailable;
-    s_cover_toggle_visual_on = is_on;
 }
 
 static void cover_build_position_control(
@@ -1124,7 +1254,13 @@ static void cover_build_position_control(
     lv_obj_t *control = lv_obj_create(parent);
     lv_obj_remove_style_all(control);
     lv_obj_remove_flag(control, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(control, LV_PCT(100), COVER_CONTROL_HEIGHT);
+    lv_obj_add_flag(control, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    const bool landscape = bsp_lcd_is_landscape();
+    const int position_height = landscape ? COVER_POSITION_HEIGHT_LANDSCAPE
+                                          : COVER_POSITION_HEIGHT_PORTRAIT;
+    const int position_width = landscape ? COVER_POSITION_WIDTH_LANDSCAPE
+                                         : COVER_POSITION_WIDTH_PORTRAIT;
+    lv_obj_set_size(control, LV_PCT(100), position_height);
 
     cover_position_view_t *view = lv_malloc(sizeof(*view));
     if (!view) {
@@ -1133,12 +1269,15 @@ static void cover_build_position_control(
         return;
     }
     memset(view, 0, sizeof(*view));
+    view->position_height = position_height;
+    view->position_width = position_width;
     lv_obj_add_event_cb(control,
                         cover_position_view_delete_event_cb,
                         LV_EVENT_DELETE,
                         view);
 
-    const int32_t target_visual = cover_position_to_slider_value(position);
+    const int32_t target_visual = cover_position_to_slider_value(position,
+                                                                 position_height);
     const bool animate_from_previous = !unavailable &&
                                        s_cover_position_visual_valid &&
                                        s_cover_position_visual_value !=
@@ -1154,7 +1293,7 @@ static void cover_build_position_control(
     lv_obj_remove_style_all(track);
     lv_obj_remove_flag(track,
                        LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(track, COVER_POSITION_WIDTH, COVER_POSITION_HEIGHT);
+    lv_obj_set_size(track, position_width, position_height);
     lv_obj_align(track, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_radius(track, 20, 0);
     /* Clip only the small top/bottom corner strips to the 20 px outer radius.
@@ -1162,10 +1301,9 @@ static void cover_build_position_control(
      * without recreating the former full-height ARGB8888 layer. */
     lv_obj_set_style_clip_corner(track, true, 0);
     lv_obj_set_style_bg_color(track,
-                              lv_color_hex(unavailable ? COVER_DISABLED_BG
-                                                       : COVER_POSITION_TRACK),
+                              lv_color_hex(COVER_POSITION_TRACK),
                               0);
-    lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_opa(track,LV_OPA_20, 0);
 
     view->active_bar = lv_obj_create(track);
     lv_obj_remove_style_all(view->active_bar);
@@ -1178,7 +1316,7 @@ static void cover_build_position_control(
                             0);
     lv_obj_set_style_bg_color(
         view->active_bar,
-        lv_color_hex(unavailable ? COVER_DISABLED_FG
+        lv_color_hex(unavailable ? 0x404040
                                  : COVER_POSITION_ACTIVE),
         0);
     lv_obj_set_style_bg_opa(view->active_bar, LV_OPA_COVER, 0);
@@ -1191,17 +1329,19 @@ static void cover_build_position_control(
                     COVER_POSITION_KNOB_WIDTH,
                     COVER_POSITION_KNOB_HEIGHT);
     lv_obj_set_x(view->knob,
-                 (COVER_POSITION_WIDTH - COVER_POSITION_KNOB_WIDTH) / 2);
+                 (position_width - COVER_POSITION_KNOB_WIDTH) / 2);
     lv_obj_set_style_radius(view->knob, 2, 0);
     lv_obj_set_style_bg_color(view->knob,
-                              lv_color_hex(unavailable ? COVER_DISABLED_FG
-                                                       : 0xFFFFFF),
+                              lv_color_hex(0xFFFFFF),
                               0);
     lv_obj_set_style_bg_opa(view->knob, LV_OPA_COVER, 0);
 
     char value_text[16];
     snprintf(value_text, sizeof(value_text), "%d%%", position);
-    lv_obj_t *value_label = lv_label_create(control);
+    /* A negative x inside the 70 px control is clipped during redraw. Keep
+     * the landscape hint inside the full-width tile page instead. */
+    lv_obj_t *hint_parent = landscape ? lv_obj_get_parent(parent) : control;
+    lv_obj_t *value_label = lv_label_create(hint_parent);
     lv_label_set_text(value_label, value_text);
     lv_obj_set_style_text_font(value_label, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(value_label,
@@ -1213,10 +1353,7 @@ static void cover_build_position_control(
     lv_obj_set_style_radius(value_label, 8, 0);
     lv_obj_set_style_pad_hor(value_label, 6, 0);
     lv_obj_set_style_pad_ver(value_label, 3, 0);
-    lv_obj_align(value_label,
-                 LV_ALIGN_TOP_LEFT,
-                 42,
-                 cover_position_hint_y_from_visual(initial_visual));
+    lv_obj_update_layout(value_label);
     lv_obj_add_flag(value_label, LV_OBJ_FLAG_HIDDEN);
     view->value_label = value_label;
     view->visual_value = initial_visual;
@@ -1224,12 +1361,12 @@ static void cover_build_position_control(
 
     lv_obj_t *slider = lv_slider_create(control);
     lv_obj_remove_style_all(slider);
-    lv_obj_set_size(slider, COVER_POSITION_WIDTH, COVER_POSITION_HEIGHT);
+    lv_obj_set_size(slider, position_width, position_height);
     lv_obj_align(slider, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(slider, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(slider, LV_OBJ_FLAG_SCROLLABLE);
     lv_slider_set_orientation(slider, LV_SLIDER_ORIENTATION_VERTICAL);
-    lv_slider_set_range(slider, COVER_POSITION_HEIGHT, 0);
+    lv_slider_set_range(slider, position_height, 0);
     lv_slider_set_value(slider, target_visual, LV_ANIM_OFF);
     /* Explicit transparent styles also keep all slider parts at radius zero,
      * preventing LVGL from creating a masked intermediate layer. */
@@ -1310,21 +1447,29 @@ static void cover_build_mode_switch(
     lv_obj_t *parent,
     const entity_more_info_context_t *context)
 {
+    const bool landscape = bsp_lcd_is_landscape();
     lv_obj_t *group = lv_obj_create(parent);
     lv_obj_remove_style_all(group);
     lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(group, COVER_MODE_WIDTH, COVER_MODE_HEIGHT);
+    lv_obj_set_size(group,
+                    landscape ? COVER_MODE_HEIGHT : COVER_MODE_WIDTH,
+                    landscape ? 2 * COVER_MODE_HEIGHT + 2 : COVER_MODE_HEIGHT);
     lv_obj_set_style_radius(group, COVER_MODE_HEIGHT / 2, 0);
     lv_obj_set_style_bg_color(group, lv_color_hex(COVER_CONTROL_BG), 0);
     lv_obj_set_style_bg_opa(group, LV_OPA_COVER, 0);
     lv_obj_set_layout(group, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(group, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_flow(group,
+                         landscape ? LV_FLEX_FLOW_COLUMN : LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(group,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(group, 0, 0);
-    lv_obj_set_style_pad_gap(group, 4, 0);
+    lv_obj_set_style_pad_gap(group, landscape ? 2 : 4, 0);
+    if (landscape) {
+        lv_obj_set_pos(group, COVER_LANDSCAPE_MODE_X,
+                       COVER_LANDSCAPE_MODE_Y);
+    }
     cover_build_mode_button(group,
                             context,
                             COVER_DETAIL_MODE_POSITION,
@@ -1348,7 +1493,17 @@ static void cover_build_presets(
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_remove_style_all(row);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(row, LV_PCT(100), COVER_PRESET_HEIGHT);
+    if (bsp_lcd_is_landscape()) {
+        lv_obj_set_size(row, COVER_LANDSCAPE_PRESETS_WIDTH,
+                        COVER_PRESET_HEIGHT);
+        lv_obj_align(row,
+                     LV_ALIGN_TOP_MID,
+                     0,
+                     COVER_LANDSCAPE_PRESETS_Y);
+    }
+    else {
+        lv_obj_set_size(row, LV_PCT(100), COVER_PRESET_HEIGHT);
+    }
     lv_obj_set_layout(row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row,
@@ -1378,6 +1533,10 @@ static void cover_build_presets(
                             (void *)context);
         if (unavailable) {
             lv_obj_add_state(button, LV_STATE_DISABLED);
+            lv_obj_set_style_bg_color(button,                      
+                              lv_color_hex(COVER_DISABLED_BG), 
+                              LV_STATE_DISABLED);
+            lv_obj_set_style_bg_opa(button, LV_OPA_20, LV_STATE_DISABLED);
         }
 
         char text[8];
@@ -1395,6 +1554,121 @@ static void cover_build_presets(
     }
 }
 
+static void cover_pager_update_dots(cover_pager_t *pager, lv_obj_t *tileview)
+{
+    if (!pager || !tileview) {
+        return;
+    }
+    lv_obj_t *active = lv_tileview_get_tile_active(tileview);
+    for (size_t i = 0; i < 2; i++) {
+        const bool selected = active == pager->pages[i];
+        lv_obj_set_style_bg_color(pager->dots[i],
+                                  lv_color_hex(selected ? 0xFBFBFB : 0x222222),
+                                  0);
+        lv_obj_set_style_bg_opa(pager->dots[i],
+                                selected ? LV_OPA_COVER : LV_OPA_40,
+                                0);
+        if (selected) {
+            s_cover_detail_page = (uint8_t)i;
+        }
+    }
+}
+
+static void cover_tileview_event_cb(lv_event_t *event)
+{
+    cover_pager_update_dots(lv_event_get_user_data(event),
+                            lv_event_get_current_target_obj(event));
+}
+
+static void cover_pager_delete_event_cb(lv_event_t *event)
+{
+    lv_free(lv_event_get_user_data(event));
+}
+
+static void cover_build_landscape_pages(
+    lv_obj_t *content,
+    const entity_more_info_context_t *context,
+    uint32_t features,
+    bool supports_buttons)
+{
+    cover_pager_t *pager = lv_malloc(sizeof(*pager));
+    if (!pager) {
+        ESP_LOGE(TAG, "Failed to allocate cover page controls");
+        return;
+    }
+    memset(pager, 0, sizeof(*pager));
+    lv_obj_add_event_cb(content,
+                        cover_pager_delete_event_cb,
+                        LV_EVENT_DELETE,
+                        pager);
+
+    lv_obj_t *tileview = lv_tileview_create(content);
+    lv_obj_set_size(tileview, LCD_V_RES, COVER_CONTROL_HEIGHT_LANDSCAPE);
+    lv_obj_set_style_bg_opa(tileview, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(tileview, 0, 0);
+    lv_obj_set_style_pad_all(tileview, 0, 0);
+    lv_obj_set_scrollbar_mode(tileview, LV_SCROLLBAR_MODE_OFF);
+    pager->pages[0] = lv_tileview_add_tile(tileview, 0, 0, LV_DIR_RIGHT);
+    pager->pages[1] = lv_tileview_add_tile(tileview, 1, 0, LV_DIR_LEFT);
+    for (size_t i = 0; i < 2; i++) {
+        lv_obj_set_style_bg_opa(pager->pages[i], LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(pager->pages[i], 0, 0);
+        lv_obj_set_style_pad_all(pager->pages[i], 0, 0);
+        lv_obj_add_flag(pager->pages[i], LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    }
+
+    lv_obj_t *control_host = lv_obj_create(pager->pages[0]);
+    lv_obj_remove_style_all(control_host);
+    lv_obj_remove_flag(control_host, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(control_host, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_set_size(control_host,
+                    COVER_BUTTON_WIDTH_LANDSCAPE,
+                    COVER_CONTROL_HEIGHT_LANDSCAPE);
+    lv_obj_set_pos(control_host, COVER_LANDSCAPE_CONTROL_X, 0);
+    if (s_cover_detail_mode == COVER_DETAIL_MODE_POSITION ||
+        !supports_buttons) {
+        cover_build_position_control(control_host, context);
+    }
+    else {
+        cover_build_button_control(control_host, context, features);
+    }
+    if (supports_buttons) {
+        cover_build_mode_switch(pager->pages[0], context);
+    }
+    cover_build_presets(pager->pages[1], context);
+
+    lv_obj_t *dots_host = lv_obj_create(content);
+    lv_obj_remove_style_all(dots_host);
+    lv_obj_remove_flag(dots_host, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(dots_host, 24, 8);
+    lv_obj_set_layout(dots_host, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(dots_host, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(dots_host,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(dots_host, 0, 0);
+    lv_obj_set_style_pad_gap(dots_host, 8, 0);
+    lv_obj_set_style_translate_y(dots_host, 5, 0);
+    for (size_t i = 0; i < 2; i++) {
+        pager->dots[i] = lv_obj_create(dots_host);
+        lv_obj_remove_style_all(pager->dots[i]);
+        lv_obj_remove_flag(pager->dots[i],
+                           LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_size(pager->dots[i], 8, 8);
+        lv_obj_set_style_radius(pager->dots[i], LV_RADIUS_CIRCLE, 0);
+    }
+    lv_obj_add_event_cb(tileview,
+                        cover_tileview_event_cb,
+                        LV_EVENT_VALUE_CHANGED,
+                        pager);
+    lv_tileview_set_tile_by_index(tileview,
+                                  s_cover_detail_page == 1 ? 1 : 0,
+                                  0,
+                                  LV_ANIM_OFF);
+    cover_pager_update_dots(pager, tileview);
+}
+
 static esp_err_t cover_render_tile(ha_entity_store_t *store,
                                    const ha_entity_snapshot_t *snapshot,
                                    entity_display_model_t *model)
@@ -1410,8 +1684,6 @@ static esp_err_t cover_render_tile(ha_entity_store_t *store,
     model->state_color = lv_color_hex(0x666666);
     model->icon_color = lv_color_hex(0x9E9E9E);
     model->icon_circle_background_color = lv_color_hex(0x363636);
-    model->has_ripple_color = true;
-    model->ripple_color = lv_color_hex(0xD9D9D9);
 
     if (entity_handler_snapshot_is_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
@@ -1443,9 +1715,16 @@ static esp_err_t cover_render_tile(ha_entity_store_t *store,
         entity_handler_copy_state_text(state_text,
                                        sizeof(state_text),
                                        snapshot->state);
+        if (strcmp(snapshot->state, "closed") == 0) {
+            snprintf(model->state_text,
+                 sizeof(model->state_text),
+                 "%s",
+                 state_text);
+            return ESP_OK;
+        }
         snprintf(model->state_text,
                  sizeof(model->state_text),
-                 "%s - %.0f%%",
+                 "%s · %.0f%%",
                  state_text,
                  position);
         return ESP_OK;
@@ -1475,6 +1754,7 @@ static esp_err_t cover_render_more_info(
     const bool use_open_close_toggle =
         supports_open_close_only && !cover_get_assumed_state(context) &&
         strcmp(context->snapshot.state, "unknown") != 0;
+    const bool landscape = bsp_lcd_is_landscape();
 
     if (s_cover_detail_screen != context->screen ||
         strcmp(s_cover_detail_entity_id,
@@ -1489,7 +1769,14 @@ static esp_err_t cover_render_more_info(
         s_cover_detail_mode = supports_buttons
                                   ? COVER_DETAIL_MODE_BUTTONS
                                   : COVER_DETAIL_MODE_POSITION;
+        s_cover_detail_page = 0;
     }
+    else if (s_cover_detail_landscape != landscape) {
+        /* Slider animation coordinates depend on the control's height. */
+        s_cover_toggle_visual_valid = false;
+        s_cover_position_visual_valid = false;
+    }
+    s_cover_detail_landscape = landscape;
     if (!supports_position) {
         s_cover_detail_mode = COVER_DETAIL_MODE_BUTTONS;
     }
@@ -1503,8 +1790,12 @@ static esp_err_t cover_render_more_info(
     lv_obj_t *content = cover_more_info_build_page(context);
     cover_build_state_block(content, context);
 
-    if (s_cover_detail_mode == COVER_DETAIL_MODE_POSITION &&
-        supports_position) {
+    if (landscape && supports_position) {
+        cover_build_landscape_pages(content, context, features,
+                                    supports_buttons);
+    }
+    else if (s_cover_detail_mode == COVER_DETAIL_MODE_POSITION &&
+             supports_position) {
         cover_build_position_control(content, context);
     }
     else if (use_open_close_toggle) {
@@ -1514,10 +1805,10 @@ static esp_err_t cover_render_more_info(
         cover_build_button_control(content, context, features);
     }
 
-    if (supports_position && supports_buttons) {
+    if (!landscape && supports_position && supports_buttons) {
         cover_build_mode_switch(content, context);
     }
-    if (supports_position) {
+    if (!landscape && supports_position) {
         cover_build_presets(content, context);
     }
 

@@ -27,6 +27,7 @@ esp_err_t method_api_handle_set_screen_config(cJSON *data, async_resp_arg *now_r
  * @return ESP_OK on success, ESP_FAIL (-1) on load/send failure.
  */
 esp_err_t screen_config_notify(void);
+esp_err_t screen_config_notify_to_client(int socket_fd);
 
 /**
  * @brief Broadcast Device.ScreenConfigNotify to all authenticated clients.
@@ -36,6 +37,14 @@ esp_err_t screen_config_notify(void);
  * @return ESP_OK on success, or an error when the config cannot be loaded or sent.
  */
 esp_err_t screen_config_notify_authenticated_clients(void);
+
+/**
+ * Send Device.ScreenConfigNotify to authenticated clients except one socket.
+ *
+ * @param excluded_socket_fd Socket that initiated the configuration change.
+ */
+esp_err_t screen_config_notify_authenticated_clients_except(
+    int excluded_socket_fd);
 
 #ifdef __cplusplus
 }

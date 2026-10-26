@@ -78,7 +78,6 @@ esp_err_t method_api_handle_resume_session(cJSON *data, async_resp_arg *now_resp
                                               WEB_AUTH_SOURCE_SESSION,
                                               id_item->valuestring);
             error = WEB_API_ERROR_OK;
-            esp_event_post(WEB_SERVER_EVENT, WEB_SERVER_EVENT_AUTH_OK, NULL, 0, portMAX_DELAY);
         }
     }
     else {
@@ -105,6 +104,13 @@ send_response:
         now_resp_arg->seq,
         error,
         now_resp_arg->fd);
+    if (error == WEB_API_ERROR_OK && send_err == ESP_OK) {
+        esp_event_post(WEB_SERVER_EVENT,
+                       WEB_SERVER_EVENT_AUTH_OK,
+                       &now_resp_arg->fd,
+                       sizeof(now_resp_arg->fd),
+                       portMAX_DELAY);
+    }
     if (error != WEB_API_ERROR_OK &&
         error != WEB_API_ERROR_SESSION_TOO_MANY_ATTEMPTS &&
         webserver_client_find_copy(now_resp_arg->fd, &client)) {

@@ -20,6 +20,7 @@
 typedef struct {
     lv_obj_t *root;
     int32_t visual;
+    int32_t knob_height;
     bool on;
     bool disabled;
     light_power_toggle_change_cb_t callback;
@@ -31,11 +32,13 @@ static light_power_toggle_context_t *get_context(lv_obj_t *obj)
     return obj ? lv_obj_get_user_data(obj) : NULL;
 }
 
-static int32_t knob_y(const lv_area_t *area, int32_t visual)
+static int32_t knob_y(const light_power_toggle_context_t *context,
+                      const lv_area_t *area,
+                      int32_t visual)
 {
     const int32_t travel = lv_area_get_height(area) -
                            POWER_TOGGLE_KNOB_INSET * 2 -
-                           POWER_TOGGLE_KNOB_HEIGHT;
+                           context->knob_height;
     return area->y1 + POWER_TOGGLE_KNOB_INSET +
            (100 - LV_CLAMP(0, visual, 100)) * travel / 100;
 }
@@ -118,12 +121,12 @@ static void draw_toggle(lv_event_t *event,
               POWER_TOGGLE_RADIUS,
               opacity);
 
-    const int32_t y = knob_y(&track, context->visual);
+    const int32_t y = knob_y(context, &track, context->visual);
     const lv_area_t knob = {
         .x1 = track.x1 + POWER_TOGGLE_KNOB_INSET,
         .y1 = y,
         .x2 = track.x2 - POWER_TOGGLE_KNOB_INSET,
-        .y2 = y + POWER_TOGGLE_KNOB_HEIGHT - 1,
+        .y2 = y + context->knob_height - 1,
     };
     draw_rect(layer,
               &knob,
@@ -219,6 +222,7 @@ lv_obj_t *light_power_toggle_create(lv_obj_t *parent)
         return NULL;
     }
     context->root = root;
+    context->knob_height = POWER_TOGGLE_KNOB_HEIGHT;
     lv_obj_set_user_data(root, context);
     lv_obj_add_event_cb(root, toggle_event_cb, LV_EVENT_ALL, context);
 
@@ -234,6 +238,21 @@ lv_obj_t *light_power_toggle_create(lv_obj_t *parent)
 
     lv_obj_invalidate(root);
     return root;
+}
+
+void light_power_toggle_set_height(lv_obj_t *obj,
+                                   int32_t height,
+                                   int32_t knob_height)
+{
+    light_power_toggle_context_t *context = get_context(obj);
+    if (!context || height <= POWER_TOGGLE_KNOB_INSET * 2 ||
+        knob_height <= 0 ||
+        knob_height > height - POWER_TOGGLE_KNOB_INSET * 2) {
+        return;
+    }
+    context->knob_height = knob_height;
+    lv_obj_set_height(obj, height);
+    lv_obj_invalidate(obj);
 }
 
 void light_power_toggle_set_value(lv_obj_t *obj,

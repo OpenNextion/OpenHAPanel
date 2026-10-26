@@ -10,7 +10,8 @@
 extern "C" {
 #endif
 
-#define HA_HISTORY_LIST_DEFAULT_WIDTH 280
+#define HA_HISTORY_LIST_DEFAULT_WIDTH_PORTAIT 280
+#define HA_HISTORY_LIST_DEFAULT_WIDTH_LANDSCAPE 440
 
 typedef struct {
     time_t epoch;

@@ -34,6 +34,7 @@ export interface IHassEntitySupportConfig {
 const ALL_INTERACTION_ACTIONS: readonly THassScreenAction[] = ['more-info', 'toggle', 'nothing'];
 const READ_ONLY_INTERACTION_ACTIONS: readonly THassScreenAction[] = ['more-info', 'nothing'];
 const MORE_INFO_DEFAULT = { supported: true, options: ALL_INTERACTION_ACTIONS, default: 'more-info' } as const;
+const MORE_INFO_WITHOUT_TOGGLE = { supported: true, options: READ_ONLY_INTERACTION_ACTIONS, default: 'more-info' } as const;
 const NOTHING_DEFAULT = { supported: true, options: ALL_INTERACTION_ACTIONS, default: 'nothing' } as const;
 const NOTHING_WITHOUT_TOGGLE = { supported: true, options: READ_ONLY_INTERACTION_ACTIONS, default: 'nothing' } as const;
 const ICON_TOGGLE_DEFAULT = { supported: true, options: ALL_INTERACTION_ACTIONS, default: 'toggle' } as const;
@@ -74,31 +75,30 @@ export const HASS_ENTITY_SUPPORT_CONFIG: Readonly<Record<string, IHassEntitySupp
     },
     sensor: {
         deviceClasses: ['temperature', 'humidity'],
-        interactions: { tap: MORE_INFO_DEFAULT, hold: NOTHING_WITHOUT_TOGGLE, iconTap: NOTHING_WITHOUT_TOGGLE },
+        interactions: { tap: MORE_INFO_WITHOUT_TOGGLE, hold: NOTHING_WITHOUT_TOGGLE, iconTap: NOTHING_WITHOUT_TOGGLE },
         badgeInteractions: { tap: BADGE_SENSOR_TAP, hold: BADGE_SENSOR_HOLD },
         preview: { label: '25°C', state: '25', tone: 'cyan' },
         previewByDeviceClass: { humidity: { label: '65%', state: '65', tone: 'cyan' } },
     },
     binary_sensor: {
-        interactions: { tap: MORE_INFO_DEFAULT, hold: NOTHING_WITHOUT_TOGGLE, iconTap: NOTHING_WITHOUT_TOGGLE },
+        interactions: { tap: MORE_INFO_WITHOUT_TOGGLE, hold: NOTHING_WITHOUT_TOGGLE, iconTap: NOTHING_WITHOUT_TOGGLE },
         badgeInteractions: { tap: BADGE_SENSOR_TAP, hold: BADGE_SENSOR_HOLD },
         preview: { label: 'Detected', state: 'on', tone: 'danger' },
     },
     climate: {
         interactions: { tap: MORE_INFO_DEFAULT, hold: NOTHING_DEFAULT, iconTap: NOTHING_DEFAULT },
         badgeInteractions: { tap: BADGE_TOGGLE_TAP, hold: BADGE_MORE_INFO_HOLD },
-        preview: { label: '25°C', state: 'heat', tone: 'cyan' },
+        preview: { label: 'Cool 25°C', state: 'cool', tone: 'cyan' },
     },
     event: {
-        interactions: { tap: MORE_INFO_DEFAULT, hold: NOTHING_WITHOUT_TOGGLE, iconTap: NOTHING_WITHOUT_TOGGLE },
+        interactions: { tap: MORE_INFO_WITHOUT_TOGGLE, hold: NOTHING_WITHOUT_TOGGLE, iconTap: NOTHING_WITHOUT_TOGGLE },
         badgeInteractions: { tap: BADGE_EVENT_TAP, hold: BADGE_EVENT_HOLD },
         preview: { label: '2 weeks ago', state: 'unknown', tone: 'blue' },
     },
     siren: {
-        previewSupported: false,
-        interactions: { tap: MORE_INFO_DEFAULT, hold: UNSUPPORTED_HOLD, iconTap: NOTHING_DEFAULT },
+        interactions: { tap: MORE_INFO_DEFAULT, hold: NOTHING_DEFAULT, iconTap: NOTHING_DEFAULT },
         badgeInteractions: { tap: BADGE_TOGGLE_TAP, hold: BADGE_MORE_INFO_HOLD },
-        preview: { label: 'Unknown', state: 'unknown', tone: 'neutral' },
+        preview: { label: 'On', state: 'on', tone: 'danger' },
     },
     fan: {
         previewSupported: false,

@@ -7,9 +7,7 @@
 #define MY_CLASS (&ha_tile_card_class)
 #define HA_TILE_CARD_WIDTH  280
 #define HA_TILE_CARD_ICON_SIZE 40
-#define HA_TILE_CARD_RIPPLE_EXPAND_MS 360
-#define HA_TILE_CARD_RIPPLE_FADE_MS   220
-#define HA_TILE_CARD_RIPPLE_OPA       34
+#define HA_TILE_CARD_PRESSED_OPA LV_OPA_70
 
 typedef struct {
     lv_obj_t obj;
@@ -27,26 +25,15 @@ typedef struct {
     ha_tile_card_body_hold_cb_t body_hold_cb;
     void *body_hold_user_data;
     bool body_long_pressed;
-    lv_color_t ripple_color;
-    lv_point_t ripple_origin;
-    int32_t ripple_progress;
-    int32_t ripple_opa;
 } ha_tile_card_t;
 
 static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
-static void ha_tile_card_destructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
 static void ha_tile_card_event(const lv_obj_class_t *class_p, lv_event_t *event);
 static void ha_tile_card_icon_event_cb(lv_event_t *event);
-static void ha_tile_card_ripple_start(ha_tile_card_t *card);
-static void ha_tile_card_ripple_release(ha_tile_card_t *card);
-static void ha_tile_card_ripple_draw(ha_tile_card_t *card, lv_event_t *event);
-static void ha_tile_card_ripple_set_progress(void *var, int32_t value);
-static void ha_tile_card_ripple_set_opa(void *var, int32_t value);
 static void apply_clear_style(lv_obj_t *obj);
 
 const lv_obj_class_t ha_tile_card_class = {
     .constructor_cb = ha_tile_card_constructor,
-    .destructor_cb = ha_tile_card_destructor,
     .event_cb = ha_tile_card_event,
     .width_def = HA_TILE_CARD_WIDTH,
     .height_def = LV_SIZE_CONTENT,
@@ -139,14 +126,12 @@ void ha_tile_card_set_icon_click_cb(lv_obj_t *obj,
 void ha_tile_card_set_body_clickable(lv_obj_t *obj, bool clickable)
 {
     LV_ASSERT_OBJ(obj, MY_CLASS);
-    ha_tile_card_t *card = (ha_tile_card_t *)obj;
 
     if (clickable) {
         lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     }
     else {
         lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-        ha_tile_card_stop_ripple(obj);
     }
 }
 
@@ -168,24 +153,6 @@ void ha_tile_card_set_body_hold_cb(lv_obj_t *obj,
     ha_tile_card_t *card = (ha_tile_card_t *)obj;
     card->body_hold_cb = callback;
     card->body_hold_user_data = user_data;
-}
-
-void ha_tile_card_set_ripple_color(lv_obj_t *obj, lv_color_t color)
-{
-    LV_ASSERT_OBJ(obj, MY_CLASS);
-    ha_tile_card_t *card = (ha_tile_card_t *)obj;
-    card->ripple_color = color;
-}
-
-void ha_tile_card_stop_ripple(lv_obj_t *obj)
-{
-    LV_ASSERT_OBJ(obj, MY_CLASS);
-    ha_tile_card_t *card = (ha_tile_card_t *)obj;
-    lv_anim_delete(card, ha_tile_card_ripple_set_progress);
-    lv_anim_delete(card, ha_tile_card_ripple_set_opa);
-    card->ripple_progress = 0;
-    card->ripple_opa = 0;
-    lv_obj_invalidate(obj);
 }
 
 void ha_tile_card_set_background_color(lv_obj_t *obj, lv_color_t color)
@@ -258,9 +225,6 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
     card->body_hold_cb = NULL;
     card->body_hold_user_data = NULL;
     card->body_long_pressed = false;
-    card->ripple_color = lv_color_hex(0xFFFFFF);
-    card->ripple_progress = 0;
-    card->ripple_opa = 0;
 
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
@@ -269,6 +233,7 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
     lv_obj_set_style_border_width(obj, 0, 0);
     lv_obj_set_style_bg_color(obj, lv_color_hex(0x1E2228), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
+    lv_obj_set_style_opa(obj, HA_TILE_CARD_PRESSED_OPA, LV_STATE_PRESSED);
     lv_obj_set_style_pad_all(obj, 0, 0);
     lv_obj_set_style_pad_ver(obj, 8, 0);
     lv_obj_set_style_pad_hor(obj, 12, 0);
@@ -380,14 +345,6 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
     LV_TRACE_OBJ_CREATE("finished");
 }
 
-static void ha_tile_card_destructor(const lv_obj_class_t *class_p, lv_obj_t *obj)
-{
-    LV_UNUSED(class_p);
-    ha_tile_card_t *card = (ha_tile_card_t *)obj;
-    lv_anim_delete(card, ha_tile_card_ripple_set_progress);
-    lv_anim_delete(card, ha_tile_card_ripple_set_opa);
-}
-
 static void ha_tile_card_event(const lv_obj_class_t *class_p, lv_event_t *event)
 {
     LV_UNUSED(class_p);
@@ -400,11 +357,6 @@ static void ha_tile_card_event(const lv_obj_class_t *class_p, lv_event_t *event)
     switch (lv_event_get_code(event)) {
     case LV_EVENT_PRESSED:
         card->body_long_pressed = false;
-        ha_tile_card_ripple_start(card);
-        break;
-    case LV_EVENT_RELEASED:
-    case LV_EVENT_PRESS_LOST:
-        ha_tile_card_ripple_release(card);
         break;
     case LV_EVENT_CLICKED:
         if (!card->body_long_pressed && card->body_click_cb) {
@@ -416,9 +368,6 @@ static void ha_tile_card_event(const lv_obj_class_t *class_p, lv_event_t *event)
         if (card->body_hold_cb) {
             card->body_hold_cb(&card->obj, card->body_hold_user_data);
         }
-        break;
-    case LV_EVENT_DRAW_POST:
-        ha_tile_card_ripple_draw(card, event);
         break;
     default:
         break;
@@ -438,102 +387,6 @@ static void ha_tile_card_icon_event_cb(lv_event_t *event)
     if (card->icon_click_cb) {
         card->icon_click_cb(obj, card->icon_click_user_data);
     }
-}
-
-static void ha_tile_card_ripple_start(ha_tile_card_t *card)
-{
-    lv_indev_t *indev = lv_indev_active();
-    lv_area_t area;
-    lv_obj_get_coords(&card->obj, &area);
-
-    card->ripple_origin.x = lv_area_get_width(&area) / 2;
-    card->ripple_origin.y = lv_area_get_height(&area) / 2;
-    if (indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER) {
-        lv_point_t point;
-        lv_indev_get_point(indev, &point);
-        card->ripple_origin.x = point.x - area.x1;
-        card->ripple_origin.y = point.y - area.y1;
-    }
-
-    lv_anim_delete(card, ha_tile_card_ripple_set_progress);
-    lv_anim_delete(card, ha_tile_card_ripple_set_opa);
-    card->ripple_progress = 0;
-    card->ripple_opa = HA_TILE_CARD_RIPPLE_OPA;
-
-    lv_anim_t animation;
-    lv_anim_init(&animation);
-    lv_anim_set_var(&animation, card);
-    lv_anim_set_values(&animation, 0, 255);
-    lv_anim_set_duration(&animation, HA_TILE_CARD_RIPPLE_EXPAND_MS);
-    lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
-    lv_anim_set_exec_cb(&animation, ha_tile_card_ripple_set_progress);
-    lv_anim_start(&animation);
-}
-
-static void ha_tile_card_ripple_release(ha_tile_card_t *card)
-{
-    if (card->ripple_opa <= 0) {
-        return;
-    }
-
-    lv_anim_delete(card, ha_tile_card_ripple_set_opa);
-
-    lv_anim_t animation;
-    lv_anim_init(&animation);
-    lv_anim_set_var(&animation, card);
-    lv_anim_set_values(&animation, card->ripple_opa, 0);
-    lv_anim_set_duration(&animation, HA_TILE_CARD_RIPPLE_FADE_MS);
-    lv_anim_set_exec_cb(&animation, ha_tile_card_ripple_set_opa);
-    lv_anim_start(&animation);
-}
-
-static void ha_tile_card_ripple_draw(ha_tile_card_t *card, lv_event_t *event)
-{
-    if (card->ripple_opa <= 0 || card->ripple_progress <= 0 ||
-        lv_obj_get_screen(&card->obj) != lv_screen_active()) {
-        return;
-    }
-
-    lv_area_t card_area;
-    lv_obj_get_coords(&card->obj, &card_area);
-    const int32_t width = lv_area_get_width(&card_area);
-    const int32_t height = lv_area_get_height(&card_area);
-    const int32_t dx = LV_MAX(card->ripple_origin.x,
-                              width - card->ripple_origin.x);
-    const int32_t dy = LV_MAX(card->ripple_origin.y,
-                              height - card->ripple_origin.y);
-    const int32_t radius = LV_MAX(1,
-                                  (dx + dy) * card->ripple_progress / 255);
-    const int32_t center_x = card_area.x1 + card->ripple_origin.x;
-    const int32_t center_y = card_area.y1 + card->ripple_origin.y;
-    const lv_area_t ripple_area = {
-        .x1 = center_x - radius,
-        .y1 = center_y - radius,
-        .x2 = center_x + radius,
-        .y2 = center_y + radius,
-    };
-
-    lv_draw_rect_dsc_t draw_dsc;
-    lv_draw_rect_dsc_init(&draw_dsc);
-    draw_dsc.bg_color = card->ripple_color;
-    draw_dsc.bg_opa = (lv_opa_t)card->ripple_opa;
-    draw_dsc.radius = LV_RADIUS_CIRCLE;
-    draw_dsc.border_width = 0;
-    lv_draw_rect(lv_event_get_layer(event), &draw_dsc, &ripple_area);
-}
-
-static void ha_tile_card_ripple_set_progress(void *var, int32_t value)
-{
-    ha_tile_card_t *card = var;
-    card->ripple_progress = value;
-    lv_obj_invalidate(&card->obj);
-}
-
-static void ha_tile_card_ripple_set_opa(void *var, int32_t value)
-{
-    ha_tile_card_t *card = var;
-    card->ripple_opa = value;
-    lv_obj_invalidate(&card->obj);
 }
 
 static void apply_clear_style(lv_obj_t *obj)

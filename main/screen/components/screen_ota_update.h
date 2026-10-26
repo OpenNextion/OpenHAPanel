@@ -29,6 +29,9 @@ void screen_ota_update_hide(screen_ota_update_t *view);
 bool screen_ota_update_is_visible(const screen_ota_update_t *view);
 void screen_ota_update_bring_to_front(screen_ota_update_t *view);
 
+/** Reapply orientation-specific layout after the logical resolution changes. */
+void screen_ota_update_apply_orientation(screen_ota_update_t *view);
+
 #ifdef __cplusplus
 }
 #endif

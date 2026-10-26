@@ -1,15 +1,20 @@
 #include "ha_provisioning_view.h"
 
+#include <string.h>
+
 #include "../../assets/ha_ui_assets.h"
 #include "system_status_bar.h"
 
-#define HA_VIEW_WIDTH  320
-#define HA_VIEW_HEIGHT 480
 #define HA_OVERLAY_DELAY_MS 3000
 
 typedef struct {
     lv_obj_t *root;
+    lv_obj_t *ha_icon;
+    lv_obj_t *title;
+    lv_obj_t *instructions;
     lv_obj_t *overlay;
+    lv_obj_t *overlay_image;
+    lv_obj_t *overlay_message;
     lv_timer_t *timer;
     ha_provisioning_hint_dismissed_cb_t hint_dismissed_cb;
     void *hint_dismissed_user_data;
@@ -17,9 +22,11 @@ typedef struct {
 } ha_provisioning_view_ctx_t;
 
 static void ha_view_apply_clear_style(lv_obj_t *obj);
+static void ha_view_apply_layout(ha_provisioning_view_ctx_t *ctx);
 static void ha_view_dismiss_hint(ha_provisioning_view_ctx_t *ctx);
 static void ha_view_timer_cb(lv_timer_t *timer);
 static void ha_view_overlay_click_cb(lv_event_t *event);
+static void ha_view_root_size_changed_cb(lv_event_t *event);
 static void ha_view_root_delete_cb(lv_event_t *event);
 
 lv_obj_t *ha_provisioning_view_create(
@@ -30,32 +37,47 @@ lv_obj_t *ha_provisioning_view_create(
         return NULL;
     }
 
+    ha_provisioning_view_ctx_t *ctx = lv_malloc(sizeof(*ctx));
+    if (!ctx) {
+        return NULL;
+    }
+    memset(ctx, 0, sizeof(*ctx));
+
     lv_obj_t *root = lv_obj_create(parent);
+    if (!root) {
+        lv_free(ctx);
+        return NULL;
+    }
+    ctx->root = root;
     ha_view_apply_clear_style(root);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(root, HA_VIEW_WIDTH, HA_VIEW_HEIGHT);
-    lv_obj_set_pos(root, 0, 0);
+    lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
+    lv_obj_align(root, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_set_style_bg_color(root, lv_color_hex(0x010101), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
+    lv_obj_set_user_data(root, ctx);
+    lv_obj_add_event_cb(root,
+                        ha_view_root_size_changed_cb,
+                        LV_EVENT_SIZE_CHANGED,
+                        ctx);
+    lv_obj_add_event_cb(root, ha_view_root_delete_cb, LV_EVENT_DELETE, ctx);
 
     system_status_bar_create(root);
 
     lv_obj_t *ha_icon = lv_image_create(root);
+    ctx->ha_icon = ha_icon;
     lv_image_set_src(ha_icon, &hass_60x60);
-    lv_obj_set_pos(ha_icon, 130, 130);
     lv_obj_remove_flag(ha_icon, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *title = lv_label_create(root);
-    lv_obj_set_size(title, 300, 34);
-    lv_obj_set_pos(title, 10, 210);
+    ctx->title = title;
     lv_label_set_text(title, "Connect to Home Assistant");
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(title, &ha_font_misan_medium_20, 0);
 
     lv_obj_t *instructions = lv_label_create(root);
-    lv_obj_set_size(instructions, 280, 28);
-    lv_obj_set_pos(instructions, 20, 247);
+    ctx->instructions = instructions;
     lv_label_set_long_mode(instructions, LV_LABEL_LONG_WRAP);
     lv_label_set_text(instructions,
                       "Set up HA in the Web Console");
@@ -64,23 +86,24 @@ lv_obj_t *ha_provisioning_view_create(
     lv_obj_set_style_text_font(instructions, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_line_space(instructions, 2, 0);
 
-    if (!config || !config->show_device_info_hint) {
-        return root;
+    if (config) {
+        ctx->hint_dismissed_cb = config->hint_dismissed_cb;
+        ctx->hint_dismissed_user_data = config->hint_dismissed_user_data;
+        if (config->show_device_info_hint) {
+            ctx->timer = lv_timer_create(ha_view_timer_cb,
+                                         HA_OVERLAY_DELAY_MS,
+                                         ctx);
+        }
+        else {
+            ctx->hint_dismissed = true;
+        }
+    }
+    else {
+        ctx->hint_dismissed = true;
     }
 
-    ha_provisioning_view_ctx_t *ctx = lv_malloc(sizeof(*ctx));
-    if (!ctx) {
-        return root;
-    }
-
-    ctx->root = root;
-    ctx->overlay = NULL;
-    ctx->hint_dismissed_cb = config->hint_dismissed_cb;
-    ctx->hint_dismissed_user_data = config->hint_dismissed_user_data;
-    ctx->hint_dismissed = false;
-    lv_obj_set_user_data(root, ctx);
-    ctx->timer = lv_timer_create(ha_view_timer_cb, HA_OVERLAY_DELAY_MS, ctx);
-    lv_obj_add_event_cb(root, ha_view_root_delete_cb, LV_EVENT_DELETE, ctx);
+    lv_obj_update_layout(root);
+    ha_view_apply_layout(ctx);
 
     return root;
 }
@@ -118,8 +141,8 @@ static void ha_view_timer_cb(lv_timer_t *timer)
 
     lv_obj_remove_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(overlay, HA_VIEW_WIDTH, HA_VIEW_HEIGHT);
-    lv_obj_set_pos(overlay, 0, 0);
+    lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+    lv_obj_align(overlay, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_set_style_radius(overlay, 0, 0);
     lv_obj_set_style_border_width(overlay, 0, 0);
     lv_obj_set_style_pad_all(overlay, 0, 0);
@@ -129,18 +152,67 @@ static void ha_view_timer_cb(lv_timer_t *timer)
 
 
     lv_obj_t *img = lv_img_create(overlay);
-    lv_obj_align(img, LV_ALIGN_TOP_LEFT, 118, 0);
+    ctx->overlay_image = img;
     lv_img_set_src(img, &scroll_down_108);
     lv_obj_add_flag(img, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     lv_obj_t *message = lv_label_create(overlay);
-    lv_obj_align(message, LV_ALIGN_TOP_LEFT, 30, 176);
+    ctx->overlay_message = message;
     lv_label_set_text(message, "Swipe down for device info");
     lv_obj_add_flag(message, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_set_style_text_color(message, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(message, &ha_font_misan_regular_20, 0);
 
+    ha_view_apply_layout(ctx);
     lv_obj_move_foreground(overlay);
+}
+
+static void ha_view_apply_layout(ha_provisioning_view_ctx_t *ctx)
+{
+    if (!ctx || !ctx->root || !ctx->ha_icon || !ctx->title ||
+        !ctx->instructions) {
+        return;
+    }
+
+    const bool landscape = lv_obj_get_width(ctx->root) > lv_obj_get_height(ctx->root);
+    if (landscape) {
+        lv_obj_align(ctx->ha_icon, LV_ALIGN_TOP_MID, 0, 70);
+
+        lv_obj_set_size(ctx->title, 440, 34);
+        lv_obj_set_pos(ctx->title, 20, 150);
+        lv_obj_set_size(ctx->instructions, 440, 28);
+        lv_obj_set_pos(ctx->instructions, 20, 187);
+    }
+    else {
+        lv_obj_align(ctx->ha_icon, LV_ALIGN_TOP_LEFT, 130, 130);
+
+        lv_obj_set_size(ctx->title, 300, 34);
+        lv_obj_set_pos(ctx->title, 10, 210);
+        lv_obj_set_size(ctx->instructions, 280, 28);
+        lv_obj_set_pos(ctx->instructions, 20, 247);
+    }
+
+    if (ctx->overlay) {
+        lv_obj_set_size(ctx->overlay, LV_PCT(100), LV_PCT(100));
+    }
+    if (ctx->overlay_image) {
+        if (landscape) {
+            lv_obj_align(ctx->overlay_image, LV_ALIGN_TOP_MID, 0, 0);
+        }
+        else {
+            lv_obj_align(ctx->overlay_image, LV_ALIGN_TOP_LEFT, 118, 0);
+        }
+    }
+    if (ctx->overlay_message) {
+        if (landscape) {
+            lv_obj_align(ctx->overlay_message, LV_ALIGN_TOP_MID, 0, 176);
+        }
+        else {
+            lv_obj_align(ctx->overlay_message, LV_ALIGN_TOP_LEFT, 30, 176);
+        }
+    }
+
+    lv_obj_invalidate(ctx->root);
 }
 
 static void ha_view_overlay_click_cb(lv_event_t *event)
@@ -168,12 +240,23 @@ static void ha_view_dismiss_hint(ha_provisioning_view_ctx_t *ctx)
     if (ctx->overlay) {
         lv_obj_t *overlay = ctx->overlay;
         ctx->overlay = NULL;
+        ctx->overlay_image = NULL;
+        ctx->overlay_message = NULL;
         lv_obj_delete_async(overlay);
     }
 
     if (ctx->hint_dismissed_cb) {
         ctx->hint_dismissed_cb(ctx->hint_dismissed_user_data);
     }
+}
+
+static void ha_view_root_size_changed_cb(lv_event_t *event)
+{
+    ha_provisioning_view_ctx_t *ctx = lv_event_get_user_data(event);
+    if (!ctx || lv_event_get_target_obj(event) != ctx->root) {
+        return;
+    }
+    ha_view_apply_layout(ctx);
 }
 
 static void ha_view_root_delete_cb(lv_event_t *event)
@@ -189,6 +272,8 @@ static void ha_view_root_delete_cb(lv_event_t *event)
     }
     ctx->root = NULL;
     ctx->overlay = NULL;
+    ctx->overlay_image = NULL;
+    ctx->overlay_message = NULL;
     lv_obj_set_user_data(lv_event_get_target_obj(event), NULL);
     lv_free(ctx);
 }

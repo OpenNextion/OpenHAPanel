@@ -4,6 +4,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -43,9 +44,11 @@
 #include "screen_api.h"
 #include "screen_state.h"
 #include "screen_ui.h"
+#include "screen_rotation.h"
 #include "screen_night_mode.h"
 #include "webserver_message_parse.h"
 #include "webserver_screen.h"
+#include "webserver_screen_rotation.h"
 #include "webserver_firmware_update.h"
 
 #include "webserver_config_api.h"
@@ -113,14 +116,25 @@ typedef enum {
 struct app_ha_registry_removal_job {
     size_t entity_id_count;
     char **entity_ids;
+    bool verify_with_entity_subscription;
     struct app_ha_registry_removal_job *next;
 };
+
+typedef struct {
+    ha_ws_client_t *client;
+    app_ha_registry_removal_job_t *job;
+    bool *found;
+    TaskHandle_t waiting_task;
+    esp_err_t result;
+    bool completed;
+} app_ha_entity_probe_t;
 
 #define APP_HA_DATA_TASK_STACK_SIZE 6144
 #define APP_HA_DATA_TASK_PRIORITY   5
 #define APP_HA_REGISTRY_TASK_STACK_SIZE 4096
 #define APP_HA_REGISTRY_TASK_PRIORITY   4
 #define APP_HA_REGISTRY_SIGNAL_QUEUE_LENGTH 1
+#define APP_HA_ENTITY_PROBE_TIMEOUT_MS  5000
 #define APP_HA_DATA_AUTH_SETTLE_MS  500
 #define APP_LCD_FIRST_FRAME_TIMEOUT_MS 1000
 #define APP_LCD_FLUSH_SETTLE_MS        50
@@ -129,6 +143,8 @@ static const uint32_t s_ha_data_retry_delays_ms[] = {500, 1000, 2000, 5000};
 
 static esp_err_t app_ha_data_manager_init(void);
 static esp_err_t app_screen_state_manager_init(void);
+static esp_err_t app_screen_rotation_prepare(void *user_data);
+static void app_screen_rotation_complete(esp_err_t result, void *user_data);
 static void app_lcd_prepare_black_frame(void);
 static void app_lcd_enable_after_first_frame(uint8_t brightness);
 static void app_notification_manager_init(void);
@@ -176,6 +192,18 @@ static void app_ha_registry_query_result_cb(ha_ws_client_t *client,
                                             void *user_ctx);
 static esp_err_t app_ha_registry_query_configured_entities(ha_ws_client_t *client);
 static void app_ha_registry_removal_task(void *arg);
+static esp_err_t app_ha_registry_verify_missing_entities(
+    app_ha_registry_removal_job_t *job);
+static void app_ha_entity_probe_event_cb(ha_ws_client_t *client,
+                                         int subscription_id,
+                                         const cJSON *event,
+                                         void *user_ctx);
+static void app_ha_entity_probe_result_cb(ha_ws_client_t *client,
+                                          int id,
+                                          esp_err_t err,
+                                          const cJSON *result,
+                                          const cJSON *error,
+                                          void *user_ctx);
 static void app_ha_history_ws_result_cb(ha_ws_client_t *client,
                                         int id,
                                         esp_err_t err,
@@ -253,6 +281,35 @@ static void device_event_handler(void *arg, esp_event_base_t event_base, int32_t
                 }
             }
             break;
+        case SCREEN_EVENT_ORIENTATION_CHANGED: {
+            const screen_orientation_changed_event_t *event = event_data;
+            if (event) {
+                ESP_LOGI(TAG,
+                         "SCREEN_EVENT_ORIENTATION_CHANGED: rotation=%d->%d "
+                         "orientation=%d->%d resolution=%" PRId32 "x%" PRId32,
+                         (int)event->old_rotation,
+                         (int)event->new_rotation,
+                         (int)event->old_orientation,
+                         (int)event->new_orientation,
+                         event->width,
+                         event->height);
+                esp_err_t notify_err = webserver_screen_rotation_notify();
+                if (notify_err != ESP_OK) {
+                    ESP_LOGW(TAG,
+                             "Failed to notify WebSocket clients of screen rotation: %s",
+                             esp_err_to_name(notify_err));
+                }
+                if (lvgl_port_lock(0)) {
+                    screen_ui_apply_orientation_layout();
+                    lvgl_port_unlock();
+                }
+                else {
+                    ESP_LOGW(TAG,
+                             "Failed to acquire LVGL lock for orientation layout");
+                }
+            }
+            break;
+        }
         default:
             ESP_LOGE(TAG, "not support screen evt");
             break;
@@ -794,7 +851,9 @@ static esp_err_t app_ha_registry_merge_removal_job(
     app_ha_registry_removal_job_t *destination,
     app_ha_registry_removal_job_t *source)
 {
-    if (!destination || !source) {
+    if (!destination || !source ||
+        destination->verify_with_entity_subscription !=
+            source->verify_with_entity_subscription) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -1000,10 +1059,10 @@ static void app_ha_registry_query_result_cb(ha_ws_client_t *client,
                 lvgl_port_unlock();
             }
         }
-        /* get_entries returns JSON null for requested IDs which no longer
-         * exist. Disabled entities still have a registry entry. */
+        /* A null registry entry is only a candidate for removal. Entities
+         * without a usable unique_id can still exist in HA's state machine,
+         * so subscribe_entities must confirm that they are also absent there. */
         if (entry->string && cJSON_IsNull(entry)) {
-            light_favorite_colors_store_remove(entry->string);
             missing_count++;
         }
     }
@@ -1035,6 +1094,7 @@ static void app_ha_registry_query_result_cb(ha_ws_client_t *client,
         }
         job->entity_ids[job->entity_id_count++] = entity_id;
     }
+    job->verify_with_entity_subscription = true;
     app_ha_registry_enqueue_removal_job(job);
 }
 
@@ -1092,12 +1152,176 @@ static esp_err_t app_ha_registry_query_configured_entities(ha_ws_client_t *clien
     return err;
 }
 
+static void app_ha_entity_probe_complete(app_ha_entity_probe_t *probe,
+                                         esp_err_t result)
+{
+    if (!probe || probe->completed) {
+        return;
+    }
+    probe->result = result;
+    probe->completed = true;
+    xTaskNotifyGive(probe->waiting_task);
+}
+
+static void app_ha_entity_probe_event_cb(ha_ws_client_t *client,
+                                         int subscription_id,
+                                         const cJSON *event,
+                                         void *user_ctx)
+{
+    (void)subscription_id;
+    app_ha_entity_probe_t *probe = user_ctx;
+    if (!probe || probe->completed || client != probe->client ||
+        !probe->job || !probe->found) {
+        return;
+    }
+
+    /* The first subscribe_entities event is a snapshot. Its "a" object only
+     * contains requested entity IDs that currently exist in the state
+     * machine. An empty object is a valid snapshot when none exist. */
+    const cJSON *added = cJSON_GetObjectItemCaseSensitive(event, "a");
+    if (!cJSON_IsObject(added)) {
+        app_ha_entity_probe_complete(probe, HA_WS_ERR_INVALID_RESPONSE);
+        return;
+    }
+
+    for (size_t i = 0; i < probe->job->entity_id_count; i++) {
+        const char *entity_id = probe->job->entity_ids[i];
+        probe->found[i] = entity_id &&
+                          cJSON_IsObject(cJSON_GetObjectItemCaseSensitive(
+                              added,
+                              entity_id));
+    }
+    app_ha_entity_probe_complete(probe, ESP_OK);
+}
+
+static void app_ha_entity_probe_result_cb(ha_ws_client_t *client,
+                                          int id,
+                                          esp_err_t err,
+                                          const cJSON *result,
+                                          const cJSON *error,
+                                          void *user_ctx)
+{
+    (void)id;
+    (void)result;
+    (void)error;
+    app_ha_entity_probe_t *probe = user_ctx;
+    if (!probe || probe->completed || client != probe->client || err == ESP_OK) {
+        return;
+    }
+    app_ha_entity_probe_complete(probe, err);
+}
+
+static esp_err_t app_ha_registry_verify_missing_entities(
+    app_ha_registry_removal_job_t *job)
+{
+    if (!job || job->entity_id_count == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    taskENTER_CRITICAL(&s_ha_data_state_guard);
+    ha_ws_client_t *client = s_ha_ws_client;
+    taskEXIT_CRITICAL(&s_ha_data_state_guard);
+    if (!client || !ha_ws_is_authenticated(client)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    bool *found = calloc(job->entity_id_count, sizeof(*found));
+    if (!found) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    /* Clear a stale notification before this task starts a new one-shot
+     * subscription and waits for its initial snapshot. */
+    (void)ulTaskNotifyTake(pdTRUE, 0);
+    app_ha_entity_probe_t probe = {
+        .client = client,
+        .job = job,
+        .found = found,
+        .waiting_task = xTaskGetCurrentTaskHandle(),
+        .result = ESP_ERR_TIMEOUT,
+    };
+    esp_err_t err = ha_ws_subscribe_entities(
+        client,
+        (const char *const *)job->entity_ids,
+        job->entity_id_count,
+        app_ha_entity_probe_event_cb,
+        app_ha_entity_probe_result_cb,
+        &probe,
+        NULL);
+    if (err != ESP_OK) {
+        free(found);
+        return err;
+    }
+
+    if (ulTaskNotifyTake(pdTRUE,
+                         pdMS_TO_TICKS(APP_HA_ENTITY_PROBE_TIMEOUT_MS)) == 0) {
+        err = ESP_ERR_TIMEOUT;
+    } else {
+        err = probe.result;
+    }
+
+    if (app_ha_registry_client_is_current(client)) {
+        esp_err_t unsubscribe_err = ha_ws_unsubscribe_events_by_callback(
+            client,
+            app_ha_entity_probe_event_cb,
+            &probe);
+        if (unsubscribe_err != ESP_OK && unsubscribe_err != ESP_ERR_NOT_FOUND) {
+            ESP_LOGW(TAG,
+                     "Failed to stop temporary HA entity probe: %s",
+                     esp_err_to_name(unsubscribe_err));
+        }
+    }
+
+    if (err != ESP_OK) {
+        free(found);
+        return err;
+    }
+
+    size_t missing_count = 0;
+    for (size_t i = 0; i < job->entity_id_count; i++) {
+        char *entity_id = job->entity_ids[i];
+        if (found[i]) {
+            ESP_LOGI(TAG,
+                     "Keeping HA entity %s: absent from registry but present in subscribe_entities",
+                     entity_id);
+            free(entity_id);
+        } else {
+            job->entity_ids[missing_count++] = entity_id;
+        }
+    }
+    job->entity_id_count = missing_count;
+    free(found);
+    return ESP_OK;
+}
+
 static void app_ha_registry_process_removal_job(
     app_ha_registry_removal_job_t *job)
 {
     if (!job || job->entity_id_count == 0) {
         app_ha_registry_free_removal_job(job);
         return;
+    }
+
+    if (job->verify_with_entity_subscription) {
+        esp_err_t verify_err = app_ha_registry_verify_missing_entities(job);
+        if (verify_err != ESP_OK) {
+            ESP_LOGW(TAG,
+                     "Skipped HA entity removal because subscribe_entities verification failed: %s",
+                     esp_err_to_name(verify_err));
+            app_ha_registry_free_removal_job(job);
+            return;
+        }
+        if (job->entity_id_count == 0) {
+            app_ha_registry_free_removal_job(job);
+            return;
+        }
+        ESP_LOGI(TAG,
+                 "subscribe_entities confirmed %u HA entity/entities are missing",
+                 (unsigned)job->entity_id_count);
+    }
+
+    for (size_t i = 0; i < job->entity_id_count; i++) {
+        light_favorite_colors_store_remove(job->entity_ids[i]);
     }
 
     size_t removed = 0;
@@ -1140,9 +1364,13 @@ static void app_ha_registry_removal_task(void *arg)
             pending->next = NULL;
             if (!batch) {
                 batch = pending;
-            } else if (app_ha_registry_merge_removal_job(batch, pending) != ESP_OK) {
+            } else if (batch->verify_with_entity_subscription !=
+                           pending->verify_with_entity_subscription ||
+                       app_ha_registry_merge_removal_job(batch, pending) != ESP_OK) {
                 /* Preserve every removal even under allocation pressure. The
-                 * current batch is processed before starting a new one. */
+                 * current batch is processed before starting a new one. Jobs
+                 * requiring state verification are never mixed with explicit
+                 * entity-registry remove events. */
                 app_ha_registry_process_removal_job(batch);
                 batch = pending;
             }
@@ -1814,6 +2042,28 @@ static esp_err_t app_screen_state_manager_init(void)
     return ESP_OK;
 }
 
+static esp_err_t app_screen_rotation_prepare(void *user_data)
+{
+    (void)user_data;
+    return screen_ui_prepare_for_rotation();
+}
+
+static void app_screen_rotation_complete(esp_err_t result, void *user_data)
+{
+    (void)user_data;
+
+    if (result == ESP_OK) {
+        return;
+    }
+
+    esp_err_t refresh_err = screen_ui_complete_rotation();
+    if (refresh_err != ESP_OK && refresh_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG,
+                 "Failed to rebuild screen after rotation transition: %s",
+                 esp_err_to_name(refresh_err));
+    }
+}
+
 static void app_ha_data_task(void *arg)
 {
     (void)arg;
@@ -2032,6 +2282,18 @@ void app_init(void)
     ESP_LOGI(TAG, "init start");
 
     ESP_ERROR_CHECK(bsp_lcd_init());
+    esp_err_t screen_rotation_err = screen_rotation_init();
+    if (screen_rotation_err != ESP_OK) {
+        ESP_LOGE(TAG,
+                 "Failed to restore screen rotation: %s",
+                 esp_err_to_name(screen_rotation_err));
+    }
+    esp_err_t rotation_notify_err = webserver_screen_rotation_notify();
+    if (rotation_notify_err != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "Failed to publish initial screen rotation state: %s",
+                 esp_err_to_name(rotation_notify_err));
+    }
     device_info_t *device_info = webserver_config_get_device_info();
     uint8_t startup_brightness = device_info && device_info->brightness != 0
                                      ? device_info->brightness
@@ -2051,6 +2313,11 @@ void app_init(void)
     esp_err_t screen_state_err = app_screen_state_manager_init();
     if (screen_state_err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize screen state manager: %s", esp_err_to_name(screen_state_err));
+    }
+    else {
+        screen_rotation_set_transition_callbacks(app_screen_rotation_prepare,
+                                                 app_screen_rotation_complete,
+                                                 NULL);
     }
 
     app_lcd_enable_after_first_frame(startup_brightness);

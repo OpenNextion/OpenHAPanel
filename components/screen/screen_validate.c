@@ -286,6 +286,14 @@ static esp_err_t validate_screen(const cJSON *screen)
         return ESP_FAIL;
     }
 
+    const cJSON *columns = cJSON_GetObjectItemCaseSensitive(screen, "columns");
+    if (columns && (!cJSON_IsNumber(columns) ||
+                    columns->valuedouble != (double)columns->valueint ||
+                    columns->valueint < 1)) {
+        ESP_LOGE(TAG, "Invalid screen columns");
+        return ESP_FAIL;
+    }
+
     if (validate_optional_string(screen, "icon") != ESP_OK || validate_badges(screen) != ESP_OK ||
         validate_cards(screen) != ESP_OK) {
         return ESP_FAIL;

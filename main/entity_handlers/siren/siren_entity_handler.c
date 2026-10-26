@@ -8,6 +8,7 @@
 #include "entity_handlers/ha_datetime_format.h"
 #include "esp_log.h"
 #include "screen/components/ha_relative_time_label.h"
+#include "bsp_lcd.h"
 
 static const char *TAG = "siren_entity_handler";
 
@@ -40,11 +41,16 @@ static const char *TAG = "siren_entity_handler";
 #define SIREN_DISABLED_GLYPH_OPA   LV_OPA_50
 
 /* Vertical switch: 88x230 track, 76x109 knob, both rounded 20. */
-#define SIREN_TRACK_WIDTH   88
-#define SIREN_TRACK_HEIGHT  230
-#define SIREN_KNOB_WIDTH    76
-#define SIREN_KNOB_HEIGHT   109
+#define SIREN_TRACK_WIDTH_PORT   88
+#define SIREN_TRACK_HEIGHT_PORT  230
+#define SIREN_KNOB_WIDTH_PORT    76
 #define SIREN_KNOB_RADIUS   20
+#define SIREN_KNOB_HEIGHT_PORT   109
+
+#define SIREN_TRACK_WIDTH_LAND   88
+#define SIREN_TRACK_HEIGHT_LAND  170
+#define SIREN_KNOB_WIDTH_LAND    76
+#define SIREN_KNOB_HEIGHT_LAND   79
 
 /* On = knob parked at the top end. Flip to 0 to mirror the direction. */
 #define SIREN_KNOB_ON_TOP 1
@@ -76,7 +82,6 @@ static const char *TAG = "siren_entity_handler";
 
 /* Knob y-position range computed from the track/knob geometry. */
 #define SIREN_KNOB_Y_ON  SIREN_TRACK_INSET
-#define SIREN_KNOB_Y_OFF (SIREN_TRACK_HEIGHT - SIREN_KNOB_HEIGHT - SIREN_TRACK_INSET)
 
 /* Shared style-transition descriptors so every rebuild reuses the same animation
  * config without heap churn. One-off-init is safe: the detail page is always
@@ -86,6 +91,21 @@ static lv_style_transition_dsc_t s_siren_knob_trans;
 static lv_style_t s_siren_track_trans_style;
 static lv_style_t s_siren_knob_trans_style;
 static bool s_siren_trans_inited = false;
+
+static inline int32_t siren_eff_track_height(void)
+{
+    return bsp_lcd_is_landscape() ? SIREN_TRACK_HEIGHT_LAND
+                                  : SIREN_TRACK_HEIGHT_PORT;
+}
+
+static inline int32_t siren_eff_knob_height(void)
+{
+    return bsp_lcd_is_landscape() ? SIREN_KNOB_HEIGHT_LAND
+                                  : SIREN_KNOB_HEIGHT_PORT;
+}
+
+#define SIREN_KNOB_Y_OFF(trk_h, knob_h) \
+    ((trk_h) - (knob_h) - SIREN_TRACK_INSET)
 
 static void siren_more_info_close_event_cb(lv_event_t *event)
 {
@@ -169,8 +189,7 @@ static esp_err_t siren_render_tile(ha_entity_store_t *store,
     model->background_color = lv_color_hex(SIREN_TILE_BG);
     model->icon_color =
         lv_color_hex(is_on ? SIREN_TILE_ICON_ON : SIREN_TILE_ICON_OFF);
-    // model->icon_circle_background_color =
-    //     lv_color_hex(is_on ? SIREN_TILE_CIRCLE_ON : SIREN_TILE_CIRCLE_OFF);
+    model->icon_circle_background_color = lv_color_hex(0x1E2228);
     model->title_color = lv_color_hex(SIREN_TILE_TITLE);
     model->state_color = lv_color_hex(SIREN_TILE_STATE);
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
@@ -267,7 +286,7 @@ static lv_obj_t *siren_more_info_build_page(
     lv_obj_set_style_pad_bottom(content, 0, 0);
     lv_obj_set_style_pad_hor(content, 0, 0);
     /* Gap between the state block and the track, matching the design. */
-    lv_obj_set_style_pad_gap(content, 20, 0);
+    lv_obj_set_style_pad_gap(content, bsp_lcd_is_landscape() ? 7 : 16, 0);
     return content;
 }
 
@@ -449,7 +468,13 @@ static void siren_build_control(lv_obj_t *parent,
     lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(track, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_pad_all(track, 0, 0);
-    lv_obj_set_size(track, SIREN_TRACK_WIDTH, SIREN_TRACK_HEIGHT);
+    const int32_t track_w = bsp_lcd_is_landscape()
+                                 ? SIREN_TRACK_WIDTH_LAND
+                                 : SIREN_TRACK_WIDTH_PORT;
+    const int32_t track_h = bsp_lcd_is_landscape()
+                                 ? SIREN_TRACK_HEIGHT_LAND
+                                 : SIREN_TRACK_HEIGHT_PORT;
+    lv_obj_set_size(track, track_w, track_h);
     lv_obj_set_style_radius(track, SIREN_TRACK_RADIUS, 0);
     lv_obj_set_style_bg_color(track, track_color, 0);
     lv_obj_set_style_bg_opa(track, track_opa, 0);
@@ -469,7 +494,13 @@ static void siren_build_control(lv_obj_t *parent,
     lv_obj_t *knob = lv_obj_create(track);
     lv_obj_remove_style_all(knob);
     lv_obj_remove_flag(knob, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(knob, SIREN_KNOB_WIDTH, SIREN_KNOB_HEIGHT);
+    const int32_t knob_w = bsp_lcd_is_landscape()
+                                ? SIREN_KNOB_WIDTH_LAND
+                                : SIREN_KNOB_WIDTH_PORT;
+    const int32_t knob_h = bsp_lcd_is_landscape()
+                                ? SIREN_KNOB_HEIGHT_LAND
+                                : SIREN_KNOB_HEIGHT_PORT;
+    lv_obj_set_size(knob, knob_w, knob_h);
     lv_obj_set_style_radius(knob, SIREN_KNOB_RADIUS, 0);
     lv_obj_set_style_border_width(knob, 0, 0);
     lv_obj_set_style_bg_color(knob, knob_color, 0);
@@ -481,8 +512,11 @@ static void siren_build_control(lv_obj_t *parent,
      *
      * Always align TOP_MID so y = inset from track top, giving a single-axis
      * range [SIREN_KNOB_Y_ON, SIREN_KNOB_Y_OFF] for the animator. */
-    const int32_t target_y = is_on ? SIREN_KNOB_Y_ON : SIREN_KNOB_Y_OFF;
-    const int32_t start_y  = is_on ? SIREN_KNOB_Y_OFF : SIREN_KNOB_Y_ON;
+    const int32_t trk_h_eff  = siren_eff_track_height();
+    const int32_t knob_h_eff = siren_eff_knob_height();
+    const int32_t knob_y_off = SIREN_KNOB_Y_OFF(trk_h_eff, knob_h_eff);
+    const int32_t target_y = is_on ? SIREN_KNOB_Y_ON : knob_y_off;
+    const int32_t start_y  = is_on ? knob_y_off : SIREN_KNOB_Y_ON;
     lv_obj_align(knob, LV_ALIGN_TOP_MID, 0, start_y);
 
     lv_anim_t knob_anim;

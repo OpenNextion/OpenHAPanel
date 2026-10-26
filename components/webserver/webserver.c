@@ -5,6 +5,8 @@
 #include "webserver_config_api.h"
 #include "webserver_config_forget_password.h"
 #include "webserver_firmware_update.h"
+#include "webserver_screen_rotation.h"
+#include "webserver_client_node.h"
 #include "screen_api.h"
 #include <unistd.h>
 #include <string.h>
@@ -106,16 +108,21 @@ static void webserver_event_handler(void *arg, esp_event_base_t event_base, int3
     }
     case WEB_SERVER_EVENT_SKIP_AUTH:
     case WEB_SERVER_EVENT_AUTH_OK: {
-      ESP_LOGI(TAG, "webserver auth ok or no need auth");
-        webserver_network_info_notify();
+      const int *socket_fd = event_data;
+      if (!socket_fd || !webserver_client_get_auth(*socket_fd)) {
+        ESP_LOGW(TAG, "Ignoring client-ready event without an authenticated socket");
+        break;
+      }
+      ESP_LOGI(TAG, "webserver auth ok or no need auth: fd=%d", *socket_fd);
+        webserver_network_info_notify_to_client(*socket_fd);
         // webserver_vpn_status_notify();
         // webserver_wireless_controller_notify();
-        webserver_device_info_notify(UPDATE_DEVICE_ALL);
-        webserver_theme_mode_notify();
-        screen_config_notify();
-        webserver_firmware_update_status_notify();
+        webserver_device_info_notify_to_client(UPDATE_DEVICE_ALL, *socket_fd);
+        screen_config_notify_to_client(*socket_fd);
+        webserver_firmware_update_status_notify_to_client(*socket_fd);
+        webserver_screen_rotation_notify_to_client(*socket_fd);
         // webserver_indicator_notify(UPDATE_INDICATOR_ALL);
-        webserver_whitelist_notify();
+        webserver_whitelist_notify_to_client(*socket_fd);
         // webserver_webhook_task_list_notify();
         // webserver_mqtt_api_notify();
         // webserver_light_smart_api_notify();

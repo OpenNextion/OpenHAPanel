@@ -60,8 +60,9 @@
 
 <div class="page-container network-page network-detail ap-settings">
     <NetworkPageHeader title={$_('networkPage.apSettings')} back="/network" />
-    <SettingRowGroup tips={$_('networkPage.apHint')}>
+    <SettingRowGroup>
         <SettingRow title="AP">
+            {#snippet titleSnippet()}<span class="ap-row-title"><span>AP</span><small>{$_('networkPage.apHint')}</small></span>{/snippet}
             {#snippet contentSnippet()}<span class="form-check form-switch"><input class="form-check-input" type="checkbox" checked={$networkStore.ap?.defaultEnabled ?? false} disabled={loadingField !== null} onchange={(event) => updateConfig('defaultEnabled', event)} /></span>{/snippet}
         </SettingRow>
         <!--<SettingRow title={$_('networkPage.internetConnection')} disable={!$networkStore.ap?.enabled}>
@@ -82,9 +83,25 @@
 <ApInUseConfirmModal visible={confirmVisible} loading={loadingField !== null} confirm={confirmConfig} cancel={cancelConfig} />
 
 <style>
+    .ap-settings > :global(.setting-row-group:not(:last-child)) {
+        margin-bottom: 1.25rem;
+    }
+
     .ap-settings :global(.form-switch) {
         margin: 0;
         padding-left: 0;
+    }
+
+    .ap-row-title {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .ap-row-title small {
+        color: var(--body-text-color-grey);
+        font-size: 0.75rem;
+        line-height: 1.25;
     }
 
     .ap-settings :global(.form-check-input) {

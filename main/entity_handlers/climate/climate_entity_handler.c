@@ -79,8 +79,6 @@ static esp_err_t climate_render_tile(ha_entity_store_t *store,
     model->icon_circle_background_color = lv_color_hex(0x242d36);
     model->title_color = lv_color_hex(0xFFFFFF);
     model->state_color = lv_color_hex(0x666666);
-    model->has_ripple_color = true;
-    model->ripple_color = lv_color_hex(0xD9D9D9);
 
     if (entity_handler_snapshot_is_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,

@@ -42,6 +42,7 @@
         //{ label: 'page.settings.language', path: ROUTES_PATH.SETTINGS_LANGUAGE },
         { label: 'page.settings.display', path: ROUTES_PATH.SETTINGS_DISPLAY },
         { label: 'page.settings.darkMode', path: ROUTES_PATH.SETTINGS_DARK_MODE },
+        { label: 'page.settings.rotation', path: ROUTES_PATH.SETTINGS_SCREEN_ROTATION },
         //{ label: 'page.settings.debugLog', path: ROUTES_PATH.SETTINGS_DEBUG },
     ];
 </script>

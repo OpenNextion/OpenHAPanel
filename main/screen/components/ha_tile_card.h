@@ -45,10 +45,6 @@ void ha_tile_card_set_body_click_cb(lv_obj_t *obj,
 void ha_tile_card_set_body_hold_cb(lv_obj_t *obj,
                                    ha_tile_card_body_hold_cb_t callback,
                                    void *user_data);
-/** Set the accent color used by the card-body press ripple. */
-void ha_tile_card_set_ripple_color(lv_obj_t *obj, lv_color_t color);
-/** Immediately stop and clear the card-body press ripple. */
-void ha_tile_card_stop_ripple(lv_obj_t *obj);
 void ha_tile_card_set_background_color(lv_obj_t *obj, lv_color_t color);
 void ha_tile_card_set_icon_color(lv_obj_t *obj, lv_color_t color);
 void ha_tile_card_set_icon_circle_background_color(lv_obj_t *obj, lv_color_t color);

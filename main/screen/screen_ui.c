@@ -44,9 +44,11 @@
 #define SCREEN_DEVICE_INFO_REFRESH_MS 1000
 #define SCREEN_MANUAL_OTA_START_DELAY_MS 150
 #define SCREEN_DEFAULT_CONTENT_WIDTH 280
+#define SCREEN_PAGE_GESTURE_RELEASE_POLL_MS 20
 
 typedef struct {
     lv_color_t bg_color;
+    lv_obj_t *root_screen;
     const screen_config_t *config;
     system_status_bar_t *status_bar;
     screen_device_info_t *device_info;
@@ -54,6 +56,7 @@ typedef struct {
     lv_obj_t *device_info_gesture_area;
     lv_timer_t *device_info_refresh_timer;
     lv_timer_t *manual_ota_start_timer;
+    lv_timer_t *page_gesture_release_timer;
     lv_obj_t *ha_provisioning_root;
     lv_obj_t *tileview;
     screen_indicator_t *screen_indicator;
@@ -61,6 +64,8 @@ typedef struct {
     main_view_t **main_views;
     size_t page_count;
     size_t active_page;
+    lv_indev_t *page_gesture_indev;
+    bool page_gesture_handled;
     bool manual_ota_active;
     bool manual_ota_retry_check;
     bool manual_ota_activation_requested;
@@ -77,6 +82,7 @@ static screen_config_t s_screen_config = {0};
 static screen_config_t s_pending_screen_config = {0};
 static bool s_config_update_pending;
 static bool s_state_handler_registered;
+static bool s_orientation_handler_registered;
 static uint32_t s_notification_active_mask;
 static uint32_t s_notification_dismissed_mask;
 static notification_t *s_active_notification;
@@ -90,12 +96,21 @@ static uint32_t s_device_info_ota_result_revision;
 static bool s_device_info_manual_ota_check_active;
 static bool s_device_info_manual_ota_result_visible;
 static uint32_t s_device_info_manual_ota_result_revision;
+static bool s_rotation_home_rebuild_pending;
+static bool s_rotation_home_rebuild_deferred;
+static bool s_rotation_restore_screen_pending;
+static bool s_rotation_device_info_rebuild_pending;
+static int32_t s_rotation_restore_screen_index;
 static const char *TAG = "screen_ui";
 
 static screen_ctx_t *screen_ctx_create(void);
 static void screen_ctx_destroy(screen_ctx_t *ctx);
 static void screen_ui_destroy_current(void);
 static bool screen_ui_create_system_layer(void);
+static bool screen_create_device_info_view(screen_ctx_t *ctx);
+static bool screen_create_device_info_gesture_area(screen_ctx_t *ctx);
+static void screen_destroy_device_info_view(screen_ctx_t *ctx);
+static esp_err_t screen_complete_device_info_rotation(void);
 static void screen_ui_apply_pending_config(void);
 static void screen_ui_render_ap_provisioning_page(void);
 static void screen_ui_render_centered_label(const char *text);
@@ -119,6 +134,11 @@ static void screen_ui_state_event_handler(void *arg,
                                           esp_event_base_t event_base,
                                           int32_t event_id,
                                           void *event_data);
+static void screen_ui_orientation_event_handler(void *arg,
+                                                esp_event_base_t event_base,
+                                                int32_t event_id,
+                                                void *event_data);
+static void screen_ui_root_screen_event_cb(lv_event_t *event);
 static void screen_create_components(screen_ctx_t *ctx, lv_obj_t *screen, const screen_config_t *config);
 static void screen_create_status_bar(screen_ctx_t *ctx, lv_obj_t *screen);
 static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const screen_config_t *config);
@@ -159,6 +179,8 @@ static void screen_format_target_firmware_version(const char *version,
 static int screen_month_number(const char *month_name);
 static void screen_device_info_open_gesture_cb(lv_event_t *event);
 static void screen_device_info_close_gesture_cb(lv_event_t *event);
+static void screen_page_gesture_cb(lv_event_t *event);
+static void screen_page_gesture_release_timer_cb(lv_timer_t *timer);
 static lv_dir_t screen_page_scroll_dirs(size_t index, size_t count);
 static void screen_tileview_event_cb(lv_event_t *event);
 static void screen_update_active_page(screen_ctx_t *ctx, size_t active_page);
@@ -187,18 +209,30 @@ esp_err_t screen_ui_init(void)
 {
     screen_ui_load_ha_swipe_hint_state();
 
-    if (s_state_handler_registered) {
-        return ESP_OK;
-    }
-
-    esp_err_t err = esp_event_handler_register(SCREEN_STATE_EVENT,
-                                               SCREEN_STATE_EVENT_TRANSITION_REQUESTED,
-                                               screen_ui_state_event_handler,
-                                               NULL);
-    if (err == ESP_OK) {
+    if (!s_state_handler_registered) {
+        esp_err_t err = esp_event_handler_register(
+            SCREEN_STATE_EVENT,
+            SCREEN_STATE_EVENT_TRANSITION_REQUESTED,
+            screen_ui_state_event_handler,
+            NULL);
+        if (err != ESP_OK) {
+            return err;
+        }
         s_state_handler_registered = true;
     }
-    return err;
+
+    if (!s_orientation_handler_registered) {
+        esp_err_t err = esp_event_handler_register(
+            SCREEN_EVENT,
+            SCREEN_EVENT_ORIENTATION_CHANGED,
+            screen_ui_orientation_event_handler,
+            NULL);
+        if (err != ESP_OK) {
+            return err;
+        }
+        s_orientation_handler_registered = true;
+    }
+    return ESP_OK;
 }
 
 esp_err_t screen_ui_reload(void)
@@ -223,12 +257,87 @@ esp_err_t screen_ui_reload(void)
     }
     s_pending_screen_config = parsed_config;
     s_config_update_pending = true;
+
+    const bool home_screen_hidden =
+        screen_state_get_current() == SCREEN_PAGE_SPLIT_VIEW &&
+        s_screen_ctx && s_screen_ctx->root_screen &&
+        lv_screen_active() != s_screen_ctx->root_screen;
+    if (home_screen_hidden) {
+        s_rotation_home_rebuild_deferred = true;
+        return ESP_OK;
+    }
+
     esp_err_t refresh_err = screen_state_request_refresh();
     if (refresh_err != ESP_OK && refresh_err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "Failed to request screen refresh: %s", esp_err_to_name(refresh_err));
         return refresh_err;
     }
     return ESP_OK;
+}
+
+esp_err_t screen_ui_prepare_for_rotation(void)
+{
+    if (!lvgl_port_lock(0)) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    s_rotation_home_rebuild_pending = false;
+    s_rotation_restore_screen_pending = false;
+    s_rotation_device_info_rebuild_pending = false;
+    if (more_info_screen_prepare_for_rotation()) {
+        if (s_screen_ctx && s_screen_ctx->device_info) {
+            screen_destroy_device_info_view(s_screen_ctx);
+            s_rotation_device_info_rebuild_pending = true;
+        }
+        lv_refr_now(lv_display_get_default());
+        lvgl_port_unlock();
+        return ESP_OK;
+    }
+
+    const bool home_screen_visible =
+        screen_state_get_current() == SCREEN_PAGE_SPLIT_VIEW &&
+        s_screen_ctx && s_screen_ctx->root_screen &&
+        lv_screen_active() == s_screen_ctx->root_screen;
+    if (!home_screen_visible) {
+        lvgl_port_unlock();
+        return ESP_OK;
+    }
+
+    s_rotation_home_rebuild_pending = true;
+    if (s_screen_ctx->config &&
+        s_screen_ctx->active_page < s_screen_ctx->page_count) {
+        s_rotation_restore_screen_index =
+            s_screen_ctx->config->screens[s_screen_ctx->active_page].index;
+        s_rotation_restore_screen_pending = true;
+    }
+    screen_ui_destroy_current();
+
+    lv_obj_t *screen = lv_screen_active();
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+    lv_obj_invalidate(screen);
+    lv_refr_now(lv_display_get_default());
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t screen_ui_complete_rotation(void)
+{
+    esp_err_t more_info_err = ESP_OK;
+    if (more_info_screen_is_open()) {
+        if (lvgl_port_lock(0)) {
+            more_info_err = screen_complete_device_info_rotation();
+            more_info_screen_complete_rotation();
+            lvgl_port_unlock();
+        }
+        else {
+            more_info_err = ESP_ERR_TIMEOUT;
+        }
+    }
+    if (!s_rotation_home_rebuild_pending) {
+        return more_info_err;
+    }
+    return screen_state_request_refresh();
 }
 
 static bool screen_ui_can_enter_page(screen_page_t page)
@@ -258,6 +367,24 @@ static bool screen_ui_can_enter_page(screen_page_t page)
 
 static void screen_ui_enter_page(screen_page_t page)
 {
+    int32_t restore_screen_index = 0;
+    bool restore_screen = false;
+    if (page == SCREEN_PAGE_SPLIT_VIEW) {
+        if (s_rotation_restore_screen_pending) {
+            restore_screen_index = s_rotation_restore_screen_index;
+            restore_screen = true;
+        }
+        else if (s_screen_ctx && s_screen_ctx->config &&
+                 s_screen_ctx->active_page < s_screen_ctx->page_count) {
+            restore_screen_index =
+                s_screen_ctx->config->screens[s_screen_ctx->active_page].index;
+            restore_screen = true;
+        }
+    }
+    s_rotation_home_rebuild_pending = false;
+    s_rotation_home_rebuild_deferred = false;
+    s_rotation_restore_screen_pending = false;
+
     screen_ui_destroy_current();
     if (page != SCREEN_PAGE_HA_PROVISIONING) {
         s_wifi_connected_toast_pending = false;
@@ -293,6 +420,18 @@ static void screen_ui_enter_page(screen_page_t page)
         break;
     case SCREEN_PAGE_SPLIT_VIEW:
         screen_render(&s_screen_config);
+        if (restore_screen && s_screen_ctx && s_screen_ctx->tileview) {
+            size_t position = 0;
+            if (screen_find_page_position(s_screen_ctx,
+                                          restore_screen_index,
+                                          &position)) {
+                lv_tileview_set_tile_by_index(s_screen_ctx->tileview,
+                                              (uint32_t)position,
+                                              0,
+                                              LV_ANIM_OFF);
+                screen_update_active_page(s_screen_ctx, position);
+            }
+        }
         break;
     case SCREEN_PAGE_RESTARTING:
         ESP_LOGI(TAG, "Entered screen page without renderer: %s", screen_state_to_string(page));
@@ -343,6 +482,68 @@ static void screen_ui_state_event_handler(void *arg,
         ESP_LOGE(TAG, "Failed to commit screen transition: %s", esp_err_to_name(err));
     }
     lvgl_port_unlock();
+}
+
+static void screen_ui_orientation_event_handler(void *arg,
+                                                esp_event_base_t event_base,
+                                                int32_t event_id,
+                                                void *event_data)
+{
+    (void)arg;
+    (void)event_base;
+    (void)event_data;
+    if (event_id != SCREEN_EVENT_ORIENTATION_CHANGED) {
+        return;
+    }
+
+    bool home_screen_hidden = false;
+    esp_err_t device_info_err = ESP_OK;
+    if (lvgl_port_lock(0)) {
+        home_screen_hidden =
+            screen_state_get_current() == SCREEN_PAGE_SPLIT_VIEW &&
+            s_screen_ctx && s_screen_ctx->root_screen &&
+            lv_screen_active() != s_screen_ctx->root_screen;
+        if (home_screen_hidden) {
+            s_rotation_home_rebuild_deferred = true;
+            device_info_err = screen_complete_device_info_rotation();
+        }
+        lvgl_port_unlock();
+    }
+    if (home_screen_hidden) {
+        if (device_info_err != ESP_OK) {
+            ESP_LOGW(TAG,
+                     "Failed to rebuild device information controls after rotation: %s",
+                     esp_err_to_name(device_info_err));
+        }
+        return;
+    }
+
+    esp_err_t err = screen_ui_complete_rotation();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG,
+                 "Failed to rebuild split-view home screen after rotation: %s",
+                 esp_err_to_name(err));
+    }
+}
+
+static void screen_ui_root_screen_event_cb(lv_event_t *event)
+{
+    screen_ctx_t *ctx = lv_event_get_user_data(event);
+    lv_event_code_t code = lv_event_get_code(event);
+    if (!ctx || ctx != s_screen_ctx ||
+        lv_event_get_target_obj(event) != ctx->root_screen ||
+        (code != LV_EVENT_SCREEN_LOAD_START &&
+         code != LV_EVENT_SCREEN_LOADED) ||
+        !s_rotation_home_rebuild_deferred) {
+        return;
+    }
+
+    esp_err_t err = screen_state_request_refresh();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG,
+                 "Failed to rebuild split-view home screen after returning: %s",
+                 esp_err_to_name(err));
+    }
 }
 
 void screen_ui_set_status_title(const char *title)
@@ -416,6 +617,22 @@ void screen_ui_hide_device_info(void)
         lv_timer_pause(s_screen_ctx->device_info_refresh_timer);
     }
     screen_device_info_hide(s_screen_ctx->device_info);
+}
+
+void screen_ui_apply_orientation_layout(void)
+{
+    if (!s_screen_ctx) {
+        return;
+    }
+    if (s_screen_ctx->device_info) {
+        screen_device_info_apply_orientation(s_screen_ctx->device_info);
+    }
+    if (s_screen_ctx->ota_update) {
+        screen_ota_update_apply_orientation(s_screen_ctx->ota_update);
+    }
+    if (s_active_notification) {
+        notification_apply_orientation(s_active_notification);
+    }
 }
 
 void screen_ui_set_notification_active(screen_notification_type_t type, bool active)
@@ -544,6 +761,12 @@ static void screen_ctx_destroy(screen_ctx_t *ctx)
         return;
     }
 
+    if (ctx->root_screen && lv_obj_is_valid(ctx->root_screen)) {
+        lv_obj_remove_event_cb_with_user_data(ctx->root_screen,
+                                              screen_ui_root_screen_event_cb,
+                                              ctx);
+    }
+
     if (ctx->main_views) {
         for (size_t i = 0; i < ctx->page_count; i++) {
             main_view_destroy(ctx->main_views[i]);
@@ -560,6 +783,10 @@ static void screen_ctx_destroy(screen_ctx_t *ctx)
     if (ctx->manual_ota_start_timer) {
         lv_timer_delete(ctx->manual_ota_start_timer);
         ctx->manual_ota_start_timer = NULL;
+    }
+    if (ctx->page_gesture_release_timer) {
+        lv_timer_delete(ctx->page_gesture_release_timer);
+        ctx->page_gesture_release_timer = NULL;
     }
     screen_indicator_destroy(ctx->screen_indicator);
     screen_device_info_destroy(ctx->device_info);
@@ -582,6 +809,11 @@ static bool screen_ui_create_system_layer(void)
     }
 
     lv_obj_t *screen = lv_screen_active();
+    s_screen_ctx->root_screen = screen;
+    lv_obj_add_event_cb(screen,
+                        screen_ui_root_screen_event_cb,
+                        LV_EVENT_ALL,
+                        s_screen_ctx);
     lv_obj_set_style_bg_color(screen, s_screen_ctx->bg_color, 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
@@ -810,6 +1042,7 @@ static void screen_ui_sync_notification(void)
         config.icon_includes_background = true;
         config.icon_size = 48;
         config.status_in_header = false;
+        config.landscape_compact_layout = true;
         config.dialog_background_color = 0x3B1919;
         config.accent_color = 0xFF5C62;
         config.description_color = 0x777277;
@@ -824,6 +1057,7 @@ static void screen_ui_sync_notification(void)
         config.icon_includes_background = true;
         config.icon_size = 48;
         config.status_in_header = false;
+        config.landscape_compact_layout = true;
         config.dialog_background_color = 0x332B17;
         config.accent_color = 0xFF9800;
         config.description_color = 0x777277;
@@ -838,6 +1072,7 @@ static void screen_ui_sync_notification(void)
         config.icon_includes_background = true;
         config.icon_size = 48;
         config.status_in_header = false;
+        config.landscape_compact_layout = true;
         config.dialog_background_color = 0x17263C;
         config.accent_color = 0x777277;
         config.description_color = 0x777277;
@@ -854,6 +1089,7 @@ static void screen_ui_sync_notification(void)
         config.icon_includes_background = true;
         config.icon_size = 48;
         config.status_in_header = false;
+        config.landscape_compact_layout = true;
         config.dialog_background_color = 0x3B1919;
         config.accent_color = 0xFF5C62;
         config.description_color = 0x777277;
@@ -1009,33 +1245,32 @@ static void screen_create_device_info(screen_ctx_t *ctx)
         return;
     }
 
-    lv_obj_t *top_layer = lv_layer_top();
-    lv_obj_t *system_layer = lv_layer_sys();
-    ctx->device_info = screen_device_info_create(system_layer);
-    if (!ctx->device_info) {
-        ESP_LOGE(TAG, "Failed to create device information page");
+    if (!screen_create_device_info_view(ctx) ||
+        !screen_create_device_info_gesture_area(ctx)) {
         return;
     }
 
-    lv_obj_t *device_info_obj = screen_device_info_get_obj(ctx->device_info);
-    lv_obj_add_event_cb(device_info_obj,
-                        screen_device_info_close_gesture_cb,
-                        LV_EVENT_GESTURE,
-                        ctx);
-    screen_device_info_set_check_update_cb(ctx->device_info,
-                                           screen_device_info_check_update_cb,
-                                           ctx);
-    screen_device_info_set_upgrade_cb(ctx->device_info,
-                                      screen_device_info_upgrade_cb,
-                                      ctx);
-    screen_device_info_set_hidden_cb(ctx->device_info,
-                                     screen_device_info_hidden_cb,
-                                     ctx);
+    ctx->ota_update = screen_ota_update_create(lv_layer_sys());
+    if (!ctx->ota_update) {
+        ESP_LOGE(TAG, "Failed to create firmware update overlay");
+        return;
+    }
+    screen_ota_update_set_callbacks(ctx->ota_update,
+                                    screen_manual_ota_retry_cb,
+                                    screen_manual_ota_cancel_cb,
+                                    ctx);
+}
 
-    ctx->device_info_gesture_area = lv_obj_create(top_layer);
+static bool screen_create_device_info_gesture_area(screen_ctx_t *ctx)
+{
+    if (!ctx || ctx->device_info_gesture_area) {
+        return ctx && ctx->device_info_gesture_area;
+    }
+
+    ctx->device_info_gesture_area = lv_obj_create(lv_layer_top());
     if (!ctx->device_info_gesture_area) {
         ESP_LOGE(TAG, "Failed to create device information gesture area");
-        return;
+        return false;
     }
 
     lv_obj_remove_style_all(ctx->device_info_gesture_area);
@@ -1056,6 +1291,36 @@ static void screen_create_device_info(screen_ctx_t *ctx)
         lv_obj_add_flag(ctx->device_info_gesture_area, LV_OBJ_FLAG_HIDDEN);
         ESP_LOGI(TAG, "Device information gesture disabled on AP provisioning page");
     }
+    lv_obj_move_to_index(ctx->device_info_gesture_area, 0);
+    return true;
+}
+
+static bool screen_create_device_info_view(screen_ctx_t *ctx)
+{
+    if (!ctx || ctx->device_info) {
+        return ctx && ctx->device_info;
+    }
+
+    ctx->device_info = screen_device_info_create(lv_layer_sys());
+    if (!ctx->device_info) {
+        ESP_LOGE(TAG, "Failed to create device information page");
+        return false;
+    }
+
+    lv_obj_t *device_info_obj = screen_device_info_get_obj(ctx->device_info);
+    lv_obj_add_event_cb(device_info_obj,
+                        screen_device_info_close_gesture_cb,
+                        LV_EVENT_GESTURE,
+                        ctx);
+    screen_device_info_set_check_update_cb(ctx->device_info,
+                                           screen_device_info_check_update_cb,
+                                           ctx);
+    screen_device_info_set_upgrade_cb(ctx->device_info,
+                                      screen_device_info_upgrade_cb,
+                                      ctx);
+    screen_device_info_set_hidden_cb(ctx->device_info,
+                                     screen_device_info_hidden_cb,
+                                     ctx);
 
     ctx->device_info_refresh_timer = lv_timer_create(screen_device_info_refresh_timer_cb,
                                                       SCREEN_DEVICE_INFO_REFRESH_MS,
@@ -1066,16 +1331,51 @@ static void screen_create_device_info(screen_ctx_t *ctx)
     else {
         ESP_LOGW(TAG, "Failed to create device information refresh timer");
     }
+    return true;
+}
 
-    ctx->ota_update = screen_ota_update_create(system_layer);
-    if (!ctx->ota_update) {
-        ESP_LOGE(TAG, "Failed to create firmware update overlay");
+static void screen_destroy_device_info_view(screen_ctx_t *ctx)
+{
+    if (!ctx) {
         return;
     }
-    screen_ota_update_set_callbacks(ctx->ota_update,
-                                    screen_manual_ota_retry_cb,
-                                    screen_manual_ota_cancel_cb,
-                                    ctx);
+
+    if (ctx->device_info_refresh_timer) {
+        lv_timer_delete(ctx->device_info_refresh_timer);
+        ctx->device_info_refresh_timer = NULL;
+    }
+    if (ctx->device_info_gesture_area &&
+        lv_obj_is_valid(ctx->device_info_gesture_area)) {
+        lv_obj_delete(ctx->device_info_gesture_area);
+    }
+    ctx->device_info_gesture_area = NULL;
+    if (!ctx->device_info) {
+        return;
+    }
+
+    lv_obj_t *device_info_obj = screen_device_info_get_obj(ctx->device_info);
+    if (device_info_obj && lv_obj_is_valid(device_info_obj)) {
+        lv_obj_delete(device_info_obj);
+    }
+    screen_device_info_destroy(ctx->device_info);
+    ctx->device_info = NULL;
+}
+
+static esp_err_t screen_complete_device_info_rotation(void)
+{
+    if (!s_rotation_device_info_rebuild_pending) {
+        return ESP_OK;
+    }
+
+    s_rotation_device_info_rebuild_pending = false;
+    if (!s_screen_ctx) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!screen_create_device_info_view(s_screen_ctx) ||
+        !screen_create_device_info_gesture_area(s_screen_ctx)) {
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
 }
 
 static bool screen_device_info_is_available(void)
@@ -1760,6 +2060,7 @@ static void screen_device_info_open_gesture_cb(lv_event_t *event)
 
     if (lv_indev_get_gesture_dir(indev) == LV_DIR_BOTTOM) {
         ESP_LOGI(TAG, "Opening device information page by swipe-down gesture");
+        lv_indev_wait_release(indev);
         screen_ui_show_device_info();
     }
 }
@@ -1774,6 +2075,7 @@ static void screen_device_info_close_gesture_cb(lv_event_t *event)
 
     if (lv_indev_get_gesture_dir(indev) == LV_DIR_TOP) {
         ESP_LOGI(TAG, "Closing device information page by swipe-up gesture");
+        lv_indev_wait_release(indev);
         screen_ui_hide_device_info();
     }
 }
@@ -1786,6 +2088,13 @@ static void screen_create_status_bar(screen_ctx_t *ctx, lv_obj_t *screen)
 static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const screen_config_t *config)
 {
     ctx->tileview = lv_tileview_create(screen);
+    /* Keep TileView as the page container, but do not let pointer dragging
+     * continuously move and redraw it. Horizontal gestures switch pages in
+     * one step from screen_page_gesture_cb instead. */
+    lv_obj_remove_flag(ctx->tileview,
+                       LV_OBJ_FLAG_SCROLLABLE |
+                           LV_OBJ_FLAG_SCROLL_MOMENTUM |
+                           LV_OBJ_FLAG_SCROLL_ELASTIC);
     lv_obj_set_size(ctx->tileview, LV_PCT(100), LV_VER_RES - SYSTEM_STATUS_BAR_HEIGHT);
     lv_obj_align(ctx->tileview, LV_ALIGN_TOP_MID, 0, SYSTEM_STATUS_BAR_HEIGHT);
     lv_obj_set_style_bg_opa(ctx->tileview, LV_OPA_TRANSP, 0);
@@ -1793,6 +2102,17 @@ static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const scree
     lv_obj_set_style_pad_all(ctx->tileview, 0, 0);
     lv_obj_set_scrollbar_mode(ctx->tileview, LV_SCROLLBAR_MODE_OFF);
     lv_obj_add_event_cb(ctx->tileview, screen_tileview_event_cb, LV_EVENT_VALUE_CHANGED, ctx);
+    lv_obj_add_event_cb(screen, screen_page_gesture_cb, LV_EVENT_GESTURE, ctx);
+    ctx->page_gesture_release_timer =
+        lv_timer_create(screen_page_gesture_release_timer_cb,
+                        SCREEN_PAGE_GESTURE_RELEASE_POLL_MS,
+                        ctx);
+    if (ctx->page_gesture_release_timer) {
+        lv_timer_pause(ctx->page_gesture_release_timer);
+    }
+    else {
+        ESP_LOGW(TAG, "Failed to create split-view gesture release timer");
+    }
 
     ctx->tiles = lv_malloc(sizeof(lv_obj_t *) * config->screen_count);
     ctx->main_views = lv_malloc(sizeof(main_view_t *) * config->screen_count);
@@ -1914,6 +2234,78 @@ static lv_dir_t screen_page_scroll_dirs(size_t index, size_t count)
     }
 
     return dir;
+}
+
+static void screen_page_gesture_cb(lv_event_t *event)
+{
+    screen_ctx_t *ctx = lv_event_get_user_data(event);
+    lv_indev_t *indev = lv_indev_active();
+    if (!ctx || ctx != s_screen_ctx || !indev || !ctx->tileview ||
+        ctx->page_count < 2 || lv_screen_active() != ctx->root_screen) {
+        return;
+    }
+
+    if (ctx->page_gesture_handled) {
+        return;
+    }
+
+    lv_dir_t direction = lv_indev_get_gesture_dir(indev);
+    size_t next_page = ctx->active_page;
+    if (direction == LV_DIR_LEFT) {
+        if (next_page + 1 < ctx->page_count) {
+            next_page++;
+        }
+    }
+    else if (direction == LV_DIR_RIGHT) {
+        if (next_page > 0) {
+            next_page--;
+        }
+    }
+    else {
+        return;
+    }
+
+    /* LVGL can deliver more than one gesture event during the same pointer
+     * cycle (for example while moving and again on release). Latch the first
+     * horizontal gesture until the input device has physically released so
+     * one swipe can advance at most one page. */
+    if (ctx->page_gesture_release_timer) {
+        ctx->page_gesture_handled = true;
+        ctx->page_gesture_indev = indev;
+        lv_timer_reset(ctx->page_gesture_release_timer);
+        lv_timer_resume(ctx->page_gesture_release_timer);
+    }
+
+    /* A recognized horizontal gesture must not turn into a card click when
+     * the pointer is released, including gestures at the first/last page. */
+    lv_indev_wait_release(indev);
+    if (next_page == ctx->active_page) {
+        return;
+    }
+
+    lv_tileview_set_tile_by_index(ctx->tileview,
+                                  (uint32_t)next_page,
+                                  0,
+                                  LV_ANIM_OFF);
+    screen_update_active_page(ctx, next_page);
+}
+
+static void screen_page_gesture_release_timer_cb(lv_timer_t *timer)
+{
+    screen_ctx_t *ctx = lv_timer_get_user_data(timer);
+    if (!ctx || ctx != s_screen_ctx || !ctx->page_gesture_handled ||
+        !ctx->page_gesture_indev) {
+        lv_timer_pause(timer);
+        return;
+    }
+
+    if (lv_indev_get_state(ctx->page_gesture_indev) != LV_INDEV_STATE_RELEASED) {
+        return;
+    }
+
+    ctx->page_gesture_handled = false;
+    ctx->page_gesture_indev = NULL;
+    lv_timer_pause(timer);
 }
 
 static void screen_tileview_event_cb(lv_event_t *event)

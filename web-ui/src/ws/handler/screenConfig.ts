@@ -3,5 +3,5 @@ import type { IHassScreenConfigNotify } from '@/types/screenConfig';
 import type { IResponse } from '@/types/websocket';
 
 export const handleScreenConfigNotify = async (params: IResponse<IHassScreenConfigNotify>) => {
-    setScreenConfigs(params.data.screens);
+    setScreenConfigs(params.data.screens.map((screen) => ({ ...screen, columns: screen.columns ?? 1 })));
 };

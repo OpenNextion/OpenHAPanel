@@ -96,6 +96,8 @@ typedef struct {
     char *title;
     char *icon;
     screen_view_type_t type;
+    /** Reserved for configuration compatibility; runtime layout ignores it. */
+    size_t columns;
     size_t badge_count;
     screen_badge_config_t *badges;
     size_t card_count;

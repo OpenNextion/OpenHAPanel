@@ -134,13 +134,17 @@ void badge_display_format(ha_entity_store_t *store,
     snprintf(text, text_size, "%s",
              model->state_text[0] ? model->state_text : model->title);
 
-    if (badge_domain_is(entity_id, "button") ||
+        if (badge_domain_is(entity_id, "button") ||
         badge_domain_is(entity_id, "scene")||
         badge_domain_is(entity_id, "event")
         ) {
-        badge_copy_name(configured_name && configured_name[0]
-                            ? configured_name : model->title,
-                        text, text_size);
+        if (model->unavailable && model->state_text[0]) {
+            snprintf(text, text_size, "%s", model->state_text);
+        } else {
+            badge_copy_name(configured_name && configured_name[0]
+                                ? configured_name : model->title,
+                            text, text_size);
+        }
         return;
     }
 

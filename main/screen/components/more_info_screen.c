@@ -6,8 +6,11 @@
 
 #include "assets/ha_ui_assets.h"
 #include "entity_handlers/entity_handler_registry.h"
+#include "esp_lvgl_port.h"
 #include "esp_log.h"
 #include "lvgl.h"
+#include "esp_event.h"
+#include "screen.h"
 
 #define MORE_INFO_SCREEN_ANIM_MS 250
 
@@ -22,6 +25,7 @@ typedef struct {
     bool refresh_pending;
     bool rendered;
     bool closing;
+    bool rotation_prepared;
     entity_more_info_context_t render_context;
 } more_info_screen_context_t;
 
@@ -37,6 +41,10 @@ static void more_info_screen_default_close_event_cb(lv_event_t *event);
 static void more_info_screen_lifecycle_event_cb(lv_event_t *event);
 static void more_info_screen_overlay_delete_event_cb(lv_event_t *event);
 static void more_info_screen_log_memory(const char *stage);
+static void more_info_screen_orientation_handler(void *arg,
+                                                  esp_event_base_t base,
+                                                  int32_t id,
+                                                  void *data);
 
 bool more_info_screen_open(ha_entity_store_t *store,
                            const char *entity_id,
@@ -116,7 +124,7 @@ bool more_info_screen_refresh_entity(ha_entity_store_t *store,
     }
 
     s_more_info.store = store;
-    if (!s_more_info.loaded) {
+    if (!s_more_info.loaded || s_more_info.rotation_prepared) {
         s_more_info.refresh_pending = true;
         return true;
     }
@@ -128,9 +136,51 @@ bool more_info_screen_is_open(void)
     return s_more_info.screen != NULL && !s_more_info.closing;
 }
 
+bool more_info_screen_prepare_for_rotation(void)
+{
+    if (!more_info_screen_is_open() ||
+        !lv_obj_is_valid(s_more_info.screen) ||
+        !s_more_info.overlay ||
+        !lv_obj_is_valid(s_more_info.overlay) ||
+        lv_screen_active() != s_more_info.screen) {
+        return false;
+    }
+
+    /* Remove the complete old layout, including its header and overlay
+     * hitboxes, before the logical display resolution changes. */
+    lv_obj_clean(s_more_info.screen);
+    lv_obj_clean(s_more_info.overlay);
+    s_more_info.rendered = false;
+    s_more_info.rotation_prepared = true;
+    lv_obj_invalidate(s_more_info.screen);
+    return true;
+}
+
+bool more_info_screen_complete_rotation(void)
+{
+    if (!s_more_info.rotation_prepared ||
+        !more_info_screen_is_open()) {
+        return false;
+    }
+
+    s_more_info.rotation_prepared = false;
+    s_more_info.refresh_pending = false;
+    return more_info_screen_refresh();
+}
+
+static bool s_orientation_registered = false;
+
 static void more_info_screen_build(lv_obj_t *screen)
 {
     (void)screen;
+
+    if (!s_orientation_registered) {
+        esp_event_handler_register(SCREEN_EVENT,
+                                    SCREEN_EVENT_ORIENTATION_CHANGED,
+                                    more_info_screen_orientation_handler,
+                                    NULL);
+        s_orientation_registered = true;
+    }
 
     s_more_info.overlay = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(s_more_info.overlay);
@@ -370,4 +420,25 @@ static void more_info_screen_log_memory(const char *stage)
              (unsigned)monitor.free_biggest_size,
              (unsigned)monitor.used_pct,
              (unsigned)monitor.frag_pct);
+}
+
+static void more_info_screen_orientation_handler(void *arg,
+                                                  esp_event_base_t base,
+                                                  int32_t id,
+                                                  void *data)
+{
+    (void)arg;
+    (void)base;
+    (void)id;
+    (void)data;
+    if (!more_info_screen_is_open() || s_more_info.closing) {
+        return;
+    }
+    if (!lvgl_port_lock(0)) {
+        return;
+    }
+    if (!more_info_screen_complete_rotation()) {
+        more_info_screen_refresh();
+    }
+    lvgl_port_unlock();
 }

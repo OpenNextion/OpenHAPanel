@@ -13,6 +13,7 @@
 #define LIGHT_EFFECT_ROW_H       40
 #define LIGHT_EFFECT_MARGIN      8
 #define LIGHT_EFFECT_RADIUS      12
+#define LIGHT_EFFECT_SCROLLBAR_INSET 8
 
 #define LIGHT_EFFECT_ICON_X          8
 #define LIGHT_EFFECT_ICON_SIZE       20
@@ -21,6 +22,15 @@
 #define LIGHT_EFFECT_TITLE_Y         19
 #define LIGHT_EFFECT_TITLE_ACTIVE_Y  7
 #define LIGHT_EFFECT_VALUE_Y         27
+#define LIGHT_EFFECT_BUTTON_W_LAND   68
+#define LIGHT_EFFECT_BUTTON_H_LAND   104
+#define LIGHT_EFFECT_MENU_W_LAND     151
+#define LIGHT_EFFECT_ICON_Y_LAND     24
+#define LIGHT_EFFECT_TEXT_X_LAND     6
+#define LIGHT_EFFECT_TEXT_W_LAND     56
+#define LIGHT_EFFECT_TITLE_Y_LAND    68
+#define LIGHT_EFFECT_TITLE_ACTIVE_Y_LAND 54
+#define LIGHT_EFFECT_VALUE_Y_LAND    76
 
 #define LIGHT_EFFECT_BUTTON_COLOR  0x1F1F1F
 #define LIGHT_EFFECT_BUTTON_PRESS  0x303030
@@ -48,6 +58,8 @@ struct light_effect_selector_context {
     char options[LIGHT_EFFECT_MAX_OPTIONS][LIGHT_EFFECT_NAME_MAX];
     size_t option_count;
     size_t selected;
+    bool landscape;
+    bool popup_left;
     bool power_on;
     bool disabled;
     light_effect_change_cb_t callback;
@@ -63,6 +75,63 @@ static bool effect_is_none(const char *effect)
 {
     return !effect || effect[0] == '\0' || strcmp(effect, "None") == 0 ||
            strcmp(effect, "none") == 0;
+}
+
+static void apply_trigger_layout(light_effect_selector_context_t *context)
+{
+    if (!context) {
+        return;
+    }
+    if (context->landscape) {
+        lv_obj_set_size(context->root,
+                        LIGHT_EFFECT_BUTTON_W_LAND,
+                        LIGHT_EFFECT_BUTTON_H_LAND);
+        lv_obj_align(context->icon_label,
+                     LV_ALIGN_TOP_MID,
+                     0,
+                     LIGHT_EFFECT_ICON_Y_LAND);
+        lv_obj_set_pos(context->title_label,
+                       LIGHT_EFFECT_TEXT_X_LAND,
+                       LIGHT_EFFECT_TITLE_Y_LAND);
+        lv_obj_set_size(context->title_label,
+                        LIGHT_EFFECT_TEXT_W_LAND,
+                        18);
+        lv_obj_set_style_text_align(context->title_label,
+                                    LV_TEXT_ALIGN_CENTER,
+                                    0);
+        lv_obj_set_pos(context->value_label,
+                       LIGHT_EFFECT_TEXT_X_LAND,
+                       LIGHT_EFFECT_VALUE_Y_LAND);
+        lv_obj_set_size(context->value_label,
+                        LIGHT_EFFECT_TEXT_W_LAND,
+                        20);
+        lv_obj_set_style_text_align(context->value_label,
+                                    LV_TEXT_ALIGN_CENTER,
+                                    0);
+    }
+    else {
+        lv_obj_set_size(context->root,
+                        LIGHT_EFFECT_BUTTON_W,
+                        LIGHT_EFFECT_BUTTON_H);
+        lv_obj_align(context->icon_label,
+                     LV_ALIGN_LEFT_MID,
+                     LIGHT_EFFECT_ICON_X,
+                     0);
+        lv_obj_set_pos(context->title_label,
+                       LIGHT_EFFECT_TEXT_X,
+                       LIGHT_EFFECT_TITLE_Y);
+        lv_obj_set_size(context->title_label, LIGHT_EFFECT_TEXT_W, 18);
+        lv_obj_set_style_text_align(context->title_label,
+                                    LV_TEXT_ALIGN_LEFT,
+                                    0);
+        lv_obj_set_pos(context->value_label,
+                       LIGHT_EFFECT_TEXT_X,
+                       LIGHT_EFFECT_VALUE_Y);
+        lv_obj_set_size(context->value_label, LIGHT_EFFECT_TEXT_W, 20);
+        lv_obj_set_style_text_align(context->value_label,
+                                    LV_TEXT_ALIGN_LEFT,
+                                    0);
+    }
 }
 
 static void display_effect(const char *source, char *output, size_t size)
@@ -108,7 +177,10 @@ static void refresh_trigger(light_effect_selector_context_t *context)
         char label[LIGHT_EFFECT_NAME_MAX];
         display_effect(context->options[context->selected], label, sizeof(label));
         lv_label_set_text(context->icon_label, MDI_SYMBOL_CIRCLE_MEDIUM);
-        lv_obj_set_y(context->title_label, LIGHT_EFFECT_TITLE_ACTIVE_Y);
+        lv_obj_set_y(context->title_label,
+                     context->landscape
+                         ? LIGHT_EFFECT_TITLE_ACTIVE_Y_LAND
+                         : LIGHT_EFFECT_TITLE_ACTIVE_Y);
         lv_label_set_text(context->value_label, label);
         lv_obj_remove_flag(context->value_label, LV_OBJ_FLAG_HIDDEN);
         return;
@@ -116,7 +188,9 @@ static void refresh_trigger(light_effect_selector_context_t *context)
 
     /* Preserve the light-off state: no active effect value is displayed. */
     lv_label_set_text(context->icon_label, MDI_SYMBOL_CREATION);
-    lv_obj_set_y(context->title_label, LIGHT_EFFECT_TITLE_Y);
+    lv_obj_set_y(context->title_label,
+                 context->landscape ? LIGHT_EFFECT_TITLE_Y_LAND
+                                    : LIGHT_EFFECT_TITLE_Y);
     lv_label_set_text(context->value_label, "");
     lv_obj_add_flag(context->value_label, LV_OBJ_FLAG_HIDDEN);
 }
@@ -258,25 +332,44 @@ static void open_popup(light_effect_selector_context_t *context)
     lv_obj_add_event_cb(mask, popup_clicked_cb, LV_EVENT_CLICKED, context);
     lv_obj_add_event_cb(mask, popup_delete_cb, LV_EVENT_DELETE, context);
 
-    const int32_t natural_height =
-        (int32_t)context->option_count * LIGHT_EFFECT_ROW_H;
-    const int32_t max_height = LV_MAX(1, screen_height - 2 * LIGHT_EFFECT_MARGIN);
-    const int32_t menu_height = LV_MIN(natural_height, max_height);
-
     lv_obj_update_layout(context->root);
     lv_area_t root_coords;
     lv_obj_get_coords(context->root, &root_coords);
-    int32_t menu_width = LV_MIN(LV_MAX(133, lv_area_get_width(&root_coords)),
-                                LV_MAX(1, screen_width - 2 * LIGHT_EFFECT_MARGIN));
-    int32_t menu_x = root_coords.x1 +
-                     (lv_area_get_width(&root_coords) - menu_width) / 2;
+    const int32_t natural_height =
+        (int32_t)context->option_count * LIGHT_EFFECT_ROW_H;
+    int32_t menu_y;
+    int32_t available_height;
+    if (context->landscape) {
+        menu_y = root_coords.y1 + 7;
+        available_height = LV_MAX(1,
+                                  screen_height - menu_y -
+                                      LIGHT_EFFECT_MARGIN);
+    }
+    else {
+        available_height =
+            LV_MAX(1, root_coords.y1 - LIGHT_EFFECT_MARGIN);
+    }
+    const int32_t menu_height = LV_MIN(natural_height, available_height);
+    const bool needs_scroll = natural_height > available_height;
+    if (!context->landscape) {
+        menu_y = root_coords.y1 - menu_height;
+    }
+
+    int32_t menu_width = context->landscape
+                             ? LIGHT_EFFECT_MENU_W_LAND
+                             : LV_MAX(133, lv_area_get_width(&root_coords));
+    menu_width = LV_MIN(menu_width,
+                        LV_MAX(1,
+                               screen_width - 2 * LIGHT_EFFECT_MARGIN));
+    int32_t menu_x = context->landscape
+                         ? (context->popup_left
+                                ? root_coords.x1 - menu_width
+                                : root_coords.x2 + 1)
+                         : root_coords.x1 +
+                               (lv_area_get_width(&root_coords) - menu_width) / 2;
     menu_x = LV_CLAMP(LIGHT_EFFECT_MARGIN,
                       menu_x,
                       screen_width - menu_width - LIGHT_EFFECT_MARGIN);
-    int32_t menu_y = root_coords.y1 - menu_height;
-    menu_y = LV_CLAMP(LIGHT_EFFECT_MARGIN,
-                      menu_y,
-                      screen_height - menu_height - LIGHT_EFFECT_MARGIN);
 
     lv_obj_t *menu = lv_obj_create(mask);
     if (!menu) {
@@ -301,15 +394,36 @@ static void open_popup(light_effect_selector_context_t *context)
     lv_obj_set_style_shadow_opa(menu, 40, LV_PART_MAIN);
     lv_obj_set_style_shadow_color(menu, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_style_pad_all(menu, 0, LV_PART_MAIN);
-    lv_obj_set_scroll_dir(menu, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_remove_flag(menu, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    if (needs_scroll) {
+        lv_obj_add_flag(menu, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scroll_dir(menu, LV_DIR_VER);
+        lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_AUTO);
+    }
+    else {
+        lv_obj_remove_flag(menu, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_OFF);
+    }
+    lv_obj_set_style_width(menu, 4, LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(menu, LV_RADIUS_CIRCLE, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_top(menu,
+                             LIGHT_EFFECT_SCROLLBAR_INSET,
+                             LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_bottom(menu,
+                                LIGHT_EFFECT_SCROLLBAR_INSET,
+                                LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_right(menu, 2, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(menu,
+                              lv_color_hex(LIGHT_EFFECT_MENU_BORDER),
+                              LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(menu, LV_OPA_COVER, LV_PART_SCROLLBAR);
 
     for (size_t i = 0; i < context->option_count; i++) {
         context->rows[i] = create_menu_row(context, menu, i, menu_width);
     }
     refresh_rows(context);
     lv_obj_update_layout(menu);
-    if (context->selected < context->option_count &&
+    if (needs_scroll && context->selected < context->option_count &&
         context->rows[context->selected]) {
         lv_obj_scroll_to_view(context->rows[context->selected], LV_ANIM_OFF);
     }
@@ -412,6 +526,28 @@ lv_obj_t *light_effect_selector_create(lv_obj_t *parent)
                                 0);
     lv_obj_add_flag(context->value_label, LV_OBJ_FLAG_HIDDEN);
     return root;
+}
+
+void light_effect_selector_set_landscape(lv_obj_t *obj, bool landscape)
+{
+    light_effect_selector_context_t *context = effect_context(obj);
+    if (!context || context->landscape == landscape) {
+        return;
+    }
+    close_popup(context);
+    context->landscape = landscape;
+    apply_trigger_layout(context);
+    refresh_trigger(context);
+}
+
+void light_effect_selector_set_popup_left(lv_obj_t *obj, bool popup_left)
+{
+    light_effect_selector_context_t *context = effect_context(obj);
+    if (!context || context->popup_left == popup_left) {
+        return;
+    }
+    close_popup(context);
+    context->popup_left = popup_left;
 }
 
 bool light_effect_selector_set_options(lv_obj_t *obj,

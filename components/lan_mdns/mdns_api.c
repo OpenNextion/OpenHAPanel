@@ -393,8 +393,8 @@ static cJSON *create_mdns_device_item(const char *id, const char *name, const ch
  *
  * This function prepares a JSON payload containing the local device information
  * as well as previously scanned mDNS devices stored in `mdns_prev_scan_results`.
- * It sends the data to the web interface using `webserver_data_response_to_all_client()` with the
- * event identifier "Device.LanDevicesNotify".
+ * It sends the data to authenticated web clients with the event identifier
+ * "Device.LanDevicesNotify".
  *
  * If no previous scan results are available (`mdns_prev_scan_results` is NULL and
  * `mdns_prev_count` is zero), a warning is logged and only the local device information
@@ -407,7 +407,7 @@ static cJSON *create_mdns_device_item(const char *id, const char *name, const ch
  *
  * Uses the helper function `create_mdns_device_item()` to generate each device's JSON object.
  */
-void webserver_cur_mdns_scan_result_notify(void)
+static void webserver_cur_mdns_scan_result_notify_internal(int socket_fd)
 {
     if (!mdns_prev_scan_results && mdns_prev_count == 0) {
         ESP_LOGW(TAG, "No scan results to upload");
@@ -446,7 +446,24 @@ void webserver_cur_mdns_scan_result_notify(void)
     }
 
     cJSON_AddItemToObject(data, "devices", devices);
-    webserver_data_response_to_all_client(data, WEB_API_METHOD_MDNS_NOTIFY, 0);
+    if (socket_fd >= 0) {
+        webserver_data_response_to_special_client(
+            data, WEB_API_METHOD_MDNS_NOTIFY, 0, socket_fd);
+    }
+    else {
+        webserver_data_response_to_authenticated_clients(
+            data, WEB_API_METHOD_MDNS_NOTIFY, 0);
+    }
+}
+
+void webserver_cur_mdns_scan_result_notify(void)
+{
+    webserver_cur_mdns_scan_result_notify_internal(-1);
+}
+
+void webserver_cur_mdns_scan_result_notify_to_client(int socket_fd)
+{
+    webserver_cur_mdns_scan_result_notify_internal(socket_fd);
 }
 
 /**

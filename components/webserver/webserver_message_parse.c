@@ -13,6 +13,7 @@
 #include "webserver_config_api.h"
 #include "webserver_firmware_update.h"
 #include "webserver_screen.h"
+#include "webserver_screen_rotation.h"
 #include "network_api.h"
 #include "screen_api.h"
 #include "screen_state.h"
@@ -93,6 +94,7 @@ static webserver_method_api_strategy webserver_method_api_list[] = {
     {WEB_API_METHOD_SET_BRIGHTNESS, method_api_handle_set_brightness},
     {WEB_API_METHOD_SET_NIGHT_MODE, method_api_handle_set_night_mode},
     {WEB_API_METHOD_SET_SCREEN_LOCK, method_api_handle_set_screen_lock},
+    {WEB_API_METHOD_SET_SCREEN_ROTATION, method_api_handle_set_screen_rotation},
     {WEB_API_METHOD_SET_NAME, method_api_handle_set_name},
     {WEB_API_METHOD_DOWNLOAD_BACKUP, method_api_handle_download_backup},
     {WEB_API_METHOD_UPLOAD_BACKUP, method_api_handle_upload_backup},
@@ -525,6 +527,14 @@ esp_err_t method_api_handle_set_login_state(cJSON *data, async_resp_arg *now_res
         now_resp_arg->fd);
     login_session_secure_zero(&credential, sizeof(credential));
 
+    if (auth_err == ESP_OK && send_err == ESP_OK) {
+        esp_event_post(WEB_SERVER_EVENT,
+                       WEB_SERVER_EVENT_AUTH_OK,
+                       &now_resp_arg->fd,
+                       sizeof(now_resp_arg->fd),
+                       portMAX_DELAY);
+    }
+
     if (auth_err != ESP_OK && webserver_client_find_copy(now_resp_arg->fd, &client) && !client.is_ap) {
         webserver_login_authentication(now_resp_arg, false, 0);
     }
@@ -733,7 +743,8 @@ esp_err_t method_api_handle_set_screen_lock(cJSON *data, async_resp_arg *now_res
         goto send_response;
     }
     webserver_device_info_notify(UPDATE_IDLE_TIME);
-    webserver_code_response_to_all_client(ret, WEB_API_METHOD_SET_SCREEN_LOCK_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        ret, WEB_API_METHOD_SET_SCREEN_LOCK_RSP, now_resp_arg->seq, now_resp_arg->fd);
     return ret;
 send_response:
     webserver_code_response_to_current_client(ret, WEB_API_METHOD_SET_SCREEN_LOCK_RSP, now_resp_arg->seq);
@@ -770,7 +781,8 @@ esp_err_t method_api_handle_set_brightness(cJSON *data, async_resp_arg *now_resp
     ret = ESP_OK;
     ESP_LOGI(TAG, "brightness value: %d", brightness);
     webserver_device_info_notify(UPDATE_BRIGHTNESS);
-    webserver_code_response_to_all_client(ret, WEB_API_METHOD_SET_BRIGHTNESS_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        ret, WEB_API_METHOD_SET_BRIGHTNESS_RSP, now_resp_arg->seq, now_resp_arg->fd);
     return ret;
 send_response:
     webserver_code_response_to_current_client(ret, WEB_API_METHOD_SET_BRIGHTNESS_RSP, now_resp_arg->seq);
@@ -821,7 +833,8 @@ esp_err_t method_api_handle_set_night_mode(cJSON *data, async_resp_arg *now_resp
     }
     ESP_LOGI(TAG, "night mode: enable=%d, brightness=%d, from=%s, to=%s", enable, brightness, from_str, to_str);
     webserver_device_info_notify(UPDATE_NIGHT_MODE);
-    webserver_code_response_to_all_client(ret, WEB_API_METHOD_SET_NIGHT_MODE_RSP, now_resp_arg->seq);
+    webserver_code_response_to_special_client(
+        ret, WEB_API_METHOD_SET_NIGHT_MODE_RSP, now_resp_arg->seq, now_resp_arg->fd);
     return ret;
 send_response:
     webserver_code_response_to_current_client(ret, WEB_API_METHOD_SET_NIGHT_MODE_RSP, now_resp_arg->seq);

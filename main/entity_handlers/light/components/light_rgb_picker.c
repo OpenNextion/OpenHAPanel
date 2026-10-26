@@ -20,6 +20,8 @@
 
 typedef struct {
     lv_obj_t *root;
+    lv_obj_t *wheel;
+    int32_t size;
     light_rgb_t committed_value;
     light_rgb_t preview_value;
     int16_t marker_x;
@@ -41,6 +43,17 @@ typedef struct {
 static light_rgb_picker_context_t *get_context(lv_obj_t *obj)
 {
     return obj ? lv_obj_get_user_data(obj) : NULL;
+}
+
+static int32_t wheel_scale_for_size(int32_t size)
+{
+    /*
+     * Round up so a fractional down-scale still covers the last pixel on the
+     * right and bottom edges.  The image is centered, so the sub-pixel excess
+     * is shared by both sides and remains hidden in the transparent corners.
+     */
+    return (size * LV_SCALE_NONE + RGB_PICKER_SIZE - 1) /
+           RGB_PICKER_SIZE;
 }
 
 static bool rgb_equal(light_rgb_t left, light_rgb_t right)
@@ -98,7 +111,10 @@ static light_rgb_t hsv_to_rgb(float hue, float saturation)
     };
 }
 
-static void rgb_to_marker(light_rgb_t rgb, int16_t *x, int16_t *y)
+static void rgb_to_marker(const light_rgb_picker_context_t *context,
+                          light_rgb_t rgb,
+                          int16_t *x,
+                          int16_t *y)
 {
     const float red = rgb.red;
     const float green = rgb.green;
@@ -122,12 +138,13 @@ static void rgb_to_marker(light_rgb_t rgb, int16_t *x, int16_t *y)
     }
 
     const float saturation = high > 0.0f ? chroma / high : 0.0f;
-    const float radius = LV_MIN((float)RGB_PICKER_MARKER_LIMIT,
-                                RGB_PICKER_CENTER * saturation);
+    const float center = context->size / 2.0f;
+    const float marker_limit = LV_MAX(1.0f, center - 4.0f);
+    const float radius = LV_MIN(marker_limit, center * saturation);
     /* rgb_color_230 starts at red on the right and advances clockwise. */
     const float angle = hue_sector * RGB_PICKER_PI / 3.0f;
-    *x = (int16_t)lroundf(RGB_PICKER_CENTER + radius * cosf(angle));
-    *y = (int16_t)lroundf(RGB_PICKER_CENTER + radius * sinf(angle));
+    *x = (int16_t)lroundf(center + radius * cosf(angle));
+    *y = (int16_t)lroundf(center + radius * sinf(angle));
 }
 
 static lv_area_t marker_area(const light_rgb_picker_context_t *context)
@@ -214,10 +231,12 @@ static bool apply_pointer(light_rgb_picker_context_t *context,
 {
     lv_area_t root_area;
     lv_obj_get_coords(context->root, &root_area);
-    const float dx = point->x - root_area.x1 - RGB_PICKER_CENTER;
-    const float dy = point->y - root_area.y1 - RGB_PICKER_CENTER;
+    const float center = context->size / 2.0f;
+    const float marker_limit = LV_MAX(1.0f, center - 4.0f);
+    const float dx = point->x - root_area.x1 - center;
+    const float dy = point->y - root_area.y1 - center;
     const float distance = hypotf(dx, dy);
-    const float saturation = LV_MIN(distance / RGB_PICKER_CENTER, 1.0f);
+    const float saturation = LV_MIN(distance / center, 1.0f);
     /* Match rgb_color_230: 0 degrees/red is at the wheel's right edge. */
     const float hue = fmodf(atan2f(dy, dx) * 180.0f /
                                 RGB_PICKER_PI +
@@ -225,13 +244,13 @@ static bool apply_pointer(light_rgb_picker_context_t *context,
                             360.0f);
     const light_rgb_t value = hsv_to_rgb(hue, saturation);
     const float marker_ratio =
-        distance > RGB_PICKER_MARKER_LIMIT && distance > 0.0f
-            ? RGB_PICKER_MARKER_LIMIT / distance
+        distance > marker_limit && distance > 0.0f
+            ? marker_limit / distance
             : 1.0f;
     const int16_t marker_x = (int16_t)lroundf(
-        RGB_PICKER_CENTER + dx * marker_ratio);
+        center + dx * marker_ratio);
     const int16_t marker_y = (int16_t)lroundf(
-        RGB_PICKER_CENTER + dy * marker_ratio);
+        center + dy * marker_ratio);
     const bool changed = !rgb_equal(value, context->preview_value) ||
                          marker_x != context->marker_x ||
                          marker_y != context->marker_y;
@@ -365,8 +384,7 @@ static void event_cb(lv_event_t *event)
     const lv_event_code_t code = lv_event_get_code(event);
 
     if (code == LV_EVENT_REFR_EXT_DRAW_SIZE) {
-        int32_t *extra = lv_event_get_param(event);
-        *extra = LV_MAX(*extra, RGB_PICKER_EXT_DRAW_SIZE);
+        lv_event_set_ext_draw_size(event, RGB_PICKER_EXT_DRAW_SIZE);
         return;
     }
     if (code == LV_EVENT_DELETE) {
@@ -405,6 +423,7 @@ lv_obj_t *light_rgb_picker_create(lv_obj_t *parent)
 
     context->committed_value = (light_rgb_t) {255, 255, 255};
     context->preview_value = context->committed_value;
+    context->size = RGB_PICKER_SIZE;
     context->marker_x = RGB_PICKER_CENTER;
     context->marker_y = RGB_PICKER_CENTER;
     context->committed_marker_x = context->marker_x;
@@ -420,16 +439,50 @@ lv_obj_t *light_rgb_picker_create(lv_obj_t *parent)
     lv_obj_set_user_data(root, context);
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, RGB_PICKER_SIZE, RGB_PICKER_SIZE);
-    lv_obj_add_flag(root, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(root,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     lv_obj_remove_flag(root,
                        LV_OBJ_FLAG_SCROLLABLE |
                            LV_OBJ_FLAG_SCROLL_CHAIN |
                            LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_set_style_bg_image_src(root, &rgb_color_230, 0);
-    lv_obj_set_style_bg_image_opa(root, LV_OPA_COVER, 0);
+    context->wheel = lv_image_create(root);
+    if (!context->wheel) {
+        lv_obj_delete(root);
+        lv_free(context);
+        return NULL;
+    }
+    lv_image_set_src(context->wheel, &rgb_color_230);
+    lv_image_set_pivot(context->wheel,
+                       RGB_PICKER_CENTER,
+                       RGB_PICKER_CENTER);
+    lv_obj_remove_flag(context->wheel,
+                       LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_center(context->wheel);
     lv_obj_add_event_cb(root, event_cb, LV_EVENT_ALL, context);
     lv_obj_refresh_ext_draw_size(root);
     return root;
+}
+
+void light_rgb_picker_set_size(lv_obj_t *obj, int32_t size)
+{
+    light_rgb_picker_context_t *context = get_context(obj);
+    if (!context || size <= 0 || context->size == size) {
+        return;
+    }
+    lv_area_t old_area = marker_area(context);
+    context->size = size;
+    lv_obj_set_size(obj, size, size);
+    lv_image_set_scale(context->wheel, wheel_scale_for_size(size));
+    lv_obj_center(context->wheel);
+    lv_obj_refresh_ext_draw_size(context->wheel);
+    rgb_to_marker(context,
+                  context->committed_value,
+                  &context->marker_x,
+                  &context->marker_y);
+    context->committed_marker_x = context->marker_x;
+    context->committed_marker_y = context->marker_y;
+    invalidate_marker_area(context, old_area);
+    invalidate_marker_area(context, marker_area(context));
 }
 
 void light_rgb_picker_set_value(lv_obj_t *obj, light_rgb_t rgb)
@@ -442,7 +495,7 @@ void light_rgb_picker_set_value(lv_obj_t *obj, light_rgb_t rgb)
     lv_area_t old_area = marker_area(context);
     context->committed_value = rgb;
     context->preview_value = rgb;
-    rgb_to_marker(rgb, &context->marker_x, &context->marker_y);
+    rgb_to_marker(context, rgb, &context->marker_x, &context->marker_y);
     context->committed_marker_x = context->marker_x;
     context->committed_marker_y = context->marker_y;
     invalidate_marker_area(context, old_area);
@@ -476,9 +529,9 @@ void light_rgb_picker_set_disabled(lv_obj_t *obj, bool disabled)
         set_marker_scale(context, RGB_PICKER_SCALE_NORMAL);
     }
     context->disabled = disabled;
-    lv_obj_set_style_bg_image_opa(obj,
-                                  disabled ? LV_OPA_40 : LV_OPA_COVER,
-                                  0);
+    lv_obj_set_style_opa(context->wheel,
+                         disabled ? LV_OPA_40 : LV_OPA_COVER,
+                         0);
     if (disabled) {
         lv_obj_add_state(obj, LV_STATE_DISABLED);
     }

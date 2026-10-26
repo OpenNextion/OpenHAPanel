@@ -49,6 +49,14 @@ lv_obj_t *climate_step_buttons_create(lv_obj_t *parent)
     return root;
 }
 
+void climate_step_buttons_set_compact_layout(lv_obj_t *obj, bool compact)
+{
+    climate_step_buttons_t *context = obj ? lv_obj_get_user_data(obj) : NULL;
+    if (!context) return;
+    lv_obj_set_width(obj, compact ? 94 : 104);
+    lv_obj_set_x(context->buttons[1], compact ? 54 : 64);
+}
+
 void climate_step_buttons_set_callback(lv_obj_t *obj, climate_step_cb_t callback, void *user_data)
 {
     climate_step_buttons_t *context = obj ? lv_obj_get_user_data(obj) : NULL;

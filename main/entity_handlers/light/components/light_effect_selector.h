@@ -11,6 +11,8 @@ typedef void (*light_effect_change_cb_t)(size_t index,
                                          void *user_data);
 
 lv_obj_t *light_effect_selector_create(lv_obj_t *parent);
+void light_effect_selector_set_landscape(lv_obj_t *obj, bool landscape);
+void light_effect_selector_set_popup_left(lv_obj_t *obj, bool popup_left);
 bool light_effect_selector_set_options(lv_obj_t *obj,
                                        const char *const *options,
                                        size_t count);

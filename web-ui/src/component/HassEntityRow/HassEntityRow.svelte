@@ -8,11 +8,13 @@
         state?: string;
         icon?: string | null;
         variant?: 'entity' | 'badge';
+        fullWidth?: boolean;
         showIconBackground?: boolean;
         onclick?: () => void;
+        interactiveElement?: 'button' | 'div';
     }
 
-    let { entityId, state, icon, variant = 'entity', showIconBackground, onclick }: IHassEntityRowProps = $props();
+    let { entityId, state, icon, variant = 'entity', fullWidth = false, showIconBackground, onclick, interactiveElement = 'button' }: IHassEntityRowProps = $props();
     const entity = $derived(getHassEntityPresentation(entityId, $haRegistryStore, { state, icon }));
     const iconBackgroundVisible = $derived(variant !== 'badge' && (showIconBackground ?? entity.defaultActions.iconTap !== 'nothing'));
     const badgeDisplaysFriendlyName = $derived(['button', 'scene', 'event'].includes(entityId.split('.', 1)[0] ?? ''));
@@ -22,6 +24,12 @@
         const characters = Array.from(value);
         return characters.length > 10 ? `${characters.slice(0, 10).join('')}…` : value;
     });
+
+    function handleInteractiveKeydown(event: KeyboardEvent) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        onclick?.();
+    }
 </script>
 
 {#snippet content()}
@@ -42,9 +50,23 @@
 {/snippet}
 
 {#if onclick}
-    <button class:badge={variant === 'badge'} class="hass-entity-row clickable" type="button" {onclick}>{@render content()}</button>
+    {#if interactiveElement === 'button'}
+        <button class:badge={variant === 'badge'} class:full-width={fullWidth} class="hass-entity-row clickable" type="button" {onclick}>{@render content()}</button>
+    {:else}
+        <div
+            class:badge={variant === 'badge'}
+            class:full-width={fullWidth}
+            class="hass-entity-row clickable"
+            role="button"
+            tabindex="0"
+            {onclick}
+            onkeydown={handleInteractiveKeydown}
+        >
+            {@render content()}
+        </div>
+    {/if}
 {:else}
-    <div class:badge={variant === 'badge'} class="hass-entity-row">{@render content()}</div>
+    <div class:badge={variant === 'badge'} class:full-width={fullWidth} class="hass-entity-row">{@render content()}</div>
 {/if}
 
 <style>
@@ -63,6 +85,11 @@
         font-family: MiSans, sans-serif;
         text-align: left;
     }
+    .hass-entity-row.full-width {
+        width: 100%;
+        max-width: 100%;
+        margin-inline: 0;
+    }
     .hass-entity-row.clickable {
         cursor: pointer;
     }
@@ -79,6 +106,7 @@
         gap: 0rem;
         border: 0;
         border-radius: 0.83625rem;
+        background: rgb(29, 29, 30);
     }
     .hass-entity-row.badge .entity-icon {
         display: inline-grid;

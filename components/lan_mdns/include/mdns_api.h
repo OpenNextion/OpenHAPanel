@@ -81,11 +81,12 @@ esp_err_t method_api_handle_set_mdns_domain(cJSON *data, async_resp_arg *now_res
  *
  * This function prepares a JSON payload containing the local device information
  * as well as previously scanned mDNS devices stored in `mdns_prev_scan_results`.
- * It sends the data to the web interface using `webserver_data_response_to_all_client()` with the
- * event identifier "Device.LanDevicesNotify".
+ * It sends the data to authenticated web clients with the event identifier
+ * "Device.LanDevicesNotify".
  *
  */
 void webserver_cur_mdns_scan_result_notify(void);
+void webserver_cur_mdns_scan_result_notify_to_client(int socket_fd);
 
 /**
  * @brief Load mDNS configuration from a JSON file.

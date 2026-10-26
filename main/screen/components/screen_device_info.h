@@ -66,7 +66,7 @@ void screen_device_info_set_upgrade_cb(screen_device_info_t *view,
                                        screen_device_info_upgrade_cb_t callback,
                                        void *user_data);
 
-/** Configure the action invoked after the hide animation has completed. */
+/** Configure the action invoked after the page has been hidden. */
 void screen_device_info_set_hidden_cb(screen_device_info_t *view,
                                       screen_device_info_hidden_cb_t callback,
                                       void *user_data);
@@ -80,12 +80,15 @@ void screen_device_info_set_update_state(
     screen_device_info_update_state_t state,
     const char *available_version);
 
-/** Show or hide the page with a vertical slide animation. */
+/** Show or hide the page immediately. */
 void screen_device_info_show(screen_device_info_t *view);
 void screen_device_info_hide(screen_device_info_t *view);
 
 /** Return true when the page exists and is currently visible. */
 bool screen_device_info_is_visible(const screen_device_info_t *view);
+
+/** Reapply the portrait or landscape layout after the display rotates. */
+void screen_device_info_apply_orientation(screen_device_info_t *view);
 
 #ifdef __cplusplus
 }

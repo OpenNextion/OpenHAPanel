@@ -15,6 +15,7 @@
 #define EFFECT_INSET    0
 #define EFFECT_MARGIN   8
 #define EFFECT_MENU_RADIUS 12
+#define EFFECT_SCROLLBAR_INSET 8
 
 #define EFFECT_BUTTON_COLOR      0x1F1F1F
 #define EFFECT_BUTTON_PRESSED    0x303030
@@ -245,15 +246,14 @@ static void open_popup(climate_selector_context_t *context)
                         LV_EVENT_DELETE,
                         context);
 
-    const int32_t natural_height =
-        EFFECT_INSET * 2 + (int32_t)context->option_count * EFFECT_ROW_H;
-    const int32_t max_height =
-        LV_MAX(1, screen_height - EFFECT_MARGIN * 2);
-    const int32_t menu_height = LV_MIN(natural_height, max_height);
-
     lv_obj_update_layout(context->root);
     lv_area_t root_coords;
     lv_obj_get_coords(context->root, &root_coords);
+    const int32_t natural_height =
+        EFFECT_INSET * 2 + (int32_t)context->option_count * EFFECT_ROW_H;
+    const int32_t available_height = LV_MAX(1, root_coords.y1 - EFFECT_MARGIN);
+    const int32_t menu_height = LV_MIN(natural_height, available_height);
+    const bool needs_scroll = natural_height > available_height;
     int32_t menu_width = LV_MIN(LV_MAX(133, lv_area_get_width(&root_coords)),
                                 LV_MAX(1, screen_width - EFFECT_MARGIN * 2));
     int32_t menu_x = root_coords.x1 +
@@ -261,10 +261,7 @@ static void open_popup(climate_selector_context_t *context)
     menu_x = LV_CLAMP(EFFECT_MARGIN,
                       menu_x,
                       screen_width - menu_width - EFFECT_MARGIN);
-    int32_t menu_y = root_coords.y1 - menu_height;
-    menu_y = LV_CLAMP(EFFECT_MARGIN,
-                      menu_y,
-                      screen_height - menu_height - EFFECT_MARGIN);
+    const int32_t menu_y = root_coords.y1 - menu_height;
 
     lv_obj_t *menu = lv_obj_create(mask);
     if (!menu) {
@@ -290,15 +287,31 @@ static void open_popup(climate_selector_context_t *context)
     lv_obj_set_style_shadow_opa(menu, 40, LV_PART_MAIN);
     lv_obj_set_style_shadow_color(menu, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_style_pad_all(menu, 0, LV_PART_MAIN);
-    lv_obj_set_scroll_dir(menu, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_remove_flag(menu, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    if (needs_scroll) {
+        lv_obj_add_flag(menu, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scroll_dir(menu, LV_DIR_VER);
+        lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_AUTO);
+    } else {
+        lv_obj_remove_flag(menu, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_OFF);
+    }
+    lv_obj_set_style_width(menu, 4, LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(menu, LV_RADIUS_CIRCLE, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_top(menu, EFFECT_SCROLLBAR_INSET, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_bottom(menu, EFFECT_SCROLLBAR_INSET, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_right(menu, 2, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(menu,
+                              lv_color_hex(EFFECT_MENU_BORDER_COLOR),
+                              LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(menu, LV_OPA_COVER, LV_PART_SCROLLBAR);
 
     for (size_t i = 0; i < context->option_count; i++) {
         context->rows[i] = create_menu_row(context, menu, i, menu_width);
     }
     refresh_rows(context);
     lv_obj_update_layout(menu);
-    if (context->selected < context->option_count &&
+    if (needs_scroll && context->selected < context->option_count &&
         context->rows[context->selected]) {
         lv_obj_scroll_to_view(context->rows[context->selected], LV_ANIM_OFF);
     }

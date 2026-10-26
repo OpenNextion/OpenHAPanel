@@ -24,11 +24,9 @@ typedef struct {
     const char *state_icon;
     bool show_state_icon;
     bool unavailable;
-    bool has_ripple_color;
     lv_color_t background_color;
     lv_color_t icon_color;
     lv_color_t icon_circle_background_color;
-    lv_color_t ripple_color;
     lv_color_t title_color;
     lv_color_t state_color;
 } entity_display_model_t;

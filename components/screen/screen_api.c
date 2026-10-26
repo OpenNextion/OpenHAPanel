@@ -21,6 +21,15 @@ esp_err_t method_api_handle_set_screen_config(cJSON *data, async_resp_arg *now_r
 
 send_response:
     webserver_code_response_to_current_client(ret, WEB_API_METHOD_SET_SCREEN_CONFIG_RSP, now_resp_arg->seq);
+    if (ret == ESP_OK) {
+        esp_err_t notify_ret =
+            screen_config_notify_authenticated_clients_except(now_resp_arg->fd);
+        if (notify_ret != ESP_OK) {
+            ESP_LOGW(TAG,
+                     "Failed to notify other authenticated clients about screen config: %s",
+                     esp_err_to_name(notify_ret));
+        }
+    }
     return ret;
 }
 
@@ -35,7 +44,25 @@ esp_err_t screen_config_notify(void)
     return webserver_data_response_to_current_client(data, WEB_API_METHOD_SCREEN_CONFIG_NOTIFY, 0);
 }
 
+esp_err_t screen_config_notify_to_client(int socket_fd)
+{
+    cJSON *data = screen_load_config();
+    if (!data) {
+        ESP_LOGE(TAG, "Failed to load screen config for client notification");
+        return ESP_FAIL;
+    }
+
+    return webserver_data_response_to_special_client(
+        data, WEB_API_METHOD_SCREEN_CONFIG_NOTIFY, 0, socket_fd);
+}
+
 esp_err_t screen_config_notify_authenticated_clients(void)
+{
+    return screen_config_notify_authenticated_clients_except(-1);
+}
+
+esp_err_t screen_config_notify_authenticated_clients_except(
+    int excluded_socket_fd)
 {
     cJSON *data = screen_load_config();
     if (!data) {
@@ -43,8 +70,9 @@ esp_err_t screen_config_notify_authenticated_clients(void)
         return ESP_FAIL;
     }
 
-    return webserver_data_response_to_authenticated_clients(
+    return webserver_data_response_to_authenticated_clients_except(
         data,
         WEB_API_METHOD_SCREEN_CONFIG_NOTIFY,
-        0);
+        0,
+        excluded_socket_fd);
 }

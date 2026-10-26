@@ -6,6 +6,7 @@
 
 #include "assets/ha_ui_assets.h"
 #include "sys_time_api.h"
+#include "bsp_lcd.h"
 
 static lv_obj_t *history_list_create_root(lv_obj_t *parent,
                                           const char *title)
@@ -15,7 +16,7 @@ static lv_obj_t *history_list_create_root(lv_obj_t *parent,
         return NULL;
     }
     lv_obj_remove_style_all(root);
-    lv_obj_set_width(root, HA_HISTORY_LIST_DEFAULT_WIDTH);
+    lv_obj_set_width(root, bsp_lcd_is_landscape() ? HA_HISTORY_LIST_DEFAULT_WIDTH_LANDSCAPE : HA_HISTORY_LIST_DEFAULT_WIDTH_PORTAIT);
     lv_obj_set_height(root, LV_SIZE_CONTENT);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_layout(root, LV_LAYOUT_FLEX);
@@ -93,9 +94,9 @@ static lv_obj_t *history_list_create_day_group(lv_obj_t *parent,
     lv_obj_remove_style_all(records);
     lv_obj_set_size(records, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_layout(records, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(records, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_flow(records, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(records,
-                          LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_all(records, 0, 0);
@@ -108,17 +109,26 @@ static void history_list_create_record(lv_obj_t *parent,
                                        const char *text,
                                        const char *time_text)
 {
-    lv_obj_t *event = lv_label_create(parent);
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 8, 0);
+
+    lv_obj_t *event = lv_label_create(row);
     lv_label_set_text(event, text ? text : "");
-    lv_obj_set_width(event, LV_PCT(60));
-    lv_label_set_long_mode(event, LV_LABEL_LONG_DOT);
+    lv_obj_set_flex_grow(event, 1);
     lv_obj_set_style_text_font(event, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(event, lv_color_hex(0x666666), 0);
 
-    lv_obj_t *time_label = lv_label_create(parent);
+    lv_obj_t *time_label = lv_label_create(row);
     lv_label_set_text(time_label, time_text);
-    lv_obj_set_width(time_label, LV_PCT(40));
-    lv_obj_set_style_text_font(time_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(time_label, &ha_font_misan_regular_16_tnum, 0);
     lv_obj_set_style_text_color(time_label, lv_color_hex(0x666666), 0);
     lv_obj_set_style_text_align(time_label, LV_TEXT_ALIGN_RIGHT, 0);
 }

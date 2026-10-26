@@ -8,8 +8,9 @@
 typedef struct {
     lv_obj_t *status_row, *slider, *number_area;
     lv_obj_t *current_temp, *current_humidity, *action, *low_number, *high_number;
+    lv_obj_t *unavailable_label;
     int low, high;
-    bool dual, humidity, selected_low, disabled, theme_off;
+    bool dual, humidity, selected_low, disabled, theme_off, unavailable;
     climate_dial_change_cb_t callback;
     void *user_data;
     climate_dial_selection_cb_t selection_callback;
@@ -26,6 +27,17 @@ static void set_number(lv_obj_t *obj, int value, bool humidity)
 
 static void refresh(climate_dial_t *dial)
 {
+    if (dial->unavailable) {
+        lv_obj_add_flag(dial->action, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(dial->low_number, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(dial->high_number, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(dial->unavailable_label, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    lv_obj_remove_flag(dial->action, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(dial->unavailable_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(dial->low_number, LV_OBJ_FLAG_HIDDEN);
     set_number(dial->low_number, dial->low, dial->humidity);
     if (dial->dual) {
         set_number(dial->high_number, dial->high, dial->humidity);
@@ -152,15 +164,44 @@ lv_obj_t *climate_dial_create(lv_obj_t *parent)
     lv_obj_align(dial->number_area, LV_ALIGN_CENTER, 0, -6);
     dial->low_number = make_number(dial->number_area);
     dial->high_number = make_number(dial->number_area);
-    if (!dial->low_number || !dial->high_number) {
+    dial->unavailable_label = lv_label_create(dial->number_area);
+    if (!dial->low_number || !dial->high_number || !dial->unavailable_label) {
         lv_obj_delete(root);
         return NULL;
     }
+    lv_label_set_text(dial->unavailable_label, "Unavailable");
+    lv_obj_set_style_text_font(dial->unavailable_label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_color(dial->unavailable_label, lv_color_hex(0x9B9B9B), 0);
+    lv_obj_align(dial->unavailable_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(dial->unavailable_label, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(dial->low_number, number_clicked, LV_EVENT_CLICKED, dial);
     lv_obj_add_event_cb(dial->high_number, number_clicked, LV_EVENT_CLICKED, dial);
     dial->selected_low = true;
     refresh(dial);
     return root;
+}
+
+void climate_dial_set_compact_layout(lv_obj_t *obj, bool compact)
+{
+    climate_dial_t *dial = ctx(obj);
+    if (!dial) return;
+
+    climate_control_circular_slider_set_size(dial->slider, compact ? 170 : 210);
+    lv_obj_set_height(dial->status_row, compact ? 42 : 20);
+    lv_obj_set_style_pad_column(dial->status_row, compact ? 8 : 16, 0);
+    lv_obj_set_width(dial->current_temp, compact ? 104 : 136);
+    lv_obj_set_width(dial->current_humidity, compact ? 104 : 136);
+    lv_obj_align(dial->action, LV_ALIGN_CENTER, 0, compact ? -32 : -39);
+
+    if (compact) {
+        lv_obj_add_flag(dial->slider, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_update_layout(obj);
+        climate_control_circular_slider_set_touch_width(dial->slider,
+                                                        lv_obj_get_width(obj));
+        lv_obj_align(dial->slider, LV_ALIGN_TOP_MID, 0, 50);
+    } else {
+        lv_obj_remove_flag(dial->slider, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    }
 }
 
 void climate_dial_set_range(lv_obj_t *obj, int min, int max, int step)
@@ -314,6 +355,15 @@ void climate_dial_set_disabled(lv_obj_t *obj, bool disabled)
     dial->disabled = disabled;
     climate_control_circular_slider_set_inactive(dial->slider, disabled || dial->theme_off);
     climate_control_circular_slider_set_disabled(dial->slider, disabled);
+}
+
+void climate_dial_set_unavailable(lv_obj_t *obj, bool unavailable)
+{
+    climate_dial_t *dial = ctx(obj);
+    if (!dial || dial->unavailable == unavailable) return;
+    dial->unavailable = unavailable;
+    climate_control_circular_slider_set_show_knob(dial->slider, !unavailable);
+    refresh(dial);
 }
 
 void climate_dial_set_change_cb(lv_obj_t *obj, climate_dial_change_cb_t callback, void *user_data)

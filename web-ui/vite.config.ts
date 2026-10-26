@@ -16,8 +16,7 @@ import dayjs from 'dayjs';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, process.cwd());
     const vconsole = env.VITE_VCONSOLE !== '1';
-    // wiki: https://zh.wikipedia.org/wiki/Favicon
-    const favicon = `data:image/x-icon;base64,${fs.readFileSync(path.join(__dirname, './src/assets/favicon.ico'), 'base64')}`;
+    const favicon = `data:image/svg+xml;base64,${fs.readFileSync(path.join(__dirname, './src/assets/svg/nextionLogo.svg'), 'base64')}`;
     return {
         plugins: [
             svelte({

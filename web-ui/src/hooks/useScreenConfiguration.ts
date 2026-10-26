@@ -5,6 +5,7 @@ import {
 } from '@/hooks/useHassEntity';
 import type { IHassEntityInteractionConfig } from '@/constant/hassEntity';
 import { haRegistryStore } from '@/stores/haRegistry';
+import { deviceStore } from '@/stores/device';
 import {
     addScreenBadge,
     addScreenCard,
@@ -66,7 +67,11 @@ export function addEntityToScreen(screenIndex: number, mode: TEntityPickerMode, 
     }
     addScreenCard(screenIndex, {
         type: 'tile',
-        data: { entity: entity.id, full_width: true, actionConfig: createDefaultScreenActionConfig() },
+        data: {
+            entity: entity.id,
+            full_width: false,
+            actionConfig: createDefaultScreenActionConfig(),
+        },
     });
 }
 
@@ -79,6 +84,7 @@ export function saveScreenEntitySettings(
     tap: TActionSelection,
     hold: TActionSelection,
     iconTap: TActionSelection,
+    fullWidth?: boolean,
 ) {
     const actionConfig = {
         tap_action: toScreenActionItem(tap),
@@ -89,7 +95,7 @@ export function saveScreenEntitySettings(
         updateScreenBadge(screenIndex, currentEntityId, entityId, name, actionConfig);
         return;
     }
-    updateScreenCard(screenIndex, currentEntityId, entityId, actionConfig);
+    updateScreenCard(screenIndex, currentEntityId, entityId, actionConfig, fullWidth);
 }
 
 export function deleteScreenEntity(mode: TEntityPickerMode, screenIndex: number, entityId: string) {

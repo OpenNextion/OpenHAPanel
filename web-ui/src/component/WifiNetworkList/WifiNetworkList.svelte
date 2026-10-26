@@ -85,7 +85,10 @@
                 {/each}
             </SettingRowGroup>
         {:else if !loading}
-            <p class="wifi-empty-result">{$_('networkPage.noWifi')}</p>
+            <div class="wifi-empty-state">
+                <SvgIcon name="noWifi.svg" />
+                <p>{$_('networkPage.noWifiDescription')}</p>
+            </div>
         {/if}
     </div>
 </div>
@@ -253,10 +256,30 @@
         top: calc(100% + 0.4rem);
         bottom: auto;
     }
-    .wifi-empty-result {
+    .wifi-empty-state {
+        display: flex;
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 100%;
         padding: 1.5rem 1rem;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+    }
+    .wifi-empty-state :global(.sf-icon),
+    .wifi-empty-state :global(svg) {
+        display: block;
+        width: 10rem;
+        height: 10rem;
+        flex: 0 0 auto;
+    }
+    .wifi-empty-state p {
+        width: min(100%, 32rem);
         margin: 0;
         color: var(--body-text-color-grey);
-        text-align: center;
+        font-size: 0.8rem;
+        line-height: 1.5;
+        text-align: left;
     }
 </style>

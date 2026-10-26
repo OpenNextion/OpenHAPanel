@@ -25,6 +25,7 @@ export const ROUTES_PATH = {
     SETTINGS_LANGUAGE: '/settings/language',
     SETTINGS_DISPLAY: '/settings/display',
     SETTINGS_SCREEN_LOCK: '/settings/display/screen-lock',
+    SETTINGS_SCREEN_ROTATION: '/settings/screen-rotation',
     SETTINGS_NIGHT_MODE: '/settings/night-mode',
     SETTINGS_DARK_MODE: '/settings/dark-mode',
     SETTINGS_DEBUG: '/settings/debug',

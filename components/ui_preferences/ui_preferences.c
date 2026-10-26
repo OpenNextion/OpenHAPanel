@@ -6,6 +6,7 @@
 
 #define UI_PREFERENCES_NVS_NAMESPACE        "ui_prefs"
 #define UI_PREFERENCES_HA_SWIPE_HINT_KEY    "ha_swipe_seen"
+#define UI_PREFERENCES_SCREEN_ROTATION_KEY   "screen_rot"
 
 esp_err_t ui_preferences_get_ha_swipe_hint_seen(bool *seen)
 {
@@ -34,6 +35,24 @@ esp_err_t ui_preferences_set_ha_swipe_hint_seen(void)
     return nvs_storage_set_u8(UI_PREFERENCES_NVS_NAMESPACE,
                               UI_PREFERENCES_HA_SWIPE_HINT_KEY,
                               1);
+}
+
+esp_err_t ui_preferences_get_screen_rotation(uint8_t *quarter_turns)
+{
+    if (!quarter_turns) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return nvs_storage_get_u8(UI_PREFERENCES_NVS_NAMESPACE,
+                              UI_PREFERENCES_SCREEN_ROTATION_KEY,
+                              quarter_turns);
+}
+
+esp_err_t ui_preferences_set_screen_rotation(uint8_t quarter_turns)
+{
+    return nvs_storage_set_u8(UI_PREFERENCES_NVS_NAMESPACE,
+                              UI_PREFERENCES_SCREEN_ROTATION_KEY,
+                              quarter_turns);
 }
 
 esp_err_t ui_preferences_prepare_factory_reset(void)

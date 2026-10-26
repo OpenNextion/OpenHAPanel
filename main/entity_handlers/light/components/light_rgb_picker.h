@@ -11,6 +11,7 @@ typedef void (*light_rgb_change_cb_t)(light_rgb_t rgb,
                                       void *user_data);
 
 lv_obj_t *light_rgb_picker_create(lv_obj_t *parent);
+void light_rgb_picker_set_size(lv_obj_t *obj, int32_t size);
 void light_rgb_picker_set_value(lv_obj_t *obj, light_rgb_t rgb);
 void light_rgb_picker_set_marker_visible(lv_obj_t *obj, bool visible);
 void light_rgb_picker_set_disabled(lv_obj_t *obj, bool disabled);

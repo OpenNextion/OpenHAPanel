@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "esp_err.h"
 
@@ -14,6 +15,12 @@ esp_err_t ui_preferences_get_ha_swipe_hint_seen(bool *seen);
 
 /** Persist that the HA provisioning swipe hint has been acknowledged. */
 esp_err_t ui_preferences_set_ha_swipe_hint_seen(void);
+
+/** Read the persisted display rotation as a number of clockwise quarter turns. */
+esp_err_t ui_preferences_get_screen_rotation(uint8_t *quarter_turns);
+
+/** Persist the display rotation as a number of clockwise quarter turns. */
+esp_err_t ui_preferences_set_screen_rotation(uint8_t quarter_turns);
 
 /** Clear all persisted UI preferences during a factory reset. */
 esp_err_t ui_preferences_prepare_factory_reset(void);

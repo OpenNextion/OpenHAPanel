@@ -14,7 +14,7 @@
 </script>
 
 {#if $messageStore.showMessage}
-    <div class:has-top-tips={topTips.type !== undefined} class="toast-container d-flex justity-content-center align-items-center" transition:fade>
+    <div class:has-top-tips={topTips.type !== undefined} class="toast-container d-flex justify-content-center align-items-center" transition:fade>
         <div class="toast">
             <SvgIcon name={iconMap[$messageStore.type] || iconMap[EMessageType.SUCCESS]} />
             <div class="message">{$messageStore.message}</div>
@@ -26,20 +26,20 @@
     .toast-container {
         position: fixed;
         left: 50%;
-        top: 40%;
-        transform: translate(-50%, -50%);
+        top: 1.5rem;
+        transform: translateX(-50%);
         z-index: 9999;
         opacity: 0.9;
-        width: 80vw;
+        width: calc(100% - 2rem);
         display: flex;
         justify-content: center;
         &.has-top-tips {
-            top: calc(var(--top-tips-height) + 1rem);
-            transform: translateX(-50%);
+            top: calc(var(--top-tips-height, 2.5rem) + 1.5rem);
         }
         .toast {
             width: auto;
-            max-width: 350px;
+            max-width: 21.875rem;
+            min-width: 0;
             background-color: #1a1a1a;
             color: #fff;
             padding: 1rem 1.5rem;
@@ -47,22 +47,27 @@
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.2);
+            :global(.sf-icon) {
+                flex-shrink: 0;
+            }
             .message {
                 width: 100%;
+                min-width: 0;
                 font-size: 1rem;
                 color: #ffffff;
-                max-width: 350px;
+                max-width: 21.875rem;
+                overflow-wrap: anywhere;
             }
         }
     }
-    @media screen and (min-width: 768px) {
+    @media screen and (min-width: 48rem) {
         .toast-container {
-            top: 40px;
-            width: unset;
+            width: max-content;
+            max-width: calc(100% - 2rem);
             .toast {
                 width: auto;
-                max-width: 800px !important;
+                max-width: 50rem;
                 .message {
                     max-width: 70vw;
                     white-space: nowrap;

@@ -8,12 +8,26 @@
 
 #include "assets/ha_ui_assets.h"
 #include "sys_time_api.h"
+#include "bsp_lcd.h"
 
 #define HA_HISTORY_TIME_LABEL_COUNT 5
 #define HA_HISTORY_VALUE_SCALE 100.0
-#define HA_HISTORY_CHART_Y 57
+#define HA_HISTORY_CHART_Y_PORT 57
+#define HA_HISTORY_CHART_Y_LAND 37
 #define HA_HISTORY_CHART_RIGHT 12
-#define HA_HISTORY_PLOT_HEIGHT 219
+#define HA_HISTORY_PLOT_HEIGHT_PORT 219
+#define HA_HISTORY_PLOT_HEIGHT_LAND 103
+
+static inline int32_t history_chart_y(void)
+{
+    return bsp_lcd_is_landscape() ? HA_HISTORY_CHART_Y_LAND
+                                  : HA_HISTORY_CHART_Y_PORT;
+}
+static inline int32_t history_plot_height(void)
+{
+    return bsp_lcd_is_landscape() ? HA_HISTORY_PLOT_HEIGHT_LAND
+                                  : HA_HISTORY_PLOT_HEIGHT_PORT;
+}
 #define HA_HISTORY_PLOT_PAD_HOR 12
 #define HA_HISTORY_PLOT_PAD_VER 12
 #define HA_HISTORY_UNIT_MAX 32
@@ -153,8 +167,8 @@ static int32_t history_chart_create_y_axis_labels(lv_obj_t *root,
 
     lv_obj_t *labels[HA_HISTORY_Y_AXIS_MAX_TICKS] = {0};
     int32_t label_width = 0;
-    const int32_t plot_top = HA_HISTORY_CHART_Y + HA_HISTORY_PLOT_PAD_VER;
-    const int32_t plot_height = HA_HISTORY_PLOT_HEIGHT -
+    const int32_t plot_top = history_chart_y() + HA_HISTORY_PLOT_PAD_VER;
+    const int32_t plot_height = history_plot_height() -
                                 HA_HISTORY_PLOT_PAD_VER * 2;
     const double range = (double)axis_max - axis_min;
     for (size_t i = 0; i < tick_count; i++) {
@@ -230,7 +244,7 @@ static void history_chart_create_time_labels(
                                            (HA_HISTORY_TIME_LABEL_COUNT - 1));
         lv_obj_set_pos(label,
                        center_x - lv_obj_get_width(label) / 2,
-                       HA_HISTORY_CHART_Y + HA_HISTORY_PLOT_HEIGHT +
+                       history_chart_y() + history_plot_height() +
                            HA_HISTORY_TIME_LABEL_GAP);
     }
 }
@@ -317,19 +331,20 @@ static void history_chart_event_cb(lv_event_t *event)
     const int32_t tooltip_width = lv_obj_get_width(history->tooltip);
     const int32_t tooltip_height = lv_obj_get_height(history->tooltip);
     int32_t tooltip_x = history->chart_x + point.x + 8;
-    if (tooltip_x + tooltip_width > HA_HISTORY_CHART_DEFAULT_WIDTH - 6) {
+    int32_t chart_default_width = bsp_lcd_is_landscape() ? HA_HISTORY_CHART_DEFAULT_WIDTH_LANDSCAPE : HA_HISTORY_CHART_DEFAULT_WIDTH_PORTAIT;
+    if (tooltip_x + tooltip_width > chart_default_width - 6) {
         tooltip_x = history->chart_x + point.x - tooltip_width - 8;
     }
     tooltip_x = LV_CLAMP(4,
                          tooltip_x,
-                         HA_HISTORY_CHART_DEFAULT_WIDTH - tooltip_width - 4);
+                         chart_default_width - tooltip_width - 4);
 
-    int32_t tooltip_y = HA_HISTORY_CHART_Y + point.y -
+    int32_t tooltip_y = history_chart_y() + point.y -
                         tooltip_height / 2;
-    tooltip_y = LV_CLAMP(HA_HISTORY_CHART_Y,
+    tooltip_y = LV_CLAMP(history_chart_y(),
                          tooltip_y,
-                         HA_HISTORY_CHART_Y +
-                             HA_HISTORY_PLOT_HEIGHT - tooltip_height);
+                         history_chart_y() +
+                             history_plot_height() - tooltip_height);
     lv_obj_set_pos(history->tooltip, tooltip_x, tooltip_y);
     lv_obj_move_foreground(history->tooltip);
     lv_obj_invalidate(history->chart);
@@ -385,9 +400,11 @@ static lv_obj_t *history_chart_create_root(lv_obj_t *parent,
         return NULL;
     }
     lv_obj_remove_style_all(root);
+    int32_t chart_default_width = bsp_lcd_is_landscape() ? HA_HISTORY_CHART_DEFAULT_WIDTH_LANDSCAPE : HA_HISTORY_CHART_DEFAULT_WIDTH_PORTAIT;
+    int32_t chart_default_height = bsp_lcd_is_landscape() ? HA_HISTORY_CHART_DEFAULT_HEIGHT_LANDSCAPE : HA_HISTORY_CHART_DEFAULT_HEIGHT_PORTAIT;
     lv_obj_set_size(root,
-                    HA_HISTORY_CHART_DEFAULT_WIDTH,
-                    HA_HISTORY_CHART_DEFAULT_HEIGHT);
+                    chart_default_width,
+                    chart_default_height);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_all(root, 0, 0);
     lv_obj_set_style_bg_color(root, lv_color_hex(0x1E2228), 0);
@@ -478,8 +495,9 @@ lv_obj_t *ha_history_chart_create(
         axis_min,
         axis_max,
         y_axis_tick_count);
-    history->chart_width = HA_HISTORY_CHART_DEFAULT_WIDTH -
-                           HA_HISTORY_CHART_RIGHT - history->chart_x;
+    int32_t chart_default_width = bsp_lcd_is_landscape() ? HA_HISTORY_CHART_DEFAULT_WIDTH_LANDSCAPE : HA_HISTORY_CHART_DEFAULT_WIDTH_PORTAIT;
+    
+    history->chart_width = chart_default_width -HA_HISTORY_CHART_RIGHT - history->chart_x;
 
     lv_obj_t *unit_label = lv_label_create(root);
     lv_label_set_text(unit_label, history->unit);
@@ -487,9 +505,7 @@ lv_obj_t *ha_history_chart_create(
     lv_obj_set_style_text_color(unit_label, lv_color_hex(0x666666), 0);
     lv_obj_update_layout(unit_label);
     lv_obj_set_pos(unit_label,
-                   HA_HISTORY_CHART_DEFAULT_WIDTH -
-                       HA_HISTORY_CHART_RIGHT -
-                       lv_obj_get_width(unit_label),
+                    chart_default_width - HA_HISTORY_CHART_RIGHT - lv_obj_get_width(unit_label),
                    18);
 
     lv_obj_t *chart = lv_chart_create(root);
@@ -497,10 +513,10 @@ lv_obj_t *ha_history_chart_create(
     lv_obj_remove_style_all(chart);
     lv_obj_add_flag(chart, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(chart, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(chart, history->chart_x, HA_HISTORY_CHART_Y);
+    lv_obj_set_pos(chart, history->chart_x, history_chart_y());
     lv_obj_set_size(chart,
                     history->chart_width,
-                    HA_HISTORY_PLOT_HEIGHT);
+                    history_plot_height());
     lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(chart, 2, 0);
     lv_obj_set_style_border_color(chart, lv_color_hex(0x4D5157), 0);

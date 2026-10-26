@@ -27,6 +27,7 @@ typedef struct {
     lv_obj_t *mode_icons[3];
     uint32_t mode_mask;
     light_mode_t active_mode;
+    bool vertical;
     bool power_on;
     bool disabled;
     light_mode_bar_event_cb_t callback;
@@ -208,6 +209,26 @@ static void refresh(light_mode_bar_context_t *context)
                          0);
 }
 
+static void apply_layout(light_mode_bar_context_t *context)
+{
+    if (!context || !context->root) {
+        return;
+    }
+    lv_obj_set_size(context->root,
+                    context->vertical ? MODE_BAR_HEIGHT : LV_SIZE_CONTENT,
+                    context->vertical ? LV_SIZE_CONTENT : MODE_BAR_HEIGHT);
+    lv_obj_set_flex_flow(context->root,
+                         context->vertical ? LV_FLEX_FLOW_COLUMN
+                                           : LV_FLEX_FLOW_ROW);
+    if (context->separator) {
+        lv_obj_set_size(context->separator,
+                        context->vertical ? MODE_BAR_SEPARATOR_H
+                                          : MODE_BAR_SEPARATOR_W,
+                        context->vertical ? MODE_BAR_SEPARATOR_W
+                                          : MODE_BAR_SEPARATOR_H);
+    }
+}
+
 lv_obj_t *light_mode_bar_create(lv_obj_t *parent)
 {
     if (!parent) {
@@ -285,6 +306,16 @@ lv_obj_t *light_mode_bar_create(lv_obj_t *parent)
     context->active_mode = LIGHT_MODE_BRIGHTNESS;
     refresh(context);
     return root;
+}
+
+void light_mode_bar_set_vertical(lv_obj_t *obj, bool vertical)
+{
+    light_mode_bar_context_t *context = get_context(obj);
+    if (!context || context->vertical == vertical) {
+        return;
+    }
+    context->vertical = vertical;
+    apply_layout(context);
 }
 
 void light_mode_bar_set_modes(lv_obj_t *obj, uint32_t mode_mask)

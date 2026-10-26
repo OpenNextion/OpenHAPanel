@@ -1,6 +1,6 @@
 import type { IAuthNotify, IForgotPwdNotify } from '@/types/auth';
 import type { IConnectionStatusNotify, IWifiInfoNotify, IWifiScanResultNotify } from '@/types/network';
-import type { IDeviceInfoNotify } from './device';
+import type { IDeviceInfoNotify, IScreenRotationNotify } from './device';
 import type { IHassAuthorizationResult, IHassConnectionStatusNotify, IHassScanResultNotify } from '@/types/homeassistant';
 import type { IHassScreenConfigNotify } from './screenConfig';
 import type { IFirmwareUpdateStatusNotify } from './firmware';
@@ -50,6 +50,11 @@ export enum EWsMethods {
     SET_BRIGHTNESS_RSP = 'Device.SetBrightnessRsp',
     SET_IDLE_TIME = 'Device.SetScreenLock',
     SET_IDLE_TIME_RSP = 'Device.SetScreenLockRsp',
+    SET_NIGHT_MODE = 'Device.SetNightMode',
+    SET_NIGHT_MODE_RSP = 'Device.SetNightModeRsp',
+    SET_SCREEN_ROTATION = 'Device.SetScreenRotation',
+    SET_SCREEN_ROTATION_RSP = 'Device.SetScreenRotationRsp',
+    SCREEN_ROTATION_NOTIFY = 'Device.ScreenRotationNotify',
     //SET_IDENTIFY = 'Device.Identify',
     //SET_IDENTIFY_RSP = 'Device.IdentifyRsp',
     //SET_IEEE_ADDRESS = 'Device.SetIEEAddress',
@@ -59,8 +64,6 @@ export enum EWsMethods {
     //INDICATOR_NOTIFY = 'Device.IndicatorNotify',
     //SET_ALL_INDICATORS_OFF = 'Device.SetAllIndicatorsOff',
     //SET_ALL_INDICATORS_OFF_RSP = 'Device.SetAllIndicatorsOffRsp',
-    //SET_NIGHT_MODE = 'Device.SetNightMode',
-    //SET_NIGHT_MODE_RSP = 'Device.SetNightModeRsp',
     //SET_INDICATOR = 'Device.SetIndicator',
     //SET_INDICATOR_RSP = 'Device.SetIndicatorRsp',
     //PREVIEW_INDICATOR_EFFECT = 'Device.PreviewIndicatorEffect',
@@ -164,6 +167,7 @@ export type TMethodParams = {
     [EWsMethods.AUTH_REQUIRED_NOTIFY]: IResponse<IAuthNotify>;
     [EWsMethods.FORGOT_PASSWORD_NOTIFY]: IResponse<IForgotPwdNotify>;
     [EWsMethods.DEVICE_INFO_NOTIFY]: IResponse<IDeviceInfoNotify>;
+    [EWsMethods.SCREEN_ROTATION_NOTIFY]: IResponse<IScreenRotationNotify>;
     [EWsMethods.FIRMWARE_UPDATE_STATUS_NOTIFY]: IResponse<IFirmwareUpdateStatusNotify>;
     [EWsMethods.LAN_DEVICE_NOTIFY]: IResponse<ILanDeviceNotify>;
     //[EWsMethods.INDICATOR_NOTIFY]: IResponse<IDeviceIndicatorNotify>;

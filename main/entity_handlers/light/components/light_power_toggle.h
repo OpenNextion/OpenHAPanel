@@ -8,6 +8,9 @@
 typedef void (*light_power_toggle_change_cb_t)(bool on, void *user_data);
 
 lv_obj_t *light_power_toggle_create(lv_obj_t *parent);
+void light_power_toggle_set_height(lv_obj_t *obj,
+                                   int32_t height,
+                                   int32_t knob_height);
 void light_power_toggle_set_value(lv_obj_t *obj,
                                   bool on,
                                   lv_anim_enable_t animate);

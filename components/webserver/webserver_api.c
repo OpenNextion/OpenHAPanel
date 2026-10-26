@@ -487,6 +487,14 @@ esp_err_t webserver_send_message_to_all_client(char *msg, size_t len)
 
 esp_err_t webserver_send_message_to_authenticated_clients(char *msg, size_t len)
 {
+  return webserver_send_message_to_authenticated_clients_except(msg, len, -1);
+}
+
+esp_err_t webserver_send_message_to_authenticated_clients_except(
+    char *msg,
+    size_t len,
+    int excluded_socket_fd)
+{
   if (!msg || len == 0 || !webserver_clients_mutex) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -496,7 +504,7 @@ esp_err_t webserver_send_message_to_authenticated_clients(char *msg, size_t len)
 
   esp_err_t ret = ESP_OK;
   for (webserver_client_node_t *current = webserver_node_clients; current; current = current->next) {
-    if (current->auth) {
+    if (current->auth && current->sock_fd != excluded_socket_fd) {
       esp_err_t send_ret = send_ws_message_with_semaphore(current->sock_fd, msg, len);
       if (send_ret != ESP_OK) ret = send_ret;
     }
@@ -1094,6 +1102,16 @@ esp_err_t webserver_data_response_to_all_client(cJSON *data, char *method, doubl
 
 esp_err_t webserver_data_response_to_authenticated_clients(cJSON *data, char *method, double seq)
 {
+  return webserver_data_response_to_authenticated_clients_except(
+      data, method, seq, -1);
+}
+
+esp_err_t webserver_data_response_to_authenticated_clients_except(
+    cJSON *data,
+    char *method,
+    double seq,
+    int excluded_socket_fd)
+{
   cJSON *root_rsp = cJSON_CreateObject();
   if (!root_rsp) {
     cJSON_Delete(data);
@@ -1108,7 +1126,8 @@ esp_err_t webserver_data_response_to_authenticated_clients(cJSON *data, char *me
   char *rsp_str = cJSON_PrintUnformatted(root_rsp);
   esp_err_t ret = ESP_ERR_NO_MEM;
   if (rsp_str) {
-    ret = webserver_send_message_to_authenticated_clients(rsp_str, strlen(rsp_str));
+    ret = webserver_send_message_to_authenticated_clients_except(
+        rsp_str, strlen(rsp_str), excluded_socket_fd);
     free(rsp_str);
   }
   cJSON_Delete(root_rsp);

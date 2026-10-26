@@ -75,6 +75,8 @@ typedef struct {
     char friendly_name[HA_ENTITY_STORE_FRIENDLY_NAME_MAX];
     char unit_of_measurement[HA_ENTITY_STORE_UNIT_MAX];
     char device_class[HA_ENTITY_STORE_DEVICE_CLASS_MAX];
+    bool has_unit_of_measurement;
+    bool has_state_class;
     /* Home Assistant last_updated: when the entity was last updated. */
     char last_updated[HA_ENTITY_STORE_DATETIME_MAX];
     /* Home Assistant last_changed: when the state itself last changed. */

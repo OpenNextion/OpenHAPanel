@@ -152,7 +152,7 @@
     }
 </script>
 
-<div class="wifi-setup-page">
+<div class="wifi-setup-page" class:empty-state={!$networkStore.results.length && !scanLoading}>
     <header>
         <h1>{$_('networkPage.setupTitle')}</h1>
         <p>{$_('networkPage.setupSubtitle')}</p>
@@ -308,6 +308,23 @@
             overscroll-behavior: contain;
             touch-action: pan-y;
             -webkit-overflow-scrolling: touch;
+        }
+
+        .wifi-setup-page.empty-state {
+            height: calc(var(--wifi-setup-viewport-height) - var(--footer-height) - var(--auth-header-space) - clamp(2rem, 8vw, 6rem));
+            overflow: hidden;
+        }
+
+        .wifi-setup-page.empty-state .wifi-card {
+            flex: 1 1 0;
+            height: 0;
+            min-height: 0;
+            margin-bottom: 0;
+        }
+
+        .wifi-setup-page.empty-state :global(.manual-button) {
+            flex: 0 0 45px;
+            margin-top: 1rem;
         }
     }
     header {

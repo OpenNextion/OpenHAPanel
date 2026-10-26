@@ -27,6 +27,14 @@ typedef enum {
 esp_err_t screen_ui_init(void);
 /** Load and stage configuration, then request scheduling through the state handler. */
 esp_err_t screen_ui_reload(void);
+/**
+ * If the split-view home screen is currently visible, destroy it and
+ * synchronously flush a black frame before the display resolution changes.
+ * Other LVGL screens are left untouched. This function manages the LVGL lock.
+ */
+esp_err_t screen_ui_prepare_for_rotation(void);
+/** Request rebuilding a home screen cleared by screen_ui_prepare_for_rotation. */
+esp_err_t screen_ui_complete_rotation(void);
 void clear_lvgl_screen(void);
 
 void screen_ui_set_status_title(const char *title);
@@ -42,6 +50,8 @@ void screen_ui_set_active_screen(int32_t screen_index);
 /** Show or hide the static device-information page. */
 void screen_ui_show_device_info(void);
 void screen_ui_hide_device_info(void);
+/** Reflow orientation-aware system overlays after the logical resolution changes. */
+void screen_ui_apply_orientation_layout(void);
 
 /**
  * Activate or clear a persistent system notification condition.

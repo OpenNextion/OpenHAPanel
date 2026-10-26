@@ -7,6 +7,7 @@
 #include "app.h"
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "bsp_lcd.h"
 #include "components/light_assumed_power_buttons.h"
 #include "components/light_brightness_slider.h"
 #include "components/light_color_temp_slider.h"
@@ -33,8 +34,25 @@
     (LIGHT_CONTROL_AREA_HEIGHT + LIGHT_CONTENT_GAP + LIGHT_MODE_BAR_HEIGHT)
 #define LIGHT_SECOND_PAGE_TOP_OFFSET 8
 #define LIGHT_SECOND_PAGE_GAP 31
+#define LIGHT_LANDSCAPE_HEADER_PAD_VER 7
+#define LIGHT_LANDSCAPE_PAGE_WIDTH 480
+#define LIGHT_LANDSCAPE_CONTENT_WIDTH 410
+#define LIGHT_LANDSCAPE_PAGE_HEIGHT 248
+#define LIGHT_LANDSCAPE_CONTROL_TOP 61
+#define LIGHT_LANDSCAPE_CONTROL_HEIGHT 170
+#define LIGHT_LANDSCAPE_POWER_KNOB_HEIGHT 80
+#define LIGHT_LANDSCAPE_MODE_X 364
+#define LIGHT_LANDSCAPE_DOTS_X 228
+#define LIGHT_LANDSCAPE_DOTS_Y 240
+#define LIGHT_LANDSCAPE_PRESETS_X 80
+#define LIGHT_LANDSCAPE_PRESETS_Y 49
+#define LIGHT_LANDSCAPE_EFFECT_X 398
+#define LIGHT_LANDSCAPE_EFFECT_Y 77
+#define LIGHT_LANDSCAPE_EFFECT_ONLY_X 206
+#define LIGHT_LANDSCAPE_EFFECT_ONLY_Y 65
 #define LIGHT_FEATURE_EFFECT 4U
 #define LIGHT_COLOR_TEMP_FAVORITE_COUNT 4
+#define LIGHT_TILEVIEW_GESTURE_RELEASE_POLL_MS 20
 /* Let rapid taps settle before issuing a state-changing HA service call. */
 #define LIGHT_PRESET_DEBOUNCE_MS 120
 
@@ -74,6 +92,7 @@ typedef struct {
     bool on;
     bool state_unknown;
     bool assumed_state;
+    bool landscape;
     bool has_rgb_color;
     light_capabilities_t capabilities;
     uint32_t mode_mask;
@@ -99,6 +118,9 @@ typedef struct {
     lv_obj_t *tileview;
     lv_obj_t *tileview_pages[2];
     lv_obj_t *page_dots[2];
+    lv_timer_t *tileview_gesture_release_timer;
+    lv_indev_t *tileview_gesture_indev;
+    bool tileview_gesture_handled;
     light_more_info_session_t *session;
     entity_more_info_close_cb_t close;
     void *close_user_data;
@@ -789,6 +811,11 @@ static void light_page_build_active_control(light_more_info_page_t *page)
             control = light_assumed_power_buttons_create(page->control_host);
             if (control) {
                 page->assumed_power_buttons = control;
+                if (page->landscape) {
+                    light_assumed_power_buttons_set_height(
+                        control,
+                        LIGHT_LANDSCAPE_CONTROL_HEIGHT);
+                }
                 light_assumed_power_buttons_set_state(
                     control,
                     !page->state_unknown,
@@ -805,6 +832,12 @@ static void light_page_build_active_control(light_more_info_page_t *page)
             control = light_power_toggle_create(page->control_host);
             if (control) {
                 page->power_toggle = control;
+                if (page->landscape) {
+                    light_power_toggle_set_height(
+                        control,
+                        LIGHT_LANDSCAPE_CONTROL_HEIGHT,
+                        LIGHT_LANDSCAPE_POWER_KNOB_HEIGHT);
+                }
                 light_power_toggle_set_value(control, page->on, LV_ANIM_OFF);
                 light_power_toggle_set_disabled(control, !page->available);
                 light_power_toggle_set_change_cb(control,
@@ -816,6 +849,10 @@ static void light_page_build_active_control(light_more_info_page_t *page)
     else if (page->active_mode == LIGHT_MODE_RGB) {
         control = light_rgb_picker_create(page->control_host);
         if (control) {
+            if (page->landscape) {
+                light_rgb_picker_set_size(control,
+                                          LIGHT_LANDSCAPE_CONTROL_HEIGHT);
+            }
             light_rgb_picker_set_value(control, page->rgb);
             light_rgb_picker_set_marker_visible(control, page->on);
             light_rgb_picker_set_disabled(control, !page->available);
@@ -825,6 +862,10 @@ static void light_page_build_active_control(light_more_info_page_t *page)
     else if (page->active_mode == LIGHT_MODE_COLOR_TEMP) {
         control = light_color_temp_slider_create(page->control_host);
         if (control) {
+            if (page->landscape) {
+                lv_obj_set_height(control,
+                                  LIGHT_LANDSCAPE_CONTROL_HEIGHT);
+            }
             light_color_temp_slider_set_range(control,
                                               page->min_kelvin,
                                               page->max_kelvin);
@@ -841,6 +882,10 @@ static void light_page_build_active_control(light_more_info_page_t *page)
     else {
         control = light_brightness_slider_create(page->control_host);
         if (control) {
+            if (page->landscape) {
+                lv_obj_set_height(control,
+                                  LIGHT_LANDSCAPE_CONTROL_HEIGHT);
+            }
             light_brightness_slider_set_value(control,
                                               page->brightness_percent,
                                               LV_ANIM_OFF);
@@ -891,7 +936,12 @@ static void light_mode_bar_event(const light_mode_bar_event_t *event,
 
 static void light_page_delete_cb(lv_event_t *event)
 {
-    lv_free(lv_event_get_user_data(event));
+    light_more_info_page_t *page = lv_event_get_user_data(event);
+    if (page && page->tileview_gesture_release_timer) {
+        lv_timer_delete(page->tileview_gesture_release_timer);
+        page->tileview_gesture_release_timer = NULL;
+    }
+    lv_free(page);
 }
 
 static void light_more_info_close_event_cb(lv_event_t *event)
@@ -955,7 +1005,11 @@ static void light_build_header(lv_obj_t *root,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(header, 20, 0);
-    lv_obj_set_style_pad_ver(header, 12, 0);
+    lv_obj_set_style_pad_ver(header,
+                             page->landscape
+                                 ? LIGHT_LANDSCAPE_HEADER_PAD_VER
+                                 : 12,
+                             0);
     lv_obj_set_style_pad_gap(header, 10, 0);
 
     lv_obj_t *close_button = lv_image_create(header);
@@ -980,7 +1034,9 @@ static void light_build_header(lv_obj_t *root,
 
     lv_obj_t *close_hitbox = light_create_clear_container(overlay,
                                                           20,
-                                                          12,
+                                                          page->landscape
+                                                              ? LIGHT_LANDSCAPE_HEADER_PAD_VER
+                                                              : 12,
                                                           50,
                                                           50);
     lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
@@ -988,6 +1044,16 @@ static void light_build_header(lv_obj_t *root,
                         light_more_info_close_event_cb,
                         LV_EVENT_CLICKED,
                         page);
+}
+
+static int32_t light_landscape_primary_width(
+    const light_more_info_page_t *page)
+{
+    const bool is_plain_switch = page && page->mode_mask == 0 &&
+                                 !page->capabilities.supports_favorite_colors &&
+                                 !page->capabilities.supports_effects;
+    return is_plain_switch ? LIGHT_LANDSCAPE_PAGE_WIDTH
+                           : LIGHT_LANDSCAPE_CONTENT_WIDTH;
 }
 
 static void light_build_state_block(lv_obj_t *parent,
@@ -998,10 +1064,14 @@ static void light_build_state_block(lv_obj_t *parent,
         parent,
         0,
         0,
-        LV_PCT(100),
+        page->landscape ? light_landscape_primary_width(page)
+                        : LV_PCT(100),
         LIGHT_STATE_BLOCK_HEIGHT);
     if (!state_block) {
         return;
+    }
+    if (page->landscape) {
+        lv_obj_align(state_block, LV_ALIGN_TOP_MID, 0, 0);
     }
     lv_obj_set_layout(state_block, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(state_block, LV_FLEX_FLOW_COLUMN);
@@ -1055,6 +1125,7 @@ static void light_build_mode_bar(lv_obj_t *parent,
     }
     page->mode_bar = light_mode_bar_create(parent);
     if (page->mode_bar) {
+        light_mode_bar_set_vertical(page->mode_bar, page->landscape);
         light_mode_bar_set_modes(page->mode_bar, page->mode_mask);
         light_mode_bar_set_active_mode(page->mode_bar, page->active_mode);
         light_mode_bar_set_power(page->mode_bar, page->on);
@@ -1076,25 +1147,41 @@ static void light_build_first_page(lv_obj_t *parent,
     if (!page_content) {
         return;
     }
-    lv_obj_set_layout(page_content, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(page_content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(page_content,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
+    light_enable_control_overflow(page_content);
     lv_obj_set_style_pad_all(page_content, 0, 0);
-    lv_obj_set_style_pad_gap(page_content, LIGHT_CONTENT_GAP, 0);
+    if (!page->landscape) {
+        lv_obj_set_layout(page_content, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(page_content, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(page_content,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_gap(page_content, LIGHT_CONTENT_GAP, 0);
+    }
 
     lv_obj_t *control = light_create_clear_container(
         page_content,
         0,
-        0,
-        320,
-        LIGHT_CONTROL_AREA_HEIGHT);
+        page->landscape ? LIGHT_LANDSCAPE_CONTROL_TOP : 0,
+        page->landscape ? light_landscape_primary_width(page) : 320,
+        page->landscape ? LIGHT_LANDSCAPE_CONTROL_HEIGHT
+                        : LIGHT_CONTROL_AREA_HEIGHT);
     if (control) {
+        if (page->landscape) {
+            lv_obj_align(control,
+                         LV_ALIGN_TOP_MID,
+                         0,
+                         LIGHT_LANDSCAPE_CONTROL_TOP);
+        }
         light_build_control_page(control, page);
     }
     light_build_mode_bar(page_content, page);
+    if (page->landscape && page->mode_bar) {
+        lv_obj_align(page->mode_bar,
+                     LV_ALIGN_LEFT_MID,
+                     LIGHT_LANDSCAPE_MODE_X,
+                     0);
+    }
 }
 
 static void light_update_dots(light_more_info_page_t *page)
@@ -1518,6 +1605,67 @@ static void light_tileview_event_cb(lv_event_t *event)
     light_update_dots(lv_event_get_user_data(event));
 }
 
+static void light_tileview_gesture_cb(lv_event_t *event)
+{
+    light_more_info_page_t *page = lv_event_get_user_data(event);
+    lv_indev_t *indev = lv_indev_active();
+    if (!page || !page->tileview || !indev ||
+        page->tileview_gesture_handled) {
+        return;
+    }
+
+    const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
+    lv_obj_t *active = lv_tileview_get_tile_active(page->tileview);
+    uint32_t next_page;
+    if (direction == LV_DIR_LEFT) {
+        next_page = 1;
+    }
+    else if (direction == LV_DIR_RIGHT) {
+        next_page = 0;
+    }
+    else {
+        return;
+    }
+
+    /* One physical swipe may emit more than one gesture event. Keep the
+     * first horizontal result latched until the pointer is released. */
+    if (page->tileview_gesture_release_timer) {
+        page->tileview_gesture_handled = true;
+        page->tileview_gesture_indev = indev;
+        lv_timer_reset(page->tileview_gesture_release_timer);
+        lv_timer_resume(page->tileview_gesture_release_timer);
+    }
+    lv_indev_wait_release(indev);
+
+    if (active == page->tileview_pages[next_page]) {
+        return;
+    }
+    lv_tileview_set_tile_by_index(page->tileview,
+                                  next_page,
+                                  0,
+                                  LV_ANIM_OFF);
+    light_update_dots(page);
+}
+
+static void light_tileview_gesture_release_timer_cb(lv_timer_t *timer)
+{
+    light_more_info_page_t *page = lv_timer_get_user_data(timer);
+    if (!page || !page->tileview_gesture_handled ||
+        !page->tileview_gesture_indev) {
+        lv_timer_pause(timer);
+        return;
+    }
+
+    if (lv_indev_get_state(page->tileview_gesture_indev) !=
+        LV_INDEV_STATE_RELEASED) {
+        return;
+    }
+
+    page->tileview_gesture_handled = false;
+    page->tileview_gesture_indev = NULL;
+    lv_timer_pause(timer);
+}
+
 static void light_build_dots(lv_obj_t *parent,
                              light_more_info_page_t *page)
 {
@@ -1537,6 +1685,11 @@ static void light_build_dots(lv_obj_t *parent,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(dots_host, 0, 0);
     lv_obj_set_style_pad_gap(dots_host, 8, 0);
+    if (page->landscape) {
+        lv_obj_set_pos(dots_host,
+                       LIGHT_LANDSCAPE_DOTS_X,
+                       LIGHT_LANDSCAPE_DOTS_Y);
+    }
 
     for (size_t i = 0; i < 2; i++) {
         page->page_dots[i] = lv_obj_create(dots_host);
@@ -1562,22 +1715,44 @@ static void light_build_second_page(lv_obj_t *parent,
     if (!container) {
         return;
     }
-    lv_obj_align(container,
-                 LV_ALIGN_TOP_MID,
-                 0,
-                 LIGHT_SECOND_PAGE_TOP_OFFSET);
-    lv_obj_set_layout(container, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(container, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(container,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(container, 0, 0);
-    lv_obj_set_style_pad_gap(container, LIGHT_SECOND_PAGE_GAP, 0);
+    if (page->landscape) {
+        lv_obj_set_size(container,
+                        LIGHT_LANDSCAPE_PAGE_WIDTH,
+                        LIGHT_LANDSCAPE_PAGE_HEIGHT);
+    }
+    else {
+        const bool effect_only =
+            page->capabilities.supports_effects &&
+            !page->capabilities.supports_favorite_colors;
+        if (effect_only) {
+            lv_obj_set_height(container, LIGHT_CONTROL_AREA_HEIGHT);
+            lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 0);
+        }
+        else {
+            lv_obj_align(container,
+                         LV_ALIGN_TOP_MID,
+                         0,
+                         LIGHT_SECOND_PAGE_TOP_OFFSET);
+        }
+        lv_obj_set_layout(container, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(container, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(container,
+                              effect_only ? LV_FLEX_ALIGN_CENTER
+                                          : LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_gap(container, LIGHT_SECOND_PAGE_GAP, 0);
+    }
 
     if (page->capabilities.supports_favorite_colors) {
         lv_obj_t *presets = light_preset_colors_create(container);
         if (presets) {
+            if (page->landscape) {
+                lv_obj_set_pos(presets,
+                               LIGHT_LANDSCAPE_PRESETS_X,
+                               LIGHT_LANDSCAPE_PRESETS_Y);
+            }
             light_favorite_color_t colors[LIGHT_FAVORITE_COLOR_MAX];
             size_t color_count = page->favorite_color_count;
             if (page->has_custom_favorite_colors) {
@@ -1605,6 +1780,20 @@ static void light_build_second_page(lv_obj_t *parent,
         lv_obj_t *effect = light_effect_selector_create(container);
         if (effect) {
             page->effect_selector = effect;
+            light_effect_selector_set_landscape(effect, page->landscape);
+            if (page->landscape) {
+                if (page->capabilities.supports_favorite_colors) {
+                    lv_obj_set_pos(effect,
+                                   LIGHT_LANDSCAPE_EFFECT_X,
+                                   LIGHT_LANDSCAPE_EFFECT_Y);
+                    light_effect_selector_set_popup_left(effect, true);
+                }
+                else {
+                    lv_obj_set_pos(effect,
+                                   LIGHT_LANDSCAPE_EFFECT_ONLY_X,
+                                   LIGHT_LANDSCAPE_EFFECT_ONLY_Y);
+                }
+            }
             light_effect_selector_set_options(effect,
                                               options,
                                               page->effect_count);
@@ -1636,6 +1825,7 @@ static esp_err_t light_render_more_info(
         lv_free(page);
         return ESP_ERR_NO_MEM;
     }
+    page->landscape = bsp_lcd_is_landscape();
     light_read_page_state(context, page);
     if (page->session->active_mode_initialized &&
         (page->mode_mask & (1U << page->session->active_mode))) {
@@ -1659,7 +1849,18 @@ static esp_err_t light_render_more_info(
     lv_obj_set_style_border_width(screen, 0, 0);
     lv_obj_set_style_pad_all(screen, 0, 0);
 
-    lv_obj_t *root = light_create_clear_container(screen, 0, 0, 320, 480);
+    lv_display_t *display = lv_obj_get_display(screen);
+    const int32_t screen_width = display
+                                     ? lv_display_get_horizontal_resolution(display)
+                                     : (page->landscape ? 480 : 320);
+    const int32_t screen_height = display
+                                      ? lv_display_get_vertical_resolution(display)
+                                      : (page->landscape ? 320 : 480);
+    lv_obj_t *root = light_create_clear_container(screen,
+                                                   0,
+                                                   0,
+                                                   screen_width,
+                                                   screen_height);
     if (!root) {
         lv_free(page);
         return ESP_ERR_NO_MEM;
@@ -1689,14 +1890,16 @@ static esp_err_t light_render_more_info(
         return ESP_ERR_NO_MEM;
     }
     lv_obj_set_flex_grow(content, 1);
-    lv_obj_set_layout(content, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(content,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(content, 0, 0);
-    lv_obj_set_style_pad_gap(content, LIGHT_CONTENT_GAP, 0);
+    if (!page->landscape) {
+        lv_obj_set_layout(content, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(content,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_gap(content, LIGHT_CONTENT_GAP, 0);
+    }
 
     light_build_state_block(content, context, page);
 
@@ -1705,11 +1908,25 @@ static esp_err_t light_render_more_info(
         page->capabilities.supports_effects;
     if (has_second_page) {
         page->tileview = lv_tileview_create(content);
-        lv_obj_set_size(page->tileview, 320, LIGHT_PAGE_AREA_HEIGHT);
+        lv_obj_set_size(page->tileview,
+                        page->landscape ? LIGHT_LANDSCAPE_PAGE_WIDTH : 320,
+                        page->landscape ? LIGHT_LANDSCAPE_PAGE_HEIGHT
+                                        : LIGHT_PAGE_AREA_HEIGHT);
+        if (page->landscape) {
+            lv_obj_set_pos(page->tileview, 0, 0);
+        }
         lv_obj_set_style_bg_opa(page->tileview, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(page->tileview, 0, 0);
         lv_obj_set_style_pad_all(page->tileview, 0, 0);
         lv_obj_set_scrollbar_mode(page->tileview, LV_SCROLLBAR_MODE_OFF);
+        /* Keep TileView as the page container, but switch pages only after a
+         * horizontal gesture is recognized instead of following the finger.
+         * Stop gesture bubbling here because this object owns the handler. */
+        lv_obj_remove_flag(page->tileview,
+                           LV_OBJ_FLAG_SCROLLABLE |
+                               LV_OBJ_FLAG_SCROLL_MOMENTUM |
+                               LV_OBJ_FLAG_SCROLL_ELASTIC |
+                               LV_OBJ_FLAG_GESTURE_BUBBLE);
         light_enable_control_overflow(page->tileview);
         page->tileview_pages[0] = lv_tileview_add_tile(page->tileview,
                                                        0,
@@ -1725,6 +1942,7 @@ static esp_err_t light_render_more_info(
                                     0);
             lv_obj_set_style_border_width(page->tileview_pages[i], 0, 0);
             lv_obj_set_style_pad_all(page->tileview_pages[i], 0, 0);
+            light_enable_control_overflow(page->tileview_pages[i]);
         }
         light_build_first_page(page->tileview_pages[0], page);
         light_build_second_page(page->tileview_pages[1], page);
@@ -1732,6 +1950,21 @@ static esp_err_t light_render_more_info(
                             light_tileview_event_cb,
                             LV_EVENT_VALUE_CHANGED,
                             page);
+        lv_obj_add_event_cb(page->tileview,
+                            light_tileview_gesture_cb,
+                            LV_EVENT_GESTURE,
+                            page);
+        page->tileview_gesture_release_timer =
+            lv_timer_create(light_tileview_gesture_release_timer_cb,
+                            LIGHT_TILEVIEW_GESTURE_RELEASE_POLL_MS,
+                            page);
+        if (page->tileview_gesture_release_timer) {
+            lv_timer_pause(page->tileview_gesture_release_timer);
+        }
+        else {
+            ESP_LOGW(TAG,
+                     "Failed to create light More Info gesture release timer");
+        }
         lv_tileview_set_tile_by_index(
             page->tileview,
             page->session->tileview_page == 1 ? 1 : 0,
@@ -1740,14 +1973,19 @@ static esp_err_t light_render_more_info(
     }
     else {
         page->session->tileview_page = 0;
-        lv_obj_t *control = light_create_clear_container(
-            content,
-            0,
-            0,
-            320,
-            LIGHT_CONTROL_AREA_HEIGHT);
-        light_build_control_page(control, page);
-        light_build_mode_bar(content, page);
+        if (page->landscape) {
+            light_build_first_page(content, page);
+        }
+        else {
+            lv_obj_t *control = light_create_clear_container(
+                content,
+                0,
+                0,
+                320,
+                LIGHT_CONTROL_AREA_HEIGHT);
+            light_build_control_page(control, page);
+            light_build_mode_bar(content, page);
+        }
     }
     if (has_second_page) {
         light_build_dots(content, page);
@@ -1788,8 +2026,6 @@ static esp_err_t light_render_tile(ha_entity_store_t *store,
     model->background_color = lv_color_hex(0x1E2228);
     model->icon_color = lv_color_hex(0x9e9e9e);
     model->icon_circle_background_color = lv_color_hex(0x363636);
-    model->has_ripple_color = true;
-    model->ripple_color = lv_color_hex(0xD9D9D9);
     model->title_color = lv_color_hex(0xFFFFFF);
     model->state_color = lv_color_hex(0x666666);
 

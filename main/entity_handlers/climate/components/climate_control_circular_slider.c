@@ -29,7 +29,9 @@
 #define CLIMATE_CIRCULAR_SLIDER_MIN_SIZE     80
 #define CLIMATE_CIRCULAR_SLIDER_LINE_WIDTH   24
 #define CLIMATE_CIRCULAR_SLIDER_KNOB_SIZE    18
-#define CLIMATE_CIRCULAR_SLIDER_EXT_CLICK    12
+#define CLIMATE_CIRCULAR_SLIDER_TOUCH_EXTRA  24
+#define CLIMATE_CIRCULAR_SLIDER_EXT_CLICK    32
+#define CLIMATE_CIRCULAR_SLIDER_SIDE_OVERLAP 40
 
 /**********************
  *      TYPEDEFS
@@ -111,7 +113,9 @@ void apply_dual_visibility(climate_control_circular_slider_t * root)
     if(root->dual) {
         lv_obj_remove_flag(root->high_arc, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(root->high_active_arc, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(root->high_dot_knob_arc, LV_OBJ_FLAG_HIDDEN);
+        if(root->show_knob) {
+            lv_obj_remove_flag(root->high_dot_knob_arc, LV_OBJ_FLAG_HIDDEN);
+        }
     } else {
         lv_obj_add_flag(root->high_arc, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(root->high_active_arc, LV_OBJ_FLAG_HIDDEN);
@@ -210,89 +214,116 @@ void refresh_value_arcs(climate_control_circular_slider_t * root)
     }
 }
 
+static void pointer_begin(climate_control_circular_slider_t * root, int32_t value)
+{
+    value = clamp_i32(value, root->min, root->max);
+    int32_t low_target = root->dual ? root->low : root->value;
+    int32_t low_distance = LV_ABS(value - low_target);
+    int32_t high_distance = LV_ABS(value - root->high);
+    bool choose_low = !root->dual ||
+                      (low_distance == high_distance ? value < root->low
+                                                     : low_distance < high_distance);
+    root->updating_low = choose_low;
+    root->updating_high = !choose_low;
+}
+
+static void pointer_update(climate_control_circular_slider_t * root, int32_t value)
+{
+    climate_control_circular_slider_value_changed_event_t event;
+    bool changed = false;
+
+    if(root->updating_low) {
+        int32_t low_max = root->dual ? root->high : root->max;
+        value = snap_value_to_step(root, value, root->min, low_max);
+        int32_t old_value = root->dual ? root->low : root->value;
+
+        if(root->dual) root->low = value;
+        else root->value = value;
+        lv_arc_set_value(root->low_dot_knob_arc, value);
+        apply_touch_arc_value(root, value);
+
+        changed = old_value != value;
+        event.value = value;
+        event.is_low = true;
+    } else if(root->dual && root->updating_high) {
+        value = snap_value_to_step(root, value, root->low, root->max);
+        int32_t old_value = root->high;
+
+        root->high = value;
+        lv_arc_set_value(root->high_dot_knob_arc, value);
+        apply_touch_arc_value(root, value);
+
+        changed = old_value != value;
+        event.value = value;
+        event.is_low = false;
+    }
+
+    refresh_value_arcs(root);
+    if(changed) lv_obj_send_event((lv_obj_t *)root, LV_EVENT_VALUE_CHANGED, &event);
+}
+
+static void pointer_finish(climate_control_circular_slider_t * root)
+{
+    if(root->updating_low || root->updating_high) {
+        climate_control_circular_slider_value_changed_event_t event = {
+            .value = root->dual ? (root->updating_low ? root->low : root->high)
+                                : root->value,
+            .is_low = root->updating_low,
+        };
+        lv_obj_send_event((lv_obj_t *)root, LV_EVENT_RELEASED, &event);
+    }
+    root->updating_low = false;
+    root->updating_high = false;
+}
+
+static bool active_pointer_value(climate_control_circular_slider_t * root, int32_t * value)
+{
+    lv_indev_t * indev = lv_indev_active();
+    if(indev == NULL || value == NULL) return false;
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+    *value = point_to_value(root, root->touch_arc, &point);
+    return true;
+}
+
+static void side_hit_event_cb(lv_event_t * e)
+{
+    climate_control_circular_slider_t * root = lv_event_get_user_data(e);
+    if(root == NULL) return;
+    lv_event_code_t code = lv_event_get_code(e);
+    if(code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        pointer_finish(root);
+        return;
+    }
+    if(!lv_obj_has_flag(root->touch_arc, LV_OBJ_FLAG_CLICKABLE)) return;
+    int32_t value;
+    if(code == LV_EVENT_PRESSED && active_pointer_value(root, &value)) {
+        pointer_begin(root, value);
+        pointer_update(root, value);
+    } else if(code == LV_EVENT_PRESSING && active_pointer_value(root, &value)) {
+        pointer_update(root, value);
+    }
+}
+
 void touch_event_cb(lv_event_t * e)
 {
-    climate_control_circular_slider_t * root = (climate_control_circular_slider_t *) lv_event_get_user_data(e);
+    climate_control_circular_slider_t * root = lv_event_get_user_data(e);
     lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) {
-        int32_t t_value = lv_arc_get_value(root->touch_arc);
-        lv_indev_t * indev = lv_indev_active();
-        if(indev != NULL) {
-            lv_point_t point;
-            lv_indev_get_point(indev, &point);
-            t_value = point_to_value(root, root->touch_arc, &point);
-            t_value = clamp_i32(t_value, root->min, root->max);
-        }
-        int32_t low_target_val = root->dual ? root->low : root->value;
-        int32_t low_distance = LV_ABS(t_value - low_target_val);
-        int32_t high_distance = LV_ABS(t_value - root->high);
-        bool choose_low;
-        if(!root->dual) {
-            choose_low = true;
-        } else if(low_distance == high_distance) {
-            choose_low = t_value < root->low;
-        } else {
-            choose_low = low_distance < high_distance;
-        }
-
-        root->updating_low = choose_low;
-        root->updating_high = !choose_low;
-    } else if (code == LV_EVENT_VALUE_CHANGED) {
-        int32_t t_value = lv_arc_get_value(root->touch_arc);
-        climate_control_circular_slider_value_changed_event_t value_changed_event;
-        bool value_changed = false;
-
-        if (root->updating_low) {
-            int32_t low_max = root->dual ? root->high : root->max;
-            t_value = snap_value_to_step(root, t_value, root->min, low_max);
-            int32_t old_value = root->dual ? root->low : root->value;
-
-            if(root->dual) {
-                root->low = t_value;
-            } else {
-                root->value = t_value;
-            }
-            lv_arc_set_value(root->low_dot_knob_arc, t_value);
-            apply_touch_arc_value(root, t_value);
-
-            value_changed = old_value != t_value;
-            value_changed_event.value = t_value;
-            value_changed_event.is_low = true;
-        } else if (root->dual && root->updating_high) {
-            t_value = snap_value_to_step(root, t_value, root->low, root->max);
-            int32_t old_value = root->high;
-
-            root->high = t_value;
-            lv_arc_set_value(root->high_dot_knob_arc, t_value);
-            apply_touch_arc_value(root, t_value);
-
-            value_changed = old_value != t_value;
-            value_changed_event.value = t_value;
-            value_changed_event.is_low = false;
-        }
-
-        refresh_value_arcs(root);
-
-
-        if(value_changed) {
-            lv_obj_send_event((lv_obj_t *)root, LV_EVENT_VALUE_CHANGED, &value_changed_event);
-        }
-    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        if(root->updating_low || root->updating_high) {
-            climate_control_circular_slider_value_changed_event_t finished = {
-                .value = root->dual ? (root->updating_low ? root->low : root->high) : root->value,
-                .is_low = root->updating_low,
-            };
-            lv_obj_send_event((lv_obj_t *)root, LV_EVENT_RELEASED, &finished);
-        }
-        root->updating_low = false;
-        root->updating_high = false;
+    if(code == LV_EVENT_PRESSED) {
+        int32_t value = lv_arc_get_value(root->touch_arc);
+        active_pointer_value(root, &value);
+        pointer_begin(root, value);
+    } else if(code == LV_EVENT_VALUE_CHANGED) {
+        pointer_update(root, lv_arc_get_value(root->touch_arc));
+    } else if(code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        pointer_finish(root);
     }
 }
 
 void climate_control_circular_slider_constructor_hook(lv_obj_t * obj)
 {
     climate_control_circular_slider_t * root = (climate_control_circular_slider_t *) obj;
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     root->current = lv_arc_get_value(root->cur_dot_knob_arc);
     root->value = lv_arc_get_value(root->low_dot_knob_arc);
     root->low = root->value;
@@ -306,8 +337,10 @@ void climate_control_circular_slider_constructor_hook(lv_obj_t * obj)
     lv_obj_add_event_cb(root->touch_arc, touch_event_cb, LV_EVENT_VALUE_CHANGED,  root);
     lv_obj_add_event_cb(root->touch_arc, touch_event_cb, LV_EVENT_RELEASED,  root);
     lv_obj_add_event_cb(root->touch_arc, touch_event_cb, LV_EVENT_PRESS_LOST,  root);
+    lv_obj_remove_flag(root->touch_arc, LV_OBJ_FLAG_ADV_HITTEST);
     lv_arc_set_change_rate(root->touch_arc, 36000);
     climate_control_circular_slider_set_size(obj, CLIMATE_CIRCULAR_SLIDER_DEFAULT_SIZE);
+    root->show_knob = true;
     root->dual = false;
     apply_dual_visibility(root);
 }
@@ -448,6 +481,39 @@ void climate_control_circular_slider_set_disabled(lv_obj_t * climate_control_cir
     else lv_obj_add_flag(root->touch_arc, LV_OBJ_FLAG_CLICKABLE);
 }
 
+void climate_control_circular_slider_set_touch_width(lv_obj_t * climate_control_circular_slider,
+                                                     int32_t width)
+{
+    climate_control_circular_slider_t * root =
+        (climate_control_circular_slider_t *) climate_control_circular_slider;
+    if(root == NULL || root->touch_arc == NULL) return;
+
+    width = LV_MAX(width, root->size);
+    lv_obj_set_size(climate_control_circular_slider, width, root->size);
+    lv_obj_set_size(root->touch_arc, root->size, root->size);
+    lv_obj_center(root->touch_arc);
+
+    int32_t margin = (width - root->size) / 2;
+    int32_t overlap = scale_dim(root->size, CLIMATE_CIRCULAR_SLIDER_SIDE_OVERLAP);
+    int32_t hit_width = margin + overlap;
+    for(uint32_t i = 0; i < 2; ++i) {
+        if(root->side_hit_areas[i] == NULL) {
+            root->side_hit_areas[i] = lv_obj_create(climate_control_circular_slider);
+            if(root->side_hit_areas[i] == NULL) continue;
+            lv_obj_remove_style_all(root->side_hit_areas[i]);
+            lv_obj_remove_flag(root->side_hit_areas[i], LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_flag(root->side_hit_areas[i],
+                            LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
+            lv_obj_add_event_cb(root->side_hit_areas[i], side_hit_event_cb,
+                                LV_EVENT_ALL, root);
+        }
+        lv_obj_set_pos(root->side_hit_areas[i],
+                       i == 0 ? 0 : width - hit_width, 0);
+        lv_obj_set_size(root->side_hit_areas[i], hit_width, root->size);
+        lv_obj_remove_flag(root->side_hit_areas[i], LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 void climate_control_circular_slider_set_size(lv_obj_t * climate_control_circular_slider, int32_t size)
 {
     climate_control_circular_slider_t * root = (climate_control_circular_slider_t *) climate_control_circular_slider;
@@ -455,10 +521,17 @@ void climate_control_circular_slider_set_size(lv_obj_t * climate_control_circula
 
     root->size = size;
 
+    for(uint32_t i = 0; i < 2; ++i) {
+        if(root->side_hit_areas[i])
+            lv_obj_add_flag(root->side_hit_areas[i], LV_OBJ_FLAG_HIDDEN);
+    }
+
     lv_obj_set_size(climate_control_circular_slider, size, size);
 
     int32_t line_width = scale_dim(size, CLIMATE_CIRCULAR_SLIDER_LINE_WIDTH);
     int32_t knob_size = scale_dim(size, CLIMATE_CIRCULAR_SLIDER_KNOB_SIZE);
+    int32_t touch_width = line_width +
+                          scale_dim(size, CLIMATE_CIRCULAR_SLIDER_TOUCH_EXTRA);
     int32_t ext_click = scale_dim(size, CLIMATE_CIRCULAR_SLIDER_EXT_CLICK);
 
     lv_obj_t * arcs[] = {
@@ -477,8 +550,9 @@ void climate_control_circular_slider_set_size(lv_obj_t * climate_control_circula
         if(arcs[i] == NULL) continue;
         lv_obj_set_size(arcs[i], size, size);
         lv_obj_center(arcs[i]);
-        lv_obj_set_style_arc_width(arcs[i], line_width, LV_PART_MAIN);
-        lv_obj_set_style_arc_width(arcs[i], line_width, LV_PART_INDICATOR);
+        int32_t arc_width = arcs[i] == root->touch_arc ? touch_width : line_width;
+        lv_obj_set_style_arc_width(arcs[i], arc_width, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(arcs[i], arc_width, LV_PART_INDICATOR);
         lv_obj_set_style_arc_rounded(arcs[i], true, LV_PART_MAIN);
         lv_obj_set_style_arc_rounded(arcs[i], true, LV_PART_INDICATOR);
     }
@@ -561,10 +635,13 @@ void climate_control_circular_slider_set_show_knob(lv_obj_t * climate_control_ci
 {
     climate_control_circular_slider_t * root = (climate_control_circular_slider_t *) climate_control_circular_slider;
     if (root != NULL) {
+        root->show_knob = show_knob;
         if (show_knob) {
+            if (root->cur_dot_knob_arc) lv_obj_remove_flag(root->cur_dot_knob_arc, LV_OBJ_FLAG_HIDDEN);
             if (root->low_dot_knob_arc) lv_obj_remove_flag(root->low_dot_knob_arc, LV_OBJ_FLAG_HIDDEN);
             if (root->dual && root->high_dot_knob_arc) lv_obj_remove_flag(root->high_dot_knob_arc, LV_OBJ_FLAG_HIDDEN);
         } else {
+            if (root->cur_dot_knob_arc) lv_obj_add_flag(root->cur_dot_knob_arc, LV_OBJ_FLAG_HIDDEN);
             if (root->low_dot_knob_arc) lv_obj_add_flag(root->low_dot_knob_arc, LV_OBJ_FLAG_HIDDEN);
             if (root->high_dot_knob_arc) lv_obj_add_flag(root->high_dot_knob_arc, LV_OBJ_FLAG_HIDDEN);
         }
