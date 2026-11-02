@@ -3,39 +3,26 @@
     import SettingPageHeader from '@/component/PageHeader/PageHeader.svelte';
     import Button from '@/component/Button/Button.svelte';
     import { pop } from 'svelte-spa-router';
-    import { languageStore, setLanguage } from '@/stores/language';
-    import ELanguage from '@/types/language';
+    import { useLanguageSettings } from '@/hooks/useLanguageSettings.svelte';
     import SettingRow from '@/component/SettingRow/SettingRow.svelte';
     import SettingRowGroup from '@/component/SettingRow/SettingRowGroup.svelte';
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
-    let selected = $state($languageStore.language);
-    let loading = $state(false);
+    const language = useLanguageSettings();
     async function save() {
-        if (loading) return;
-        loading = true;
-        try {
-            const { wsResponse } = await setLanguage(selected);
-            if (wsResponse.error === 0) {
-                await pop();
-            }
-        } catch (error) {
-            console.error('Failed to update language:', error);
-        } finally {
-            loading = false;
-        }
+        if (await language.save()) await pop();
     }
 </script>
 
 <div class="page-container settings-detail">
     <SettingPageHeader title={$_('page.settings.language')} />
     <SettingRowGroup>
-        {#each [{ label: '简体中文', value: ELanguage.ZH_CN }, { label: 'English', value: ELanguage.EN_US }] as item}
-            <SettingRow title={item.label} disable={loading} onclick={() => (selected = item.value)}>
-                {#snippet contentSnippet()}{#if selected === item.value}<span class="language-check"><SvgIcon name="check.svg" /></span>{/if}{/snippet}
+        {#each language.options as item}
+            <SettingRow title={item.label} disable={language.state.loading} onclick={() => (language.state.selected = item.value)}>
+                {#snippet contentSnippet()}{#if language.state.selected === item.value}<span class="language-check"><SvgIcon name="check.svg" /></span>{/if}{/snippet}
             </SettingRow>
         {/each}
     </SettingRowGroup>
-    <Button type="primary" class="settings-save" style="width: min(70%, 560px)" onclick={save} {loading}>{$_('common.save')}</Button>
+    <Button type="primary" class="settings-save" style="width: min(70%, 560px)" onclick={save} loading={language.state.loading}>{$_('common.save')}</Button>
 </div>
 
 <style>

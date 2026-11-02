@@ -420,6 +420,12 @@ body {
 	background: var(--content-background);
 }
 
+@media (max-width: 52rem) {
+	.content-area.screen-config-content {
+		padding-inline: 1.5rem;
+	}
+}
+
 .page-container {
 	width: min(100%, 1080px);
 	margin-inline: auto;

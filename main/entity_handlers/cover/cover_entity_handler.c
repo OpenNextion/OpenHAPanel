@@ -41,6 +41,7 @@ static const char *TAG = "cover_entity_handler";
 #define COVER_MODE_WIDTH            104
 #define COVER_MODE_HEIGHT           48
 #define COVER_PRESET_HEIGHT         40
+#define COVER_PAGER_GESTURE_RELEASE_POLL_MS 20
 
 #define COVER_BG                    0x010203
 #define COVER_CONTROL_BG            0x1F1F1F
@@ -118,6 +119,9 @@ static uint8_t s_cover_detail_page;
 typedef struct {
     lv_obj_t *pages[2];
     lv_obj_t *dots[2];
+    lv_timer_t *gesture_release_timer;
+    lv_indev_t *gesture_indev;
+    bool gesture_handled;
 } cover_pager_t;
 
 static void cover_toggle_set_knob_y(void *object, int32_t y);
@@ -989,9 +993,9 @@ static void cover_build_action_button(
     lv_obj_t *label = lv_label_create(button);
     lv_label_set_text(label, icon);
     lv_obj_set_style_text_font(label, &ha_font_mdi_20, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(label, enabled ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x8F8F8F), 0);
     lv_obj_set_style_text_color(label,
-                                lv_color_hex(COVER_DISABLED_FG),
+                                lv_color_hex(0x8F8F8F),
                                 LV_STATE_DISABLED);
     lv_obj_center(label);
     // if (!enabled) {
@@ -1563,11 +1567,9 @@ static void cover_pager_update_dots(cover_pager_t *pager, lv_obj_t *tileview)
     for (size_t i = 0; i < 2; i++) {
         const bool selected = active == pager->pages[i];
         lv_obj_set_style_bg_color(pager->dots[i],
-                                  lv_color_hex(selected ? 0xFBFBFB : 0x222222),
+                                  lv_color_hex(selected ? 0xE1E1E1 : 0x5C5C5C),
                                   0);
-        lv_obj_set_style_bg_opa(pager->dots[i],
-                                selected ? LV_OPA_COVER : LV_OPA_40,
-                                0);
+        lv_obj_set_style_bg_opa(pager->dots[i], LV_OPA_COVER, 0);
         if (selected) {
             s_cover_detail_page = (uint8_t)i;
         }
@@ -1580,9 +1582,62 @@ static void cover_tileview_event_cb(lv_event_t *event)
                             lv_event_get_current_target_obj(event));
 }
 
+static void cover_tileview_gesture_cb(lv_event_t *event)
+{
+    cover_pager_t *pager = lv_event_get_user_data(event);
+    lv_indev_t *indev = lv_indev_active();
+    if (!pager || !indev || pager->gesture_handled) {
+        return;
+    }
+
+    const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
+    uint32_t next_page;
+    if (direction == LV_DIR_LEFT) {
+        next_page = 1;
+    }
+    else if (direction == LV_DIR_RIGHT) {
+        next_page = 0;
+    }
+    else {
+        return;
+    }
+
+    if (pager->gesture_release_timer) {
+        pager->gesture_handled = true;
+        pager->gesture_indev = indev;
+        lv_timer_reset(pager->gesture_release_timer);
+        lv_timer_resume(pager->gesture_release_timer);
+    }
+    lv_indev_wait_release(indev);
+
+    lv_obj_t *tileview = lv_event_get_current_target_obj(event);
+    if (lv_tileview_get_tile_active(tileview) == pager->pages[next_page]) {
+        return;
+    }
+    lv_tileview_set_tile_by_index(tileview, next_page, 0, LV_ANIM_OFF);
+    cover_pager_update_dots(pager, tileview);
+}
+
+static void cover_pager_gesture_release_timer_cb(lv_timer_t *timer)
+{
+    cover_pager_t *pager = lv_timer_get_user_data(timer);
+    if (!pager->gesture_indev ||
+        lv_indev_get_state(pager->gesture_indev) != LV_INDEV_STATE_RELEASED) {
+        return;
+    }
+
+    pager->gesture_handled = false;
+    pager->gesture_indev = NULL;
+    lv_timer_pause(timer);
+}
+
 static void cover_pager_delete_event_cb(lv_event_t *event)
 {
-    lv_free(lv_event_get_user_data(event));
+    cover_pager_t *pager = lv_event_get_user_data(event);
+    if (pager->gesture_release_timer) {
+        lv_timer_delete(pager->gesture_release_timer);
+    }
+    lv_free(pager);
 }
 
 static void cover_build_landscape_pages(
@@ -1608,12 +1663,19 @@ static void cover_build_landscape_pages(
     lv_obj_set_style_border_width(tileview, 0, 0);
     lv_obj_set_style_pad_all(tileview, 0, 0);
     lv_obj_set_scrollbar_mode(tileview, LV_SCROLLBAR_MODE_OFF);
+    /* Recognize the swipe without moving the pages with the finger. */
+    lv_obj_remove_flag(tileview,
+                       LV_OBJ_FLAG_SCROLLABLE |
+                           LV_OBJ_FLAG_SCROLL_MOMENTUM |
+                           LV_OBJ_FLAG_SCROLL_ELASTIC |
+                           LV_OBJ_FLAG_GESTURE_BUBBLE);
     pager->pages[0] = lv_tileview_add_tile(tileview, 0, 0, LV_DIR_RIGHT);
     pager->pages[1] = lv_tileview_add_tile(tileview, 1, 0, LV_DIR_LEFT);
     for (size_t i = 0; i < 2; i++) {
         lv_obj_set_style_bg_opa(pager->pages[i], LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(pager->pages[i], 0, 0);
         lv_obj_set_style_pad_all(pager->pages[i], 0, 0);
+        lv_obj_remove_flag(pager->pages[i], LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(pager->pages[i], LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     }
 
@@ -1662,6 +1724,20 @@ static void cover_build_landscape_pages(
                         cover_tileview_event_cb,
                         LV_EVENT_VALUE_CHANGED,
                         pager);
+    lv_obj_add_event_cb(tileview,
+                        cover_tileview_gesture_cb,
+                        LV_EVENT_GESTURE,
+                        pager);
+    pager->gesture_release_timer =
+        lv_timer_create(cover_pager_gesture_release_timer_cb,
+                        COVER_PAGER_GESTURE_RELEASE_POLL_MS,
+                        pager);
+    if (pager->gesture_release_timer) {
+        lv_timer_pause(pager->gesture_release_timer);
+    }
+    else {
+        ESP_LOGW(TAG, "Failed to create cover More Info gesture release timer");
+    }
     lv_tileview_set_tile_by_index(tileview,
                                   s_cover_detail_page == 1 ? 1 : 0,
                                   0,

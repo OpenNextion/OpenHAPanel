@@ -1,3 +1,5 @@
+#include "entity_handlers/entity_state_translation.h"
+#include "i18n.h"
 #include "badge_display.h"
 
 #include <math.h>
@@ -8,44 +10,6 @@
 #include "entity_handlers/entity_handler.h"
 #include "entity_handlers/entity_handler_registry.h"
 #include "ha_entity_store.h"
-
-typedef struct {
-    const char *device_class;
-    const char *on_text;
-    const char *off_text;
-} binary_sensor_badge_state_t;
-
-static const binary_sensor_badge_state_t s_binary_sensor_states[] = {
-    {"battery", "Low", "Normal"},
-    {"battery_charging", "Charging", "Not charging"},
-    {"carbon_monoxide", "Detected", "Clear"},
-    {"cold", "Cold", "Normal"},
-    {"connectivity", "Connected", "Disconnected"},
-    {"door", "Open", "Closed"},
-    {"garage_door", "Open", "Closed"},
-    {"gas", "Detected", "Clear"},
-    {"glass_break", "Detected", "Clear"},
-    {"heat", "Hot", "Normal"},
-    {"light", "Light detected", "No light"},
-    {"lock", "Unlocked", "Locked"},
-    {"moisture", "Wet", "Dry"},
-    {"motion", "Detected", "Clear"},
-    {"moving", "Moving", "Not moving"},
-    {"occupancy", "Detected", "Clear"},
-    {"opening", "Open", "Closed"},
-    {"plug", "Plugged in", "Unplugged"},
-    {"power", "On", "Off"},
-    {"presence", "Home", "Away"},
-    {"problem", "Problem", "OK"},
-    {"running", "Running", "Not running"},
-    {"safety", "Unsafe", "Safe"},
-    {"smoke", "Detected", "Clear"},
-    {"sound", "Detected", "Clear"},
-    {"tamper", "Tampering detected", "Clear"},
-    {"update", "Update available", "Up-to-date"},
-    {"vibration", "Detected", "Clear"},
-    {"window", "Open", "Closed"},
-};
 
 static bool badge_domain_is(const char *entity_id, const char *domain)
 {
@@ -62,6 +26,9 @@ bool badge_display_supported(const char *entity_id)
 
 static void badge_copy_name(const char *name, char *text, size_t text_size)
 {
+    char display_name[128];
+    i18n_display_copy(display_name, sizeof(display_name), name);
+    name = display_name;
     /* Limit by UTF-8 characters so a Chinese name is never cut mid-character. */
     size_t bytes = 0;
     size_t characters = 0;
@@ -134,7 +101,7 @@ void badge_display_format(ha_entity_store_t *store,
     snprintf(text, text_size, "%s",
              model->state_text[0] ? model->state_text : model->title);
 
-        if (badge_domain_is(entity_id, "button") ||
+    if (badge_domain_is(entity_id, "button") ||
         badge_domain_is(entity_id, "scene")||
         badge_domain_is(entity_id, "event")
         ) {
@@ -161,55 +128,36 @@ void badge_display_format(ha_entity_store_t *store,
         if (strcmp(snapshot.state, "on") == 0) {
             if (!badge_get_percent(store, entity_id, "brightness", 255.0,
                                    text, text_size)) {
-                snprintf(text, text_size, "On");
+                i18n_copy(text, text_size, i18n_get(I18N_STATE_ON));
             }
         } else if (strcmp(snapshot.state, "off") == 0) {
-            snprintf(text, text_size, "Off");
+            i18n_copy(text, text_size, i18n_get(I18N_STATE_OFF));
         }
     } else if (badge_domain_is(entity_id, "cover")) {
         if (strcmp(snapshot.state, "open") == 0) {
             if (!badge_cover_supports_position(store, entity_id) ||
                 !badge_get_percent(store, entity_id, "current_position",
                                    100.0, text, text_size)) {
-                snprintf(text, text_size, "Open");
+                i18n_copy(text, text_size, i18n_get(I18N_STATE_OPEN));
             }
         } else if (strcmp(snapshot.state, "closed") == 0) {
-            snprintf(text, text_size, "Closed");
+            i18n_copy(text, text_size, i18n_get(I18N_STATE_CLOSED));
         } else if (strcmp(snapshot.state, "opening") == 0) {
-            snprintf(text, text_size, "Opening");
+            i18n_copy(text, text_size, i18n_get(I18N_STATE_OPENING));
         } else if (strcmp(snapshot.state, "closing") == 0) {
-            snprintf(text, text_size, "Closing");
+            i18n_copy(text, text_size, i18n_get(I18N_STATE_CLOSING));
         }
-    } else if (badge_domain_is(entity_id, "sensor")) {
-        snprintf(text, text_size, "%s%s", snapshot.state,
-                 snapshot.unit_of_measurement);
     } else if (badge_domain_is(entity_id, "binary_sensor")) {
-        const bool on = strcmp(snapshot.state, "on") == 0;
-        const bool off = strcmp(snapshot.state, "off") == 0;
-        if (on || off) {
-            for (size_t i = 0; i < sizeof(s_binary_sensor_states) /
-                                        sizeof(s_binary_sensor_states[0]); i++) {
-                if (strcmp(snapshot.device_class,
-                           s_binary_sensor_states[i].device_class) == 0) {
-                    snprintf(text, text_size, "%s",
-                             on ? s_binary_sensor_states[i].on_text
-                                : s_binary_sensor_states[i].off_text);
-                    break;
-                }
+        i18n_copy(text, text_size,
+                  entity_state_translate_binary(snapshot.state, snapshot.device_class));
+    } else if (badge_domain_is(entity_id, "fan")) {
+        if (strcmp(snapshot.state, "on") == 0) {
+            if (!badge_get_percent(store, entity_id, "percentage", 100.0,
+                                   text, text_size)) {
+                i18n_copy(text, text_size, i18n_get(I18N_STATE_ON));
             }
+        } else if (strcmp(snapshot.state, "off") == 0) {
+            i18n_copy(text, text_size, i18n_get(I18N_STATE_OFF));
         }
     }
-    // else if (badge_domain_is(entity_id, "fan")) {
-        // model->icon = MDI_SYMBOL_FAN;
-        // if (strcmp(snapshot.state, "on") == 0) {
-            // model->icon_color = lv_color_hex(0x00BCD4);
-            // if (!badge_get_percent(store, entity_id, "percentage", 100.0,
-                                //    text, text_size)) {
-                // snprintf(text, text_size, "On");
-            // }
-        // } else if (strcmp(snapshot.state, "off") == 0) {
-            // model->icon_color = lv_color_hex(0x9E9E9E);
-            // snprintf(text, text_size, "Closed");
-        // }
-    // }
 }

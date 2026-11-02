@@ -1,3 +1,4 @@
+#include "i18n.h"
 #include <esp_log.h>
 #include <esp_system.h>
 #include <esp_http_server.h>
@@ -14,6 +15,7 @@
 #include "webserver_firmware_update.h"
 #include "webserver_screen.h"
 #include "webserver_screen_rotation.h"
+#include "webserver_screen_theme.h"
 #include "network_api.h"
 #include "screen_api.h"
 #include "screen_state.h"
@@ -95,6 +97,8 @@ static webserver_method_api_strategy webserver_method_api_list[] = {
     {WEB_API_METHOD_SET_NIGHT_MODE, method_api_handle_set_night_mode},
     {WEB_API_METHOD_SET_SCREEN_LOCK, method_api_handle_set_screen_lock},
     {WEB_API_METHOD_SET_SCREEN_ROTATION, method_api_handle_set_screen_rotation},
+    {WEB_API_METHOD_GET_SCREEN_THEME, method_api_handle_get_screen_theme},
+    {WEB_API_METHOD_SET_SCREEN_THEME, method_api_handle_set_screen_theme},
     {WEB_API_METHOD_SET_NAME, method_api_handle_set_name},
     {WEB_API_METHOD_DOWNLOAD_BACKUP, method_api_handle_download_backup},
     {WEB_API_METHOD_UPLOAD_BACKUP, method_api_handle_upload_backup},
@@ -695,7 +699,7 @@ esp_err_t method_api_handle_set_language(cJSON *data, async_resp_arg *now_resp_a
         ESP_LOGE(TAG, "webserver_config_load_config_info_from_file fail");
         goto send_response;
     }
-    strncpy(device_info.language, language, sizeof(device_info.language) - 1);
+    strlcpy(device_info.language, i18n_normalize_locale(language), sizeof(device_info.language));
     if (webserver_config_save_device_info_to_file(&device_info) != ESP_OK) {
         ESP_LOGE(TAG, "webserver_config_save_device_info_to_file fail");
         goto send_response;

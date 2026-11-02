@@ -62,7 +62,7 @@
                                     <span class="wifi-signal-icon"><SvgIcon name={getWifiSignalIcon(item.rssi)} /></span>
                                     <span class="wifi-row-copy">
                                         <strong>{item.ssid || $_('networkPage.hiddenNetwork')}</strong>
-                                        <small><span>RSSI {item.rssi}dBm</span><span>Channel {item.channel}</span></small>
+                                        <small><span>RSSI {item.rssi}dBm</span><span>{$_('networkPage.channelNumber')} {item.channel}</span></small>
                                     </span>
                                 </span>
                             {/snippet}

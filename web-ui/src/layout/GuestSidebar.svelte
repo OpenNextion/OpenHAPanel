@@ -1,38 +1,29 @@
 <script lang="ts">
     import { _ } from 'svelte-i18n';
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
+    import LanDeviceSwitcher from '@/component/LanDeviceSwitcher/LanDeviceSwitcher.svelte';
     import { deviceStore, updateTheme } from '@/stores/device';
-    import { languageStore, setLanguage } from '@/stores/language';
-    import { currentLanDevice } from '@/stores/lanDevice';
+    import { useLanguageSettings } from '@/hooks/useLanguageSettings.svelte';
     import EThemeMode from '@/types/EThemeMode';
-    import ELanguage from '@/types/language';
     import { GUEST_ABOUT, GUEST_FAQ } from '@/constant';
     import DropDown from '@/component/Dropdown/DropDown.svelte';
 
     interface Props {
         open?: boolean;
         hasTopTips?: boolean;
+        showLanguage?: boolean;
         onClose?: () => void;
     }
 
-    let { open = false, hasTopTips = false, onClose = () => undefined }: Props = $props();
+    let { open = false, hasTopTips = false, showLanguage = true, onClose = () => undefined }: Props = $props();
     let changingTheme = $state(false);
-    let changingLanguage = $state(false);
-    let selectedLanguage = $state<ELanguage>($languageStore.language);
+    const language = useLanguageSettings();
     const themeOptions = $derived([
         { label: 'settingsDetail.lightMode', icon: 'sun.svg', mode: EThemeMode.NORMAL, followSystem: false },
         { label: 'settingsDetail.darkMode', icon: 'night.svg', mode: EThemeMode.DARK, followSystem: false },
         { label: 'settingsDetail.followSystem', icon: 'sunNight.svg', mode: $deviceStore.currentMode, followSystem: true },
     ]);
-    const languageOptions = [
-        { label: '简体中文', value: ELanguage.ZH_CN },
-        { label: 'English', value: ELanguage.EN_US },
-    ];
-    const selectedLanguageLabel = $derived(languageOptions.find((item) => item.value === selectedLanguage)?.label ?? selectedLanguage);
-    $effect(() => {
-        if (changingLanguage) return;
-        selectedLanguage = $languageStore.language;
-    });
+    const selectedLanguageLabel = $derived(language.options.find((item) => item.value === language.state.selected)?.label ?? language.state.selected);
 
     function isThemeSelected(mode: EThemeMode, followSystem: boolean) {
         return followSystem ? $deviceStore.followSystem : !$deviceStore.followSystem && $deviceStore.currentMode === mode;
@@ -54,30 +45,13 @@
         void selectTheme(mode, followSystem);
     }
 
-    async function changeLanguage(nextLanguage: ELanguage, previousLanguage: ELanguage = selectedLanguage) {
-        if (changingLanguage) return;
-        selectedLanguage = nextLanguage;
-        changingLanguage = true;
-        try {
-            const { wsResponse } = await setLanguage(nextLanguage);
-            if (wsResponse.error === 0) {
-                return;
-            }
-            selectedLanguage = previousLanguage;
-        } catch (error) {
-            console.error('Failed to update language:', error);
-            selectedLanguage = previousLanguage;
-        } finally {
-            changingLanguage = false;
-        }
-    }
 </script>
 
 <aside class:open class:has-top-tips={hasTopTips} class="guest-sidebar" aria-hidden={!open}>
     <button class="guest-sidebar-close" type="button" aria-label={$_('common.closeMenu')} onclick={onClose}><SvgIcon name="mdi:close" /></button>
     <div class="guest-device">
         <span class="guest-device-logo"><SvgIcon name="nextionLogo.svg" /></span>
-        <div><strong>{$currentLanDevice?.name || '--'}</strong><small>{$currentLanDevice?.ip || '--'}</small></div>
+        <LanDeviceSwitcher guest />
     </div>
 
     <section class="guest-sidebar-section">
@@ -105,12 +79,14 @@
     </section>
 
     <nav class="guest-sidebar-links" aria-label={$_('nav.main')}>
-        <!--<label class="guest-language-select">
-            <span>{$_('common.language')}</span>
-            <DropDown bind:value={selectedLanguage} options={languageOptions} disabled={changingLanguage} onchange={changeLanguage} ariaLabel={$_('common.language')}>
-                <span>{selectedLanguageLabel}</span>
-            </DropDown>
-        </label>-->
+        {#if showLanguage}
+            <label class="guest-language-select">
+                <span>{$_('common.language')}</span>
+                <DropDown bind:value={language.state.selected} options={language.options} disabled={language.state.loading} onchange={(value) => void language.save(value)} ariaLabel={$_('common.language')}>
+                    <span>{selectedLanguageLabel}</span>
+                </DropDown>
+            </label>
+        {/if}
         <a href={GUEST_FAQ} target="_blank" rel="noreferrer"><span>{$_('guestSidebar.faq')}</span><SvgIcon name="blank.svg" /></a>
         <a href={GUEST_ABOUT} target="_blank" rel="noreferrer"><span>{$_('guestSidebar.about')}</span><SvgIcon name="blank.svg" /></a>
     </nav>
@@ -151,9 +127,6 @@
     .guest-device-logo { display: grid; width: 2.5rem; height: 2.5rem; flex: 0 0 auto; place-items: center; }
     .guest-device-logo-mobile { display: none; }
     .guest-device-logo :global(.sf-icon), .guest-device-logo :global(svg) { width: 100%; height: 100%; }
-    .guest-device > div { display: flex; min-width: 0; flex-direction: column; }
-    .guest-device strong { overflow: hidden; font-size: 0.85rem; text-overflow: ellipsis; white-space: nowrap; }
-    .guest-device small { color: var(--body-text-color-grey); font-size: 0.7rem; }
     .guest-sidebar-section { margin-top: 2rem; }
     .guest-sidebar-section h2 { margin: 0 0 0.75rem; color: var(--body-text-color-grey); font-size: 0.85rem; font-weight: 500; }
     .guest-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }

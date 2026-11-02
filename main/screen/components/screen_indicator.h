@@ -25,6 +25,9 @@ void screen_indicator_destroy(screen_indicator_t *indicator);
 void screen_indicator_set_active(screen_indicator_t *indicator,
                                  size_t active_index);
 
+/** Reapply dot colors from the currently selected screen theme. */
+void screen_indicator_apply_theme(screen_indicator_t *indicator);
+
 #ifdef __cplusplus
 }
 #endif

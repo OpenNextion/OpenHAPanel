@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { _ } from 'svelte-i18n';
     import { tick, type Snippet } from 'svelte';
     import SvgIcon from '../Icon/SvgIcon.svelte';
 
@@ -107,7 +108,7 @@
                     <button
                         type="button"
                         class="searchable-clear"
-                        aria-label="Clear search"
+                        aria-label={$_('common.clearSearch')}
                         onclick={(event) => {
                             event.stopPropagation();
                             updateSearch('');
@@ -137,7 +138,7 @@
             </div>
             <div class="h-100 d-flex align-items-center justify-content-center arrow">
                 <i class="d-flex" style="color: var(--body-text-color-grey);">
-                    <SvgIcon name="arrowRight.svg" />
+                    <SvgIcon name="arrow.svg" />
                 </i>
             </div>
         </button>
@@ -157,7 +158,7 @@
         <button
             class="dropdown-shadow"
             type="button"
-            aria-label="Close dropdown"
+            aria-label={$_('common.closeDropdown')}
             onclick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -241,8 +242,8 @@
         .arrow {
             :global {
                 .sf-icon {
-                    transition: all 0.25s;
-                    transform: rotate(90deg);
+                    transition: transform 0.25s;
+                    transform: rotate(180deg);
                 }
             }
         }
@@ -250,7 +251,7 @@
             .arrow {
                 :global {
                     .sf-icon {
-                        transform: rotate(-90deg);
+                        transform: rotate(0deg);
                     }
                 }
             }

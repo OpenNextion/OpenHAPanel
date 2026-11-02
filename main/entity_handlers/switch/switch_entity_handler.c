@@ -1,4 +1,5 @@
 #include "switch_entity_handler.h"
+#include "switch_feature_handler.h"
 
 #include <string.h>
 #include <time.h>
@@ -736,5 +737,6 @@ const entity_handler_t switch_entity_handler = {
     },
     .handle_action = switch_handle_action,
     .render_tile = switch_render_tile,
+    .feature_handler = &switch_feature_handler,
     .render_more_info = switch_render_more_info,
 };

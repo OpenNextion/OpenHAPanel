@@ -1,6 +1,6 @@
 import type { IAuthNotify, IForgotPwdNotify } from '@/types/auth';
 import type { IConnectionStatusNotify, IWifiInfoNotify, IWifiScanResultNotify } from '@/types/network';
-import type { IDeviceInfoNotify, IScreenRotationNotify } from './device';
+import type { IDeviceInfoNotify, ILanguageNotify, IScreenRotationNotify } from './device';
 import type { IHassAuthorizationResult, IHassConnectionStatusNotify, IHassScanResultNotify } from '@/types/homeassistant';
 import type { IHassScreenConfigNotify } from './screenConfig';
 import type { IFirmwareUpdateStatusNotify } from './firmware';
@@ -44,6 +44,7 @@ export enum EWsMethods {
     SET_NTP_SERVERS_RSP = 'Device.SetNtpServersRsp',
     SET_LANGUAGE = 'Device.SetLanguage',
     SET_LANGUAGE_RSP = 'Device.SetLanguageRsp',
+    LANGUAGE_NOTIFY = 'Device.LanguageNotify',
     REBOOT_DEVICE = 'Device.RebootDevice',
     REBOOT_DEVICE_RSP = 'Device.RebootDeviceRsp',
     SET_BRIGHTNESS = 'Device.SetBrightness',
@@ -75,11 +76,6 @@ export enum EWsMethods {
     //NOTIFICATION_NOTIFY = 'Device.NotificationNotify',
     //DELETE_ALL_NOTIFICATIONS = 'Device.ClearNotificationHistory',
     //DELETE_ALL_NOTIFICATIONS_RSP = 'Device.ClearNotificationHistoryRsp',
-
-    //// ============= Debug log management =============
-    SET_DEBUG_LOG = 'Device.SetDebugLog',
-    SET_DEBUG_LOG_RSP = 'Device.SetDebugLogRsp',
-    //DEBUG_LOG_NOTIFY = 'Device.DebugLogNotify',
 
     // ============= Device network management=============
     NETWORK_INFO_NOTIFY = 'Network.InfoNotify',
@@ -115,8 +111,8 @@ export enum EWsMethods {
     HASS_GET_CONNECTION_INFO_RESP = 'Hass.GetConnectionInfoRsp',
     HASS_UPDATE_URL = 'Hass.UpdateUrl',
     HASS_UPDATE_URL_RESP = 'Hass.UpdateUrlRsp',
-    HASS_DISABLE = 'Hass.Disable',
-    HASS_DISABLE_RESP = 'Hass.DisableRsp',
+    HASS_DISABLE = 'Hass.RemoveAuthorization',
+    HASS_DISABLE_RESP = 'Hass.RemoveAuthorizationRsp',
     HASS_ACTIVATE = 'Hass.Activate',
     HASS_ACTIVATE_RESP = 'Hass.ActivateRsp',
     HASS_CONNECTION_STATUS_NOTIFY = 'Hass.ConnectionStatusNotify',
@@ -167,6 +163,7 @@ export type TMethodParams = {
     [EWsMethods.AUTH_REQUIRED_NOTIFY]: IResponse<IAuthNotify>;
     [EWsMethods.FORGOT_PASSWORD_NOTIFY]: IResponse<IForgotPwdNotify>;
     [EWsMethods.DEVICE_INFO_NOTIFY]: IResponse<IDeviceInfoNotify>;
+    [EWsMethods.LANGUAGE_NOTIFY]: IResponse<ILanguageNotify>;
     [EWsMethods.SCREEN_ROTATION_NOTIFY]: IResponse<IScreenRotationNotify>;
     [EWsMethods.FIRMWARE_UPDATE_STATUS_NOTIFY]: IResponse<IFirmwareUpdateStatusNotify>;
     [EWsMethods.LAN_DEVICE_NOTIFY]: IResponse<ILanDeviceNotify>;

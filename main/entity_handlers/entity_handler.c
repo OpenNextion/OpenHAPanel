@@ -1,3 +1,5 @@
+#include "entity_state_translation.h"
+#include "i18n.h"
 #include "entity_handler.h"
 #include "entity_handler_registry.h"
 
@@ -39,7 +41,7 @@ void entity_handler_copy_snapshot_state(char *buffer,
     }
 
     if (!snapshot || snapshot->sync_status == HA_ENTITY_SYNC_REMOVED) {
-        snprintf(buffer, buffer_size, "Unavailable");
+        i18n_copy(buffer, buffer_size, i18n_get(I18N_STATE_UNAVAILABLE));
         return;
     }
 
@@ -54,10 +56,7 @@ void entity_handler_copy_state_text(char *buffer,
         return;
     }
 
-    snprintf(buffer, buffer_size, "%s", state ? state : "");
-    if (buffer[0] >= 'a' && buffer[0] <= 'z') {
-        buffer[0] = (char)(buffer[0] - 'a' + 'A');
-    }
+    i18n_copy(buffer, buffer_size, entity_state_translate(state));
 }
 
 const screen_action_t *entity_handler_get_action(

@@ -40,6 +40,11 @@ void ha_entity_store_prune_unreferenced(ha_entity_store_t *store);
 esp_err_t ha_entity_store_get(ha_entity_store_t *store,
                               const char *entity_id,
                               ha_entity_snapshot_t *out);
+/** Set the effective sensor precision from registry sensor options. */
+esp_err_t ha_entity_store_set_display_precision(ha_entity_store_t *store,
+                                                const char *entity_id,
+                                                bool has_precision,
+                                                uint8_t precision);
 esp_err_t ha_entity_store_get_attr_string(ha_entity_store_t *store,
                                           const char *entity_id,
                                           const char *attribute,

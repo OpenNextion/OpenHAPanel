@@ -48,6 +48,7 @@ static firmware_auto_check_record_t s_record;
 static bool s_initialized;
 static bool s_factory_resetting;
 static bool s_workflow_in_flight;
+static bool s_manual_ota_active;
 static bool s_wifi_link_connected;
 static bool s_wifi_ip_ready;
 static bool s_wifi_check_pending;
@@ -108,6 +109,7 @@ esp_err_t firmware_auto_check_init(void)
     s_active_trigger = FIRMWARE_AUTO_CHECK_TRIGGER_NONE;
     s_wifi_candidate_available = false;
     s_factory_resetting = false;
+    s_manual_ota_active = false;
     NetworkState *network = network_get_state();
     if (OTA_AUTO_CHECK_ON_WIFI_CONNECT && network &&
         network->sta_connected_flag && network->current_ip.is_valid) {
@@ -325,6 +327,29 @@ void firmware_auto_check_notify_wifi_disconnected(void)
     }
 }
 
+void firmware_auto_check_set_manual_ota_active(bool active)
+{
+    if (!s_initialized || !s_record_lock) {
+        return;
+    }
+
+    xSemaphoreTake(s_record_lock, portMAX_DELAY);
+    bool changed = s_manual_ota_active != active;
+    s_manual_ota_active = active;
+    xSemaphoreGive(s_record_lock);
+
+    if (!changed) {
+        return;
+    }
+
+    ESP_LOGI(TAG,
+             "Automatic firmware checks %s by manual OTA session",
+             active ? "suspended" : "resumed");
+    if (s_scheduler_task) {
+        xTaskNotifyGive(s_scheduler_task);
+    }
+}
+
 static void firmware_auto_check_task(void *argument)
 {
     (void)argument;
@@ -518,7 +543,8 @@ static void firmware_auto_check_run_cycle(void)
 
     firmware_auto_check_trigger_t trigger = FIRMWARE_AUTO_CHECK_TRIGGER_NONE;
     xSemaphoreTake(s_record_lock, portMAX_DELAY);
-    if (s_factory_resetting || !s_record.enabled || s_workflow_in_flight) {
+    if (s_factory_resetting || !s_record.enabled || s_workflow_in_flight ||
+        s_manual_ota_active) {
         xSemaphoreGive(s_record_lock);
         return;
     }
@@ -593,7 +619,8 @@ static void firmware_auto_check_run_cycle(void)
                             local_minute >= s_record.scheduled_minute &&
                             local_minute < daily_window_end;
     }
-    if (!s_record.enabled || s_workflow_in_flight || !trigger_still_due) {
+    if (!s_record.enabled || s_workflow_in_flight || s_manual_ota_active ||
+        !trigger_still_due) {
         xSemaphoreGive(s_record_lock);
         return;
     }

@@ -61,6 +61,7 @@ typedef struct {
     bool transparent_overlay;
     /** Optional 0xRRGGBB overrides; zero keeps the component default. */
     uint32_t dialog_background_color;
+    uint32_t title_color;
     uint32_t accent_color;
     uint32_t description_color;
     notification_level_t level;

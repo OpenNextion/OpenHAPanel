@@ -1,11 +1,9 @@
 import { addMessages, init, locale } from 'svelte-i18n';
+import type ELanguage from '@/types/language';
 import en from './en.json';
-import zhCN from './zh-cn.json';
 
-export type AppLocale = 'zh-CN' | 'zh' | 'en';
+export type AppLocale = ELanguage;
 
-addMessages('zh-CN', zhCN);
-addMessages('zh', zhCN);
 addMessages('en', en);
 
 init({

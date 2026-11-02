@@ -6,6 +6,7 @@
 #include "webserver_config_forget_password.h"
 #include "webserver_firmware_update.h"
 #include "webserver_screen_rotation.h"
+#include "webserver_screen_theme.h"
 #include "webserver_client_node.h"
 #include "screen_api.h"
 #include <unistd.h>
@@ -121,6 +122,7 @@ static void webserver_event_handler(void *arg, esp_event_base_t event_base, int3
         screen_config_notify_to_client(*socket_fd);
         webserver_firmware_update_status_notify_to_client(*socket_fd);
         webserver_screen_rotation_notify_to_client(*socket_fd);
+        webserver_screen_theme_notify_to_client(*socket_fd);
         // webserver_indicator_notify(UPDATE_INDICATOR_ALL);
         webserver_whitelist_notify_to_client(*socket_fd);
         // webserver_webhook_task_list_notify();

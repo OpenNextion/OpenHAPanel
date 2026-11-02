@@ -40,10 +40,18 @@ static const char *feature_type_to_string(screen_feature_type_t type)
         return "cover-open-close";
     case SCREEN_FEATURE_COVER_POSITION:
         return "cover-position";
+    case SCREEN_FEATURE_SWITCH_TOGGLE:
+        return "switch-toggle";
+    case SCREEN_FEATURE_SIREN_TOGGLE:
+        return "siren-toggle";
+    case SCREEN_FEATURE_SCENE_PRESS:
+        return "scene-press";
+    case SCREEN_FEATURE_BUTTON_PRESS:
+        return "button-press";
     case SCREEN_FEATURE_LIGHT_BRIGHTNESS:
     default:
         return "light-brightness";
-    }
+}
 }
 
 static screen_action_type_t parse_action_type(const char *action)
@@ -67,6 +75,18 @@ static screen_feature_type_t parse_feature_type(const char *type)
     }
     if (strcmp(type, "cover-position") == 0) {
         return SCREEN_FEATURE_COVER_POSITION;
+    }
+    if (strcmp(type, "switch-toggle") == 0) {
+        return SCREEN_FEATURE_SWITCH_TOGGLE;
+    }
+    if (strcmp(type, "siren-toggle") == 0) {
+        return SCREEN_FEATURE_SIREN_TOGGLE;
+    }
+    if (strcmp(type, "scene-press") == 0) {
+        return SCREEN_FEATURE_SCENE_PRESS;
+    }
+    if (strcmp(type, "button-press") == 0) {
+        return SCREEN_FEATURE_BUTTON_PRESS;
     }
     return SCREEN_FEATURE_LIGHT_BRIGHTNESS;
 }
@@ -168,15 +188,19 @@ static esp_err_t parse_tile_card_data(const cJSON *data_json, screen_tile_card_d
     const cJSON *full_width = cJSON_GetObjectItemCaseSensitive(data_json, "full_width");
     const cJSON *action_config = cJSON_GetObjectItemCaseSensitive(data_json, "actionConfig");
     const cJSON *features = cJSON_GetObjectItemCaseSensitive(data_json, "features");
+    const cJSON *features_position = cJSON_GetObjectItemCaseSensitive(data_json, "features_position");
 
     tile->entity = screen_strdup(entity->valuestring);
     tile->name = cJSON_IsString(name) ? screen_strdup(name->valuestring) : NULL;
     tile->full_width = cJSON_IsTrue(full_width);
+    tile->features_position = screen_strdup(cJSON_IsString(features_position)
+                                                ? features_position->valuestring
+                                                : "bottom");
     tile->has_action_config = cJSON_IsObject(action_config);
     if (tile->has_action_config) {
         parse_action_config(action_config, &tile->action_config);
     }
-    if (!tile->entity) {
+    if (!tile->entity || !tile->features_position) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -384,6 +408,8 @@ static cJSON *tile_card_to_json(const screen_tile_card_data_t *tile)
 
     if (!cJSON_AddStringToObject(data, "entity", tile->entity) ||
         !add_optional_string(data, "name", tile->name) ||
+        !cJSON_AddStringToObject(data, "features_position",
+                                 tile->features_position ? tile->features_position : "bottom") ||
         !cJSON_AddBoolToObject(data, "full_width", tile->full_width) ||
         (tile->has_action_config && !add_action_config(data, &tile->action_config))) {
         cJSON_Delete(data);
@@ -528,6 +554,7 @@ void screen_free_config(screen_config_t *config)
                 screen_tile_card_data_t *tile = &card->data.tile;
                 free(tile->entity);
                 free(tile->name);
+                free(tile->features_position);
                 for (size_t k = 0; k < tile->feature_count; k++) {
                     cJSON_Delete(tile->features[k].data);
                 }

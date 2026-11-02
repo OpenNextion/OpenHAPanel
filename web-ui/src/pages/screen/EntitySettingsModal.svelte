@@ -6,7 +6,7 @@
     import DropDown from '@/component/Dropdown/DropDown.svelte';
     import { getHassEntityPresentation, normalizeHassEntityAction } from '@/hooks/useHassEntity';
     import { deviceStore } from '@/stores/device';
-    import { haRegistryStore } from '@/stores/haRegistry';
+    import { haRegistryStore, haRegistryTreeStore } from '@/stores/haRegistry';
     import { EMessageType, sendMessage } from '@/stores/message';
     import { screenConfigStore, shouldShowScreenEntityIconBackground } from '@/stores/screenConfig';
     import {
@@ -38,16 +38,16 @@
     let initializedKey = '';
     const isLandscape = $derived($deviceStore.screenRotation.rotation === 90);
     const entityResults = $derived.by(() => {
-        void $haRegistryStore.tree;
+        void $haRegistryTreeStore;
         return searchScreenEntities(entityQuery);
     });
     const entityOptions = $derived(entityResults.map((result) => ({ label: result.displayName, value: result.entity.id })));
-    const draftEntity = $derived(getHassEntityPresentation(draftEntityId, $haRegistryStore));
+    const draftEntity = $derived(getHassEntityPresentation(draftEntityId, $haRegistryStore, { variant: mode }));
     const interactions = $derived(mode === 'badge' ? draftEntity.config?.badgeInteractions ?? draftEntity.interactions : draftEntity.interactions);
     const longPressSupported = $derived(interactions.hold.supported);
-    const tapOptions = $derived(getScreenActionOptions(interactions.tap));
-    const holdOptions = $derived(getScreenActionOptions(interactions.hold));
-    const iconTapOptions = $derived(getScreenActionOptions(draftEntity.interactions.iconTap));
+    const tapOptions = $derived(getScreenActionOptions(interactions.tap, $_));
+    const holdOptions = $derived(getScreenActionOptions(interactions.hold, $_));
+    const iconTapOptions = $derived(getScreenActionOptions(draftEntity.interactions.iconTap, $_));
     const tapLabel = $derived(tapOptions.find((option) => option.value === tapAction)?.label ?? tapAction);
     const holdLabel = $derived(holdOptions.find((option) => option.value === holdAction)?.label ?? holdAction);
     const iconTapLabel = $derived(iconTapOptions.find((option) => option.value === iconTapAction)?.label ?? iconTapAction);
@@ -70,7 +70,7 @@
             .find((screen) => screen.index === screenIndex)
             ?.cards?.find((card) => card.data.entity === entityId)?.data.full_width ?? true;
         const actions = getScreenEntityActionSelections(mode, screenIndex, entityId);
-        const entity = getHassEntityPresentation(entityId, $haRegistryStore);
+        const entity = getHassEntityPresentation(entityId, $haRegistryStore, { variant: mode });
         const entityInteractions = mode === 'badge' ? entity.config?.badgeInteractions ?? entity.interactions : entity.interactions;
         tapAction = normalizeHassEntityAction(actions.tap, entityId, $haRegistryStore, 'tap', mode);
         holdAction = entityInteractions.hold.supported ? normalizeHassEntityAction(actions.hold, entityId, $haRegistryStore, 'hold', mode) : 'default';
@@ -124,7 +124,7 @@
         <div class="entity-settings-dialog" role="dialog" aria-modal="true" aria-label={$_('page.screen.entitySettings')}>
             <header>
                 <button type="button" aria-label={$_('common.close')} onclick={onclose}><SvgIcon name="mdi:close" /></button>
-                <strong>{mode === 'badge' ? 'Badge configuration' : 'Tile card configuration'}</strong>
+                <strong>{$_(mode === 'badge' ? 'page.screen.badgeConfiguration' : 'page.screen.tileCardConfiguration')}</strong>
             </header>
             <div class:layout-active={mode === 'entity' && isLandscape && activeTab === 'layout'} class="entity-settings-dialog-content">
                 <div class="entity-settings">
@@ -140,7 +140,7 @@
                     {/if}
                     {#if mode === 'badge' || !isLandscape || activeTab === 'config'}
                     <section class="configured-entity">
-                        <span>Entity</span>
+                        <span>{$_('page.screen.entity')}</span>
                         <DropDown
                             id="entity-settings-entity"
                             bind:value={draftEntityId}
@@ -166,24 +166,24 @@
                     </section>
                     <details class="entity-config-section" open>
                         <summary
-                            ><span class="section-leading-icon"><SvgIcon name="interactions.svg" /></span><span>Interactions</span><span class="section-chevron"
+                            ><span class="section-leading-icon"><SvgIcon name="interactions.svg" /></span><span>{$_('page.screen.interactions')}</span><span class="section-chevron"
                                 ><SvgIcon name="arrowRight.svg" /></span
                             ></summary
                         >
                         <div class="interaction-fields">
                             <div class="behavior-field">
-                                <span>Tap behavior</span><DropDown bind:value={tapAction} options={tapOptions} ariaLabel="Tap behavior"><span>{tapLabel}</span></DropDown>
+                                <span>{$_('page.screen.tapBehavior')}</span><DropDown bind:value={tapAction} options={tapOptions} ariaLabel={$_('page.screen.tapBehavior')}><span>{tapLabel}</span></DropDown>
                             </div>
                             {#if mode === 'entity'}
                                 <div class="behavior-field">
-                                    <span>Icon tap behavior</span><DropDown bind:value={iconTapAction} options={iconTapOptions} ariaLabel="Icon tap behavior"
+                                    <span>{$_('page.screen.iconTapBehavior')}</span><DropDown bind:value={iconTapAction} options={iconTapOptions} ariaLabel={$_('page.screen.iconTapBehavior')}
                                         ><span>{iconTapLabel}</span></DropDown
                                     >
                                 </div>
                             {/if}
                             {#if longPressSupported}
                                 <div class="behavior-field">
-                                    <span>Long press behavior</span><DropDown bind:value={holdAction} options={holdOptions} ariaLabel="Long press behavior"
+                                    <span>{$_('page.screen.longPressBehavior')}</span><DropDown bind:value={holdAction} options={holdOptions} ariaLabel={$_('page.screen.longPressBehavior')}
                                         ><span>{holdLabel}</span></DropDown
                                     >
                                 </div>
@@ -193,7 +193,7 @@
                     {#if mode === 'entity'}
                         <details class="entity-config-section" open>
                             <summary
-                                ><span class="section-leading-icon"><SvgIcon name="features.svg" /></span><span>Features</span><span class="section-chevron"
+                                ><span class="section-leading-icon"><SvgIcon name="features.svg" /></span><span>{$_('page.screen.features')}</span><span class="section-chevron"
                                     ><SvgIcon name="arrowRight.svg" /></span
                                 ></summary
                             >
@@ -229,7 +229,7 @@
                                 showIconBackground={shouldShowScreenEntityIconBackground(draftEntityId, previewActionConfig)}
                             />
                         {:else}
-                            <span class="unavailable-preview"><SvgIcon name={draftEntity.icon} />Unavailable</span>
+                            <span class="unavailable-preview"><SvgIcon name={draftEntity.icon} />{$_('hassEntityState.unavailable')}</span>
                         {/if}
                     </div>
                 </div>

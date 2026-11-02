@@ -25,6 +25,12 @@ lv_obj_t *ha_provisioning_view_create(
 /** Dismiss the device-information swipe hint, if it is pending or visible. */
 void ha_provisioning_view_dismiss_hint(lv_obj_t *root);
 
+/** Reapply the guide and swipe-hint layout after display rotation. */
+void ha_provisioning_view_apply_orientation(lv_obj_t *root);
+
+/** Reapply colors from the currently selected screen theme. */
+void ha_provisioning_view_apply_theme(lv_obj_t *root);
+
 #ifdef __cplusplus
 }
 #endif

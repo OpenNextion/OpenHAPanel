@@ -59,7 +59,7 @@
                 <span class="option-title">{$_(option.label)}</span>
                 <span class={`device-preview ${option.orientation}`} aria-hidden="true">
                     <span class="preview-status">
-                        <span>Default</span>
+                        <span>{$_('page.screen.defaultSplit')}</span>
                         <span class="preview-status-icons">
                             <SvgIcon name="ha.svg" />
                             <SvgIcon name="wifi_4.svg" />
@@ -211,6 +211,7 @@
         }
         .device-preview.portrait {
             width: 74%;
+            margin-block: auto;
         }
     }
 </style>

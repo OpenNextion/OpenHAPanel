@@ -159,6 +159,9 @@ $padding: 0.75rem;
         .main-content {
             padding: $padding;
             .title-wrapper {
+                min-width: 0;
+                white-space: normal;
+                overflow-wrap: anywhere;
                 font-size: 1rem;
                 line-height: 1.38rem;
                 color: var(--body-text-color-highlight);

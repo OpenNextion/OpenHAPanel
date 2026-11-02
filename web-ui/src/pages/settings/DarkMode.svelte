@@ -38,7 +38,7 @@
 <div class="page-container settings-detail">
     <SettingPageHeader title={$_('page.settings.darkMode')} />
     <div class="follow-system-setting">
-        <SettingRow title={$_('settingsDetail.followSystem')} margin={0}>
+        <SettingRow title={$_('settingsDetail.followSystem')} margin={0} titleCol={10} contentCol={2}>
             {#snippet contentSnippet()}<span class="form-check form-switch"
                     ><input class="form-check-input" type="checkbox" bind:checked={followSystem} disabled={loading} onchange={toggleFollowSystem} /></span
                 >{/snippet}

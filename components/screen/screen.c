@@ -339,7 +339,7 @@ esp_err_t screen_reset_config(void)
     esp_err_t err = screen_save_config(config);
     cJSON_Delete(config);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Screen config reset after Home Assistant authorization");
+        ESP_LOGI(TAG, "Screen config reset to empty configuration");
     }
     return err;
 }

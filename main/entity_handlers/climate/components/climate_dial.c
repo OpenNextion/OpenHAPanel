@@ -1,3 +1,5 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "climate_dial.h"
 #include "assets/ha_ui_assets.h"
 #include "climate_big_number.h"
@@ -141,7 +143,7 @@ lv_obj_t *climate_dial_create(lv_obj_t *parent)
         lv_obj_set_style_text_align(currents[i], LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_font(currents[i], &ha_font_misan_regular_12, 0);
         lv_obj_set_style_text_color(currents[i], lv_color_white(), 0);
-        lv_label_set_text(currents[i], "");
+        ui_i18n_label_set_text(currents[i], "");
     }
     lv_obj_add_flag(dial->current_humidity, LV_OBJ_FLAG_HIDDEN);
 
@@ -152,10 +154,13 @@ lv_obj_t *climate_dial_create(lv_obj_t *parent)
     lv_obj_add_event_cb(dial->slider, slider_event, LV_EVENT_RELEASED, dial);
     dial->action = lv_label_create(dial->slider);
     if (!dial->action) { lv_obj_delete(root); return NULL; }
+    lv_obj_set_width(dial->action, 190);
+    lv_label_set_long_mode(dial->action, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_text_align(dial->action, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(dial->action, &ha_font_misan_regular_12, 0);
     lv_obj_set_style_text_color(dial->action, lv_color_white(), 0);
     lv_obj_align(dial->action, LV_ALIGN_CENTER, 0, -39);
-    lv_label_set_text(dial->action, "");
+    ui_i18n_label_set_text(dial->action, "");
     dial->number_area = lv_obj_create(dial->slider);
     if (!dial->number_area) { lv_obj_delete(root); return NULL; }
     lv_obj_remove_style_all(dial->number_area);
@@ -169,7 +174,10 @@ lv_obj_t *climate_dial_create(lv_obj_t *parent)
         lv_obj_delete(root);
         return NULL;
     }
-    lv_label_set_text(dial->unavailable_label, "Unavailable");
+    ui_i18n_label_set_text(dial->unavailable_label, i18n_get(I18N_STATE_UNAVAILABLE));
+    lv_obj_set_width(dial->unavailable_label, 190);
+    lv_label_set_long_mode(dial->unavailable_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_text_align(dial->unavailable_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(dial->unavailable_label, &ha_font_misan_medium_20, 0);
     lv_obj_set_style_text_color(dial->unavailable_label, lv_color_hex(0x9B9B9B), 0);
     lv_obj_align(dial->unavailable_label, LV_ALIGN_CENTER, 0, 0);
@@ -191,6 +199,11 @@ void climate_dial_set_compact_layout(lv_obj_t *obj, bool compact)
     lv_obj_set_style_pad_column(dial->status_row, compact ? 8 : 16, 0);
     lv_obj_set_width(dial->current_temp, compact ? 104 : 136);
     lv_obj_set_width(dial->current_humidity, compact ? 104 : 136);
+    lv_label_set_long_mode(dial->current_temp,
+                           compact ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_label_set_long_mode(dial->current_humidity,
+                           compact ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_width(dial->action, compact ? 150 : 190);
     lv_obj_align(dial->action, LV_ALIGN_CENTER, 0, compact ? -32 : -39);
 
     if (compact) {
@@ -281,8 +294,8 @@ void climate_dial_set_currents(lv_obj_t *obj, const char *temperature,
     if (!dial) return;
     const bool has_temp = temperature && temperature[0];
     const bool has_humidity = humidity && humidity[0];
-    lv_label_set_text(dial->current_temp, has_temp ? temperature : "");
-    lv_label_set_text(dial->current_humidity, has_humidity ? humidity : "");
+    ui_i18n_label_set_text(dial->current_temp, has_temp ? temperature : "");
+    ui_i18n_label_set_text(dial->current_humidity, has_humidity ? humidity : "");
     if (has_temp) lv_obj_remove_flag(dial->current_temp, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(dial->current_temp, LV_OBJ_FLAG_HIDDEN);
     if (has_humidity) lv_obj_remove_flag(dial->current_humidity, LV_OBJ_FLAG_HIDDEN);
@@ -292,7 +305,7 @@ void climate_dial_set_currents(lv_obj_t *obj, const char *temperature,
 void climate_dial_set_action(lv_obj_t *obj, const char *text)
 {
     climate_dial_t *dial = ctx(obj);
-    if (dial) lv_label_set_text(dial->action, text ? text : "");
+    if (dial) ui_i18n_label_set_text(dial->action, text ? text : "");
 }
 
 void climate_dial_set_unit(lv_obj_t *obj, const char *unit)

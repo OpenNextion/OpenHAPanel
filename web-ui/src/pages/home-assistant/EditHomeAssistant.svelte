@@ -7,11 +7,12 @@
     import { REG_EXP_DOMAIN, REG_EXP_IPV4, REG_EXP_PORT } from '@/constant/regRex';
     import { homeAssistantStore, updateHassConnectionInfo } from '@/stores/homeassistant';
     import { EWsMethods } from '@/types/websocket';
-    import type { IHassDisableResponse, IHassUpdateUrlResponse } from '@/types/homeassistant';
+    import type { IHassDisableResponse, IHassInstanceItem, IHassUpdateUrlResponse } from '@/types/homeassistant';
     import sendForReply from '@/ws/sendForReply';
     import { EMessageType, sendMessage } from '@/stores/message';
     import { EHassConnectionState, getHomeAssistantConnectionState, useHomeAssistant } from '@/hooks/useHomeAssistant.svelte';
     import DropDown from '@/component/Dropdown/DropDown.svelte';
+    import HaDiscovery from '@/component/HaDiscovery/HaDiscovery.svelte';
     import { tick } from 'svelte';
 
     const { startHomeAssistantOAuth } = useHomeAssistant();
@@ -174,6 +175,15 @@
         }
     }
 
+    async function selectDiscoveredServer(item: IHassInstanceItem) {
+        if (loading || urlUpdateLoading) return;
+        host = item.ipAddress;
+        port = item.port ? String(item.port) : '';
+        hostError = '';
+        portError = '';
+        await saveAndConnect();
+    }
+
     function closeUrlChangeConfirm() {
         if (urlUpdateLoading) return;
         urlChangeConfirmVisible = false;
@@ -223,8 +233,7 @@
                 method: EWsMethods.HASS_DISABLE,
                 data: {},
             });
-            if (response.error === 0 && response.data) {
-                updateHassConnectionInfo(response.data);
+            if (response.error === 0) {
                 revokeConfirmVisible = false;
                 sendMessage(EMessageType.WARN, $_('homeAssistant.disconnectedSuccess'));
                 await pop();
@@ -272,6 +281,7 @@
                 >{$_(connectionState === EHassConnectionState.DISABLED ? 'homeAssistant.connect' : 'homeAssistant.saveAndConnect')}</button
             >
         </div>
+        <HaDiscovery busy={loading || urlUpdateLoading || urlChangeConfirmVisible} onServerSelect={selectDiscoveredServer} />
     {:else}
         <div class="ha-edit-actions">
             <button class="primary-action" type="button" disabled={loading} onclick={handlePrimaryAction}>{$_(primaryActionText)}</button>
@@ -308,7 +318,7 @@
                     disabled={urlUpdateLoading}
                     onclick={confirmUrlChange}
                     >{#if urlUpdateLoading}<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>{$_('homeAssistant.connectingHa')}{:else}{$_(
-                            'common.confirm',
+                            'homeAssistant.confirmUrlChange',
                         )}{/if}</button
                 >
             </footer>
@@ -320,7 +330,7 @@
     {#snippet customSnippet()}
         <div class="ha-confirm-dialog">
             <h2>{$_('homeAssistant.revokeDialogTitle')}</h2>
-            <p>{$_('homeAssistant.revokeWarning')}</p>
+            <p>{$_('homeAssistant.revokeWarning', { values: { host: savedHassHost } })}</p>
             <footer>
                 <button type="button" disabled={revokeLoading} onclick={() => (revokeConfirmVisible = false)}>{$_('common.cancel')}</button><button
                     class="confirm"

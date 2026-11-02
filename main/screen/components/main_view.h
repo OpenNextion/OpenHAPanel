@@ -11,6 +11,8 @@ extern "C" {
 
 typedef struct main_view main_view_t;
 
+void main_view_refresh_language(main_view_t *view, ha_entity_store_t *store);
+
 main_view_t *main_view_create(lv_obj_t *parent, const screen_view_t *view);
 void main_view_destroy(main_view_t *main_view);
 

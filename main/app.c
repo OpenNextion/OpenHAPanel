@@ -45,6 +45,7 @@
 #include "screen_state.h"
 #include "screen_ui.h"
 #include "screen_rotation.h"
+#include "screen_theme.h"
 #include "screen_night_mode.h"
 #include "webserver_message_parse.h"
 #include "webserver_screen.h"
@@ -93,8 +94,6 @@ static bool s_ha_transport_connected;
 static volatile bool s_ha_network_ip_ready;
 static bool s_screen_state_ready;
 static volatile bool s_screen_power_ready;
-static bool s_notification_ha_state_initialized;
-static bool s_notification_ha_was_configured;
 static bool s_notification_firmware_staged;
 static portMUX_TYPE s_manual_ota_web_guard = portMUX_INITIALIZER_UNLOCKED;
 static bool s_manual_ota_web_lock;
@@ -1037,6 +1036,28 @@ static void app_ha_registry_query_result_cb(ha_ws_client_t *client,
     const cJSON *entry = NULL;
     cJSON_ArrayForEach(entry, result) {
         if (entry->string && cJSON_IsObject(entry) &&
+            strncmp(entry->string, "sensor.", 7) == 0) {
+            const cJSON *options = cJSON_GetObjectItemCaseSensitive(entry, "options");
+            const cJSON *sensor = cJSON_GetObjectItemCaseSensitive(options, "sensor");
+            const cJSON *dp = cJSON_GetObjectItemCaseSensitive(sensor, "display_precision");
+            if (!cJSON_IsNumber(dp)) {
+                dp = cJSON_GetObjectItemCaseSensitive(sensor,
+                                                       "suggested_display_precision");
+            }
+            const bool has_precision = cJSON_IsNumber(dp) &&
+                                       dp->valuedouble >= 0 &&
+                                       dp->valuedouble <= 100 &&
+                                       dp->valuedouble == (double)dp->valueint;
+            taskENTER_CRITICAL(&s_ha_data_state_guard);
+            ha_entity_store_t *store = s_ha_entity_store;
+            taskEXIT_CRITICAL(&s_ha_data_state_guard);
+            if (store) {
+                ha_entity_store_set_display_precision(
+                    store, entry->string, has_precision,
+                    has_precision ? (uint8_t)dp->valueint : 0);
+            }
+        }
+        if (entry->string && cJSON_IsObject(entry) &&
             strncmp(entry->string, "light.", 6) == 0) {
             bool changed = false;
             esp_err_t options_err = light_favorite_colors_store_update(
@@ -1833,27 +1854,13 @@ static void app_reconcile_ha_notifications(void)
         ESP_LOGW(TAG, "Failed to lock LVGL while updating HA status icon");
     }
 
-    if (!s_notification_ha_state_initialized) {
-        s_notification_ha_was_configured = info.configured;
-        s_notification_ha_state_initialized = true;
-    }
-    else {
-        bool authorization_removed = s_notification_ha_was_configured && !info.configured;
-        if (authorization_removed) {
-            app_set_notification_active(SCREEN_NOTIFICATION_HA_AUTH_CANCELED, true);
-        }
-        else if (info.configured) {
-            app_set_notification_active(SCREEN_NOTIFICATION_HA_AUTH_CANCELED, false);
-        }
-        s_notification_ha_was_configured = info.configured;
-    }
-
     if (ota_suppressed) {
         app_set_notification_active(SCREEN_NOTIFICATION_HA_AUTH_CANCELED, false);
         app_set_notification_active(SCREEN_NOTIFICATION_HA_DISCONNECTED, false);
         app_set_notification_active(SCREEN_NOTIFICATION_HA_AUTH_EXPIRED, false);
     }
     else if (!info.configured) {
+        app_set_notification_active(SCREEN_NOTIFICATION_HA_AUTH_CANCELED, false);
         app_set_notification_active(SCREEN_NOTIFICATION_HA_DISCONNECTED, false);
         app_set_notification_active(SCREEN_NOTIFICATION_HA_AUTH_EXPIRED, false);
     }
@@ -2269,6 +2276,13 @@ void app_init(void)
     esp_err_t login_session_err = login_session_init();
     if (login_session_err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize remembered login sessions: %s", esp_err_to_name(login_session_err));
+    }
+
+    esp_err_t screen_theme_err = screen_theme_init();
+    if (screen_theme_err != ESP_OK) {
+        ESP_LOGE(TAG,
+                 "Failed to restore screen theme: %s",
+                 esp_err_to_name(screen_theme_err));
     }
 
     webserver_init();

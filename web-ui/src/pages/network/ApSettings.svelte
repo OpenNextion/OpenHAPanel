@@ -61,7 +61,7 @@
 <div class="page-container network-page network-detail ap-settings">
     <NetworkPageHeader title={$_('networkPage.apSettings')} back="/network" />
     <SettingRowGroup>
-        <SettingRow title="AP">
+        <SettingRow title="AP" titleCol={10} contentCol={2}>
             {#snippet titleSnippet()}<span class="ap-row-title"><span>AP</span><small>{$_('networkPage.apHint')}</small></span>{/snippet}
             {#snippet contentSnippet()}<span class="form-check form-switch"><input class="form-check-input" type="checkbox" checked={$networkStore.ap?.defaultEnabled ?? false} disabled={loadingField !== null} onchange={(event) => updateConfig('defaultEnabled', event)} /></span>{/snippet}
         </SettingRow>

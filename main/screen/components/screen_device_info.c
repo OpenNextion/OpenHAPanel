@@ -1,9 +1,12 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "screen_device_info.h"
 
 #include <string.h>
 
 #include "../../assets/ha_ui_assets.h"
 #include "bsp_lcd.h"
+#include "screen_theme.h"
 #include "system_status_bar.h"
 
 #define SCREEN_DEVICE_INFO_PORTRAIT_CARD_WIDTH 296
@@ -12,7 +15,7 @@
 #define SCREEN_DEVICE_INFO_LANDSCAPE_INFO_HEIGHT 60
 #define SCREEN_DEVICE_INFO_OFFLINE_HEIGHT 60
 #define SCREEN_DEVICE_INFO_PORTRAIT_VERSION_COMPACT_HEIGHT 109
-#define SCREEN_DEVICE_INFO_PORTRAIT_VERSION_RESULT_HEIGHT 151
+#define SCREEN_DEVICE_INFO_PORTRAIT_VERSION_RESULT_HEIGHT 167
 #define SCREEN_DEVICE_INFO_LANDSCAPE_VERSION_COMPACT_HEIGHT 92
 #define SCREEN_DEVICE_INFO_LANDSCAPE_VERSION_RESULT_HEIGHT 120
 #define SCREEN_DEVICE_INFO_LANDSCAPE_BUTTON_WIDTH 256
@@ -23,6 +26,7 @@
 
 #define SCREEN_DEVICE_INFO_BG_COLOR      0x010203
 #define SCREEN_DEVICE_INFO_CARD_COLOR    0x262626
+#define SCREEN_DEVICE_INFO_LIGHT_CARD_COLOR 0xDDE1E7
 #define SCREEN_DEVICE_INFO_PRIMARY_COLOR 0xFFFFFF
 #define SCREEN_DEVICE_INFO_SECONDARY_COLOR 0xA8A8A8
 #define SCREEN_DEVICE_INFO_BUTTON_COLOR  0x0D84F7
@@ -34,13 +38,16 @@ struct screen_device_info {
     lv_obj_t *content;
     lv_obj_t *bottom_indicator;
     lv_obj_t *wifi_card;
+    lv_obj_t *wifi_title_label;
     lv_obj_t *wifi_value_label;
     lv_obj_t *wifi_detail_label;
     lv_obj_t *ap_card;
+    lv_obj_t *ap_title_label;
     lv_obj_t *ap_value_label;
     lv_obj_t *ap_detail_label;
     lv_obj_t *version_card;
     lv_obj_t *version_row;
+    lv_obj_t *version_title_label;
     lv_obj_t *version_value_label;
     lv_obj_t *check_update_button;
     lv_obj_t *check_update_label;
@@ -69,6 +76,7 @@ static lv_obj_t *screen_device_info_create_info_card(lv_obj_t *parent,
                                                       const char *label,
                                                       const char *value,
                                                       const char *detail,
+                                                      lv_obj_t **title_label,
                                                       lv_obj_t **value_label,
                                                       lv_obj_t **detail_label);
 static void screen_device_info_create_version_card(screen_device_info_t *view,
@@ -135,14 +143,16 @@ screen_device_info_t *screen_device_info_create(lv_obj_t *parent)
 
     view->wifi_card = screen_device_info_create_info_card(content,
                                                            "Wi-Fi",
-                                                           "Not Connected",
+                                                           i18n_get(I18N_STATE_NOT_CONNECTED),
                                                            "",
+                                                           &view->wifi_title_label,
                                                            &view->wifi_value_label,
                                                            &view->wifi_detail_label);
     view->ap_card = screen_device_info_create_info_card(content,
                                                          "AP",
-                                                         "Disabled",
+                                                         i18n_get(I18N_STATE_DISABLED),
                                                          "",
+                                                         &view->ap_title_label,
                                                          &view->ap_value_label,
                                                          &view->ap_detail_label);
     screen_device_info_create_version_card(view, content);
@@ -157,6 +167,7 @@ screen_device_info_t *screen_device_info_create(lv_obj_t *parent)
                               0);
     lv_obj_set_style_bg_opa(view->bottom_indicator, LV_OPA_COVER, 0);
 
+    screen_device_info_apply_theme(view);
     screen_device_info_apply_orientation(view);
 
     /* Preserve the layout position and move the overlay independently of the
@@ -194,14 +205,14 @@ void screen_device_info_set_data(screen_device_info_t *view,
                                             data->wifi_connected,
                                             data->wifi_ssid,
                                             data->wifi_ip,
-                                            "Not Connected");
+                                            i18n_get(I18N_STATE_NOT_CONNECTED));
     screen_device_info_set_connection_card(view->ap_card,
                                             view->ap_value_label,
                                             view->ap_detail_label,
                                             data->ap_enabled,
                                             data->ap_ssid,
                                             data->ap_ip,
-                                            "Disabled");
+                                            i18n_get(I18N_STATE_DISABLED));
 
     screen_device_info_set_label_text(view->version_value_label,
                                       data->firmware_version[0] ? data->firmware_version : "--");
@@ -295,12 +306,12 @@ void screen_device_info_set_update_state(
     }
 
     if (checking) {
-        lv_label_set_text(view->check_update_label, "Checking");
+        ui_i18n_label_set_text(view->check_update_label, i18n_get(I18N_DEVICE_CHECKING));
         lv_obj_remove_flag(view->check_update_button, LV_OBJ_FLAG_CLICKABLE);
         return;
     }
 
-    lv_label_set_text(view->check_update_label, "Check Update");
+    ui_i18n_label_set_text(view->check_update_label, i18n_get(I18N_DEVICE_CHECK_UPDATES));
     lv_obj_add_flag(view->check_update_button, LV_OBJ_FLAG_CLICKABLE);
 
     switch (state) {
@@ -313,7 +324,7 @@ void screen_device_info_set_update_state(
     case SCREEN_DEVICE_INFO_UPDATE_STAGED:
         screen_device_info_set_label_text(
             view->available_version_label,
-            available_version && available_version[0] ? available_version : "New version");
+            available_version && available_version[0] ? available_version : i18n_get(I18N_DEVICE_NEW_VERSION));
         lv_obj_remove_flag(view->update_result_row, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(view->available_dot, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(view->available_version_label, LV_OBJ_FLAG_HIDDEN);
@@ -422,22 +433,23 @@ void screen_device_info_apply_orientation(screen_device_info_t *view)
     lv_obj_set_style_pad_all(view->version_card, landscape ? 8 : 12, 0);
     lv_obj_set_style_pad_row(view->version_card, landscape ? 4 : 7, 0);
     lv_obj_set_height(view->version_row, landscape ? 24 : 30);
-    lv_obj_set_height(view->update_result_row, landscape ? 24 : 32);
+    lv_obj_set_height(view->update_result_row, landscape ? 24 : 48);
+    lv_obj_set_width(view->available_version_label, landscape ? 290 : 150);
+    lv_obj_set_width(view->up_to_date_label, landscape ? 380 : 230);
+    lv_obj_set_width(view->check_failed_label, landscape ? 380 : 230);
     lv_obj_set_size(view->check_update_button,
                     landscape ? SCREEN_DEVICE_INFO_LANDSCAPE_BUTTON_WIDTH
                               : LV_PCT(100),
                     48);
-    lv_image_set_scale(view->up_to_date_icon, landscape ? 192 : 256);
+    lv_image_set_scale(view->up_to_date_icon, 256);
     lv_obj_align(view->up_to_date_label,
                  LV_ALIGN_LEFT_MID,
-                 landscape ? 32 : 40,
+                 32,
                  0);
-    lv_obj_set_size(view->check_failed_icon,
-                    landscape ? 24 : 32,
-                    landscape ? 24 : 32);
+    lv_image_set_scale(view->check_failed_icon, 256);
     lv_obj_align(view->check_failed_label,
                  LV_ALIGN_LEFT_MID,
-                 landscape ? 32 : 40,
+                 32,
                  0);
 
     lv_obj_set_size(view->bottom_indicator,
@@ -460,6 +472,92 @@ void screen_device_info_apply_orientation(screen_device_info_t *view)
     lv_obj_invalidate(view->root);
 }
 
+void screen_device_info_apply_theme(screen_device_info_t *view)
+{
+    if (!view || !view->root) {
+        return;
+    }
+
+    const screen_theme_mode_t mode = screen_theme_get();
+    const screen_theme_palette_t *palette = screen_theme_get_palette_for_mode(mode);
+    const bool light = mode == SCREEN_THEME_LIGHT;
+    const lv_color_t page_bg = lv_color_hex(
+        light ? palette->page_bg : SCREEN_DEVICE_INFO_BG_COLOR);
+    const lv_color_t card_bg = lv_color_hex(
+        light ? SCREEN_DEVICE_INFO_LIGHT_CARD_COLOR
+              : SCREEN_DEVICE_INFO_CARD_COLOR);
+    const lv_color_t primary = lv_color_hex(
+        light ? palette->text_primary : SCREEN_DEVICE_INFO_PRIMARY_COLOR);
+    const lv_color_t secondary = lv_color_hex(
+        light ? palette->text_secondary : SCREEN_DEVICE_INFO_SECONDARY_COLOR);
+    const lv_color_t indicator = lv_color_hex(
+        light ? palette->icon_secondary : SCREEN_DEVICE_INFO_INDICATOR_COLOR);
+    const lv_color_t action = lv_color_hex(SCREEN_DEVICE_INFO_BUTTON_COLOR);
+    const lv_color_t on_action = lv_color_hex(palette->text_on_overlay);
+
+    lv_obj_set_style_bg_color(view->root, page_bg, 0);
+
+    lv_obj_t *cards[] = {
+        view->wifi_card,
+        view->ap_card,
+        view->version_card,
+    };
+    for (size_t i = 0; i < sizeof(cards) / sizeof(cards[0]); ++i) {
+        if (cards[i]) {
+            lv_obj_set_style_bg_color(cards[i], card_bg, 0);
+        }
+    }
+
+    lv_obj_t *primary_labels[] = {
+        view->wifi_title_label,
+        view->wifi_value_label,
+        view->ap_title_label,
+        view->ap_value_label,
+        view->version_title_label,
+        view->version_value_label,
+        view->up_to_date_label,
+        view->available_version_label,
+        view->check_failed_label,
+    };
+    for (size_t i = 0;
+         i < sizeof(primary_labels) / sizeof(primary_labels[0]);
+         ++i) {
+        if (primary_labels[i]) {
+            lv_obj_set_style_text_color(primary_labels[i], primary, 0);
+        }
+    }
+
+    lv_obj_t *secondary_labels[] = {
+        view->wifi_detail_label,
+        view->ap_detail_label,
+    };
+    for (size_t i = 0;
+         i < sizeof(secondary_labels) / sizeof(secondary_labels[0]);
+         ++i) {
+        if (secondary_labels[i]) {
+            lv_obj_set_style_text_color(secondary_labels[i], secondary, 0);
+        }
+    }
+
+    if (view->upgrade_label) {
+        lv_obj_set_style_text_color(view->upgrade_label, action, 0);
+    }
+    if (view->check_update_button) {
+        lv_obj_set_style_bg_color(view->check_update_button, action, 0);
+    }
+    if (view->check_update_label) {
+        lv_obj_set_style_text_color(view->check_update_label, on_action, 0);
+    }
+    if (view->bottom_indicator) {
+        lv_obj_set_style_bg_color(view->bottom_indicator, indicator, 0);
+    }
+    if (view->status_bar) {
+        system_status_bar_apply_theme(view->status_bar);
+    }
+
+    lv_obj_invalidate(view->root);
+}
+
 static void screen_device_info_apply_clear_style(lv_obj_t *obj)
 {
     lv_obj_remove_style_all(obj);
@@ -478,6 +576,7 @@ static lv_obj_t *screen_device_info_create_info_card(lv_obj_t *parent,
                                                       const char *label,
                                                       const char *value,
                                                       const char *detail,
+                                                      lv_obj_t **title_label_out,
                                                       lv_obj_t **value_label_out,
                                                       lv_obj_t **detail_label_out)
 {
@@ -500,8 +599,8 @@ static lv_obj_t *screen_device_info_create_info_card(lv_obj_t *parent,
                           LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t *label_obj = lv_label_create(card);
-    lv_obj_set_width(label_obj, 88);
-    lv_label_set_text(label_obj, label ? label : "");
+    lv_obj_set_width(label_obj, 60);
+    ui_i18n_label_set_text(label_obj, label ? label : "");
     screen_device_info_apply_bold_text(label_obj,
                                        lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR));
 
@@ -523,7 +622,7 @@ static lv_obj_t *screen_device_info_create_info_card(lv_obj_t *parent,
                     LV_PCT(100),
                     lv_font_get_line_height(&ha_font_misan_regular_16));
     lv_label_set_long_mode(value_label, LV_LABEL_LONG_DOT);
-    lv_label_set_text(value_label, value ? value : "");
+    ui_i18n_label_set_text(value_label, value ? value : "");
     lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_style_text_color(value_label, lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR), 0);
     lv_obj_set_style_text_font(value_label, &ha_font_misan_regular_16, 0);
@@ -533,11 +632,14 @@ static lv_obj_t *screen_device_info_create_info_card(lv_obj_t *parent,
                     LV_PCT(100),
                     lv_font_get_line_height(&ha_font_misan_regular_16));
     lv_label_set_long_mode(detail_label, LV_LABEL_LONG_DOT);
-    lv_label_set_text(detail_label, detail ? detail : "");
+    ui_i18n_label_set_text(detail_label, detail ? detail : "");
     lv_obj_set_style_text_align(detail_label, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_style_text_color(detail_label, lv_color_hex(SCREEN_DEVICE_INFO_SECONDARY_COLOR), 0);
     lv_obj_set_style_text_font(detail_label, &ha_font_misan_regular_16, 0);
 
+    if (title_label_out) {
+        *title_label_out = label_obj;
+    }
     if (value_label_out) {
         *value_label_out = value_label;
     }
@@ -584,14 +686,15 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
     lv_obj_set_style_pad_column(version_row, 10, 0);
 
     lv_obj_t *version_title = lv_label_create(version_row);
-    lv_label_set_text(version_title, "Version");
+    view->version_title_label = version_title;
+    ui_i18n_label_set_text(version_title, i18n_get(I18N_DEVICE_VERSION));
     screen_device_info_apply_bold_text(version_title,
                                        lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR));
 
     view->version_value_label = lv_label_create(version_row);
     lv_obj_set_flex_grow(view->version_value_label, 1);
     lv_label_set_long_mode(view->version_value_label, LV_LABEL_LONG_DOT);
-    lv_label_set_text(view->version_value_label, "--");
+    ui_i18n_label_set_text(view->version_value_label, "--");
     lv_obj_set_style_text_align(view->version_value_label, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_style_text_color(view->version_value_label,
                                 lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR),
@@ -605,18 +708,20 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
     lv_obj_set_size(view->update_result_row, LV_PCT(100), 32);
 
     view->up_to_date_icon = lv_image_create(view->update_result_row);
-    lv_image_set_src(view->up_to_date_icon, &ok_icon_green);
+    lv_image_set_src(view->up_to_date_icon, &success_24x24);
     lv_obj_align(view->up_to_date_icon, LV_ALIGN_LEFT_MID, 0, 0);
 
     view->up_to_date_label = lv_label_create(view->update_result_row);
-    lv_label_set_text(view->up_to_date_label, "Up to Date");
+    lv_obj_set_size(view->up_to_date_label, 230, LV_SIZE_CONTENT);
+    lv_label_set_long_mode(view->up_to_date_label, LV_LABEL_LONG_WRAP);
+    ui_i18n_label_set_text(view->up_to_date_label, i18n_get(I18N_DEVICE_UP_TO_DATE));
     lv_obj_set_style_text_color(view->up_to_date_label,
                                 lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR),
                                 0);
     lv_obj_set_style_text_font(view->up_to_date_label,
                                &ha_font_misan_regular_16,
                                0);
-    lv_obj_align(view->up_to_date_label, LV_ALIGN_LEFT_MID, 40, 0);
+    lv_obj_align(view->up_to_date_label, LV_ALIGN_LEFT_MID, 32, 0);
 
     view->available_dot = lv_obj_create(view->update_result_row);
     lv_obj_remove_style_all(view->available_dot);
@@ -627,9 +732,9 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
     lv_obj_align(view->available_dot, LV_ALIGN_LEFT_MID, 0, 0);
 
     view->available_version_label = lv_label_create(view->update_result_row);
-    lv_obj_set_width(view->available_version_label, 168);
+    lv_obj_set_width(view->available_version_label, 150);
     lv_label_set_long_mode(view->available_version_label, LV_LABEL_LONG_DOT);
-    lv_label_set_text(view->available_version_label, "New version");
+    ui_i18n_label_set_text(view->available_version_label, i18n_get(I18N_DEVICE_NEW_VERSION));
     lv_obj_set_style_text_color(view->available_version_label,
                                 lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR),
                                 0);
@@ -639,7 +744,9 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
     lv_obj_align(view->available_version_label, LV_ALIGN_LEFT_MID, 14, 0);
 
     view->upgrade_label = lv_label_create(view->update_result_row);
-    lv_label_set_text(view->upgrade_label, "Upgrade");
+    lv_obj_set_style_max_width(view->upgrade_label, 100, 0);
+    lv_label_set_long_mode(view->upgrade_label, LV_LABEL_LONG_DOT);
+    ui_i18n_label_set_text(view->upgrade_label, i18n_get(I18N_DEVICE_UPGRADE));
     lv_obj_set_style_text_color(view->upgrade_label,
                                 lv_color_hex(SCREEN_DEVICE_INFO_BUTTON_COLOR),
                                 0);
@@ -654,33 +761,21 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
                         LV_EVENT_CLICKED,
                         view);
 
-    view->check_failed_icon = lv_obj_create(view->update_result_row);
-    lv_obj_remove_flag(view->check_failed_icon, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(view->check_failed_icon, 32, 32);
-    lv_obj_set_style_radius(view->check_failed_icon, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(view->check_failed_icon, 0, 0);
-    lv_obj_set_style_bg_color(view->check_failed_icon, lv_color_hex(0xFF4D55), 0);
-    lv_obj_set_style_bg_opa(view->check_failed_icon, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(view->check_failed_icon, 0, 0);
+    view->check_failed_icon = lv_image_create(view->update_result_row);
+    lv_image_set_src(view->check_failed_icon, &warn_red_24x24);
     lv_obj_align(view->check_failed_icon, LV_ALIGN_LEFT_MID, 0, 0);
 
-    lv_obj_t *check_failed_mark = lv_label_create(view->check_failed_icon);
-    lv_label_set_text(check_failed_mark, "!");
-    lv_obj_set_style_text_color(check_failed_mark,
-                                lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR),
-                                0);
-    lv_obj_set_style_text_font(check_failed_mark, &ha_font_misan_medium_20, 0);
-    lv_obj_center(check_failed_mark);
-
     view->check_failed_label = lv_label_create(view->update_result_row);
-    lv_label_set_text(view->check_failed_label, "Check failed.");
+    lv_obj_set_size(view->check_failed_label, 230, LV_SIZE_CONTENT);
+    lv_label_set_long_mode(view->check_failed_label, LV_LABEL_LONG_WRAP);
+    ui_i18n_label_set_text(view->check_failed_label, i18n_get(I18N_DEVICE_CHECK_FAILED));
     lv_obj_set_style_text_color(view->check_failed_label,
                                 lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR),
                                 0);
     lv_obj_set_style_text_font(view->check_failed_label,
                                &ha_font_misan_regular_16,
                                0);
-    lv_obj_align(view->check_failed_label, LV_ALIGN_LEFT_MID, 40, 0);
+    lv_obj_align(view->check_failed_label, LV_ALIGN_LEFT_MID, 32, 0);
 
     screen_device_info_hide_update_results(view);
 
@@ -713,7 +808,7 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
     lv_obj_center(button_content);
 
     view->check_update_label = lv_label_create(button_content);
-    lv_label_set_text(view->check_update_label, "Check Update");
+    ui_i18n_label_set_text(view->check_update_label, i18n_get(I18N_DEVICE_CHECK_UPDATES));
     screen_device_info_apply_bold_text(view->check_update_label,
                                        lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR));
 
@@ -758,10 +853,8 @@ static void screen_device_info_set_label_text(lv_obj_t *label, const char *text)
         return;
     }
 
-    const char *current_text = lv_label_get_text(label);
-    if (!current_text || strcmp(current_text, text) != 0) {
-        lv_label_set_text(label, text);
-    }
+    /* Keep the binding correct even if a raw SSID equals a translated label. */
+    ui_i18n_label_set_text(label, text);
 }
 
 static void screen_device_info_hide_update_results(screen_device_info_t *view)

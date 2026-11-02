@@ -20,6 +20,11 @@ file(GLOB_RECURSE HA_ENTITY_HANDLER_SRCS
         "${CMAKE_CURRENT_LIST_DIR}/entity_handlers/*.c"
 )
 
+file(GLOB_RECURSE HA_COMMON_SRCS
+        RELATIVE "${CMAKE_CURRENT_LIST_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/common/*.c"
+)
+
 idf_component_register(SRCS "main.c" "app.c"
                             "screen/screen_ui.c"
                             "screen/screen_config.c"
@@ -27,4 +32,5 @@ idf_component_register(SRCS "main.c" "app.c"
                         ${HA_UI_ASSET_SRCS}
                         ${HA_UI_WIDGET_SRCS}
                         ${HA_ENTITY_HANDLER_SRCS}
+                        ${HA_COMMON_SRCS}
                     INCLUDE_DIRS "." "screen" "screen/components")

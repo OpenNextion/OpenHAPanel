@@ -1,3 +1,4 @@
+#include "ui_i18n.h"
 #include "ha_badge.h"
 
 #include "assets/ha_ui_assets.h"
@@ -53,14 +54,14 @@ void ha_badge_set_icon(lv_obj_t *obj, const char *icon)
 {
     LV_ASSERT_OBJ(obj, MY_CLASS);
     ha_badge_t *badge = (ha_badge_t *)obj;
-    lv_label_set_text(badge->icon_label, icon ? icon : "");
+    ui_i18n_label_set_text(badge->icon_label, icon ? icon : "");
 }
 
 void ha_badge_set_text(lv_obj_t *obj, const char *text)
 {
     LV_ASSERT_OBJ(obj, MY_CLASS);
     ha_badge_t *badge = (ha_badge_t *)obj;
-    lv_label_set_text(badge->text_label, text ? text : "");
+    ui_i18n_label_set_text(badge->text_label, text ? text : "");
 }
 
 void ha_badge_set_icon_color(lv_obj_t *obj, lv_color_t color)

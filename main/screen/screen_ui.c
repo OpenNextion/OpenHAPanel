@@ -1,3 +1,5 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "screen_ui.h"
 #include "app.h"
 
@@ -36,6 +38,7 @@
 #include "network.h"
 #include "network_wifi_ap.h"
 #include "screen.h"
+#include "screen_theme.h"
 #include "sys_time_api.h"
 #include "ui_preferences.h"
 #include "webserver_config_forget_password.h"
@@ -48,6 +51,8 @@
 
 typedef struct {
     lv_color_t bg_color;
+    lv_style_t home_text_style;
+    bool home_text_style_initialized;
     lv_obj_t *root_screen;
     const screen_config_t *config;
     system_status_bar_t *status_bar;
@@ -58,7 +63,12 @@ typedef struct {
     lv_timer_t *manual_ota_start_timer;
     lv_timer_t *page_gesture_release_timer;
     lv_obj_t *ha_provisioning_root;
+    lv_obj_t *ap_provisioning_root;
+    lv_obj_t *forgot_password_root;
+    lv_obj_t *reset_password_root;
     lv_obj_t *tileview;
+    lv_obj_t *home_loading_overlay;
+    lv_obj_t *home_loading_icon;
     screen_indicator_t *screen_indicator;
     lv_obj_t **tiles;
     main_view_t **main_views;
@@ -83,6 +93,7 @@ static screen_config_t s_pending_screen_config = {0};
 static bool s_config_update_pending;
 static bool s_state_handler_registered;
 static bool s_orientation_handler_registered;
+static bool s_theme_handler_registered;
 static uint32_t s_notification_active_mask;
 static uint32_t s_notification_dismissed_mask;
 static notification_t *s_active_notification;
@@ -102,6 +113,14 @@ static bool s_rotation_restore_screen_pending;
 static bool s_rotation_device_info_rebuild_pending;
 static int32_t s_rotation_restore_screen_index;
 static const char *TAG = "screen_ui";
+static lv_timer_t *s_language_timer;
+static uint32_t s_rendered_language_revision;
+static bool s_language_detail_pending;
+static void screen_ui_language_timer_cb(lv_timer_t *timer);
+static void screen_ui_theme_event_handler(void *arg,
+                                          esp_event_base_t event_base,
+                                          int32_t event_id,
+                                          void *event_data);
 
 static screen_ctx_t *screen_ctx_create(void);
 static void screen_ctx_destroy(screen_ctx_t *ctx);
@@ -140,10 +159,16 @@ static void screen_ui_orientation_event_handler(void *arg,
                                                 void *event_data);
 static void screen_ui_root_screen_event_cb(lv_event_t *event);
 static void screen_create_components(screen_ctx_t *ctx, lv_obj_t *screen, const screen_config_t *config);
+static void screen_ui_apply_home_theme(screen_ctx_t *ctx);
+static void screen_ui_create_home_loading(screen_ctx_t *ctx, lv_obj_t *screen);
+static void screen_ui_layout_home_loading(screen_ctx_t *ctx);
+static void screen_ui_sync_home_loading(void);
 static void screen_create_status_bar(screen_ctx_t *ctx, lv_obj_t *screen);
 static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const screen_config_t *config);
 static void screen_create_indicator(screen_ctx_t *ctx, lv_obj_t *screen);
-static void screen_create_default_content(lv_obj_t *parent, lv_coord_t y_offset);
+static void screen_create_default_content(screen_ctx_t *ctx,
+                                          lv_obj_t *parent,
+                                          lv_coord_t y_offset);
 static bool screen_view_has_badges_or_entities(const screen_view_t *view);
 static void screen_create_device_info(screen_ctx_t *ctx);
 static bool screen_device_info_is_available(void);
@@ -203,11 +228,20 @@ static void screen_render(const screen_config_t *config)
 
     lv_obj_t *screen = lv_screen_active();
     screen_create_components(s_screen_ctx, screen, config);
+    screen_ui_create_home_loading(s_screen_ctx, screen);
+    screen_ui_sync_home_loading();
 }
 
 esp_err_t screen_ui_init(void)
 {
     screen_ui_load_ha_swipe_hint_state();
+    if (!s_language_timer) {
+        if (!lvgl_port_lock(0)) return ESP_ERR_TIMEOUT;
+        s_rendered_language_revision = i18n_get_revision();
+        s_language_timer = lv_timer_create(screen_ui_language_timer_cb, 200, NULL);
+        lvgl_port_unlock();
+        if (!s_language_timer) return ESP_ERR_NO_MEM;
+    }
 
     if (!s_state_handler_registered) {
         esp_err_t err = esp_event_handler_register(
@@ -231,6 +265,18 @@ esp_err_t screen_ui_init(void)
             return err;
         }
         s_orientation_handler_registered = true;
+    }
+
+    if (!s_theme_handler_registered) {
+        esp_err_t err = esp_event_handler_register(
+            SCREEN_THEME_EVENT,
+            SCREEN_EVENT_THEME_CHANGED,
+            screen_ui_theme_event_handler,
+            NULL);
+        if (err != ESP_OK) {
+            return err;
+        }
+        s_theme_handler_registered = true;
     }
     return ESP_OK;
 }
@@ -413,10 +459,12 @@ static void screen_ui_enter_page(screen_page_t page)
         break;
     }
     case SCREEN_PAGE_FORGOT_PASSWORD:
-        forgot_password_view_create(lv_screen_active());
+        s_screen_ctx->forgot_password_root =
+            forgot_password_view_create(lv_screen_active());
         break;
     case SCREEN_PAGE_RESET_PASSWORD:
-        reset_password_view_create(lv_screen_active());
+        s_screen_ctx->reset_password_root =
+            reset_password_view_create(lv_screen_active());
         break;
     case SCREEN_PAGE_SPLIT_VIEW:
         screen_render(&s_screen_config);
@@ -526,17 +574,89 @@ static void screen_ui_orientation_event_handler(void *arg,
     }
 }
 
+static void screen_ui_theme_event_handler(void *arg,
+                                          esp_event_base_t event_base,
+                                          int32_t event_id,
+                                          void *event_data)
+{
+    (void)arg;
+    (void)event_base;
+    if (event_id != SCREEN_EVENT_THEME_CHANGED) {
+        return;
+    }
+
+    const screen_theme_changed_event_t *event = event_data;
+    if (event) {
+        ESP_LOGI(TAG,
+                 "Applying screen theme: %s -> %s",
+                 screen_theme_mode_to_string(event->old_theme),
+                 screen_theme_mode_to_string(event->new_theme));
+    }
+
+    if (!lvgl_port_lock(1000)) {
+        ESP_LOGW(TAG, "Failed to acquire LVGL lock for screen theme update");
+        return;
+    }
+
+    system_status_bar_apply_theme_all();
+
+    if (screen_state_get_current() == SCREEN_PAGE_HA_PROVISIONING &&
+        s_screen_ctx && s_screen_ctx->ha_provisioning_root) {
+        ha_provisioning_view_apply_theme(
+            s_screen_ctx->ha_provisioning_root);
+    }
+    if (s_screen_ctx && s_screen_ctx->forgot_password_root) {
+        forgot_password_view_apply_theme(
+            s_screen_ctx->forgot_password_root);
+    }
+    if (s_screen_ctx && s_screen_ctx->reset_password_root) {
+        reset_password_view_apply_theme(
+            s_screen_ctx->reset_password_root);
+    }
+    if (s_screen_ctx && s_screen_ctx->device_info) {
+        screen_device_info_apply_theme(s_screen_ctx->device_info);
+    }
+    if (s_screen_ctx && s_screen_ctx->ota_update) {
+        screen_ota_update_apply_theme(s_screen_ctx->ota_update);
+    }
+    if (s_screen_ctx && s_screen_ctx->root_screen) {
+        screen_ui_apply_home_theme(s_screen_ctx);
+    }
+
+    /* Notification colors are captured when the component is created. Rebuild
+     * the visible notification so a runtime theme switch is reflected
+     * immediately without changing its active/dismissed state. */
+    if (s_active_notification) {
+        notification_t *previous = s_active_notification;
+        s_active_notification = NULL;
+        s_visible_notification = 0;
+        notification_close(previous);
+    }
+    screen_ui_sync_notification();
+
+    lvgl_port_unlock();
+}
+
 static void screen_ui_root_screen_event_cb(lv_event_t *event)
 {
     screen_ctx_t *ctx = lv_event_get_user_data(event);
     lv_event_code_t code = lv_event_get_code(event);
     if (!ctx || ctx != s_screen_ctx ||
         lv_event_get_target_obj(event) != ctx->root_screen ||
-        (code != LV_EVENT_SCREEN_LOAD_START &&
-         code != LV_EVENT_SCREEN_LOADED) ||
+        code != LV_EVENT_SCREEN_LOAD_START ||
         !s_rotation_home_rebuild_deferred) {
         return;
     }
+
+    /* Hide the old layout before LVGL makes the home screen active. Keep the
+     * objects alive until the queued refresh releases their owner context. */
+    const uint32_t child_count = lv_obj_get_child_count(ctx->root_screen);
+    for (uint32_t i = 0; i < child_count; i++) {
+        lv_obj_add_flag(lv_obj_get_child(ctx->root_screen, i), LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_set_style_bg_color(ctx->root_screen, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(ctx->root_screen, LV_OPA_COVER, 0);
+    lv_obj_invalidate(ctx->root_screen);
 
     esp_err_t err = screen_state_request_refresh();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
@@ -624,11 +744,23 @@ void screen_ui_apply_orientation_layout(void)
     if (!s_screen_ctx) {
         return;
     }
+    if (s_screen_ctx->ha_provisioning_root) {
+        ha_provisioning_view_apply_orientation(s_screen_ctx->ha_provisioning_root);
+    }
+    if (s_screen_ctx->forgot_password_root) {
+        forgot_password_view_apply_orientation(s_screen_ctx->forgot_password_root);
+    }
+    if (s_screen_ctx->reset_password_root) {
+        reset_password_view_apply_orientation(s_screen_ctx->reset_password_root);
+    }
     if (s_screen_ctx->device_info) {
         screen_device_info_apply_orientation(s_screen_ctx->device_info);
     }
     if (s_screen_ctx->ota_update) {
         screen_ota_update_apply_orientation(s_screen_ctx->ota_update);
+    }
+    if (s_screen_ctx->home_loading_overlay) {
+        screen_ui_layout_home_loading(s_screen_ctx);
     }
     if (s_active_notification) {
         notification_apply_orientation(s_active_notification);
@@ -741,6 +873,7 @@ void screen_ui_set_entity_store(ha_entity_store_t *store)
             ESP_LOGW(TAG, "Failed to synchronize rebound entities: %s", esp_err_to_name(err));
         }
     }
+    screen_ui_sync_home_loading();
 }
 
 static screen_ctx_t *screen_ctx_create(void)
@@ -750,7 +883,17 @@ static screen_ctx_t *screen_ctx_create(void)
         return NULL;
     }
     memset(ctx, 0, sizeof(screen_ctx_t));
-    ctx->bg_color = lv_color_hex(0x010203);
+    lv_style_init(&ctx->home_text_style);
+    ctx->home_text_style_initialized = true;
+
+    const screen_theme_mode_t mode = screen_theme_get();
+    const screen_theme_palette_t *palette =
+        screen_theme_get_palette_for_mode(mode);
+    const bool light = mode == SCREEN_THEME_LIGHT;
+    ctx->bg_color = lv_color_hex(light ? palette->page_bg : 0x010203);
+    lv_style_set_text_color(&ctx->home_text_style,
+                            lv_color_hex(light ? palette->text_primary
+                                               : 0xFFFFFF));
 
     return ctx;
 }
@@ -791,6 +934,10 @@ static void screen_ctx_destroy(screen_ctx_t *ctx)
     screen_indicator_destroy(ctx->screen_indicator);
     screen_device_info_destroy(ctx->device_info);
     screen_ota_update_destroy(ctx->ota_update);
+    if (ctx->home_text_style_initialized) {
+        lv_style_reset(&ctx->home_text_style);
+        ctx->home_text_style_initialized = false;
+    }
     lv_free(ctx);
 }
 
@@ -845,7 +992,8 @@ static void screen_ui_render_ap_provisioning_page(void)
     NetworkState *network = network_get_state();
     const char *ssid = NETWORK_DEFAULT_AP_SSID_PREFIX;
     char setup_url[32] = NETWORK_DEFAULT_AP_IP;
-    char credential[96] = "No password";
+    char credential[128];
+    i18n_copy(credential, sizeof(credential), i18n_get(I18N_PROVISION_NO_PASSWORD));
 
     if (network) {
         if (network->ap_params.ssid[0] != '\0') {
@@ -863,7 +1011,7 @@ static void screen_ui_render_ap_provisioning_page(void)
         if (network->ap_params.password[0] != '\0') {
             snprintf(credential,
                      sizeof(credential),
-                     "Password: %.64s",
+                     i18n_get(I18N_PROVISION_PASSWORD),
                      (const char *)network->ap_params.password);
         }
     }
@@ -873,7 +1021,10 @@ static void screen_ui_render_ap_provisioning_page(void)
         .setup_url = setup_url,
         .credential_text = credential,
     };
-    ap_provisioning_view_create(lv_screen_active(), &config);
+    if (s_screen_ctx->ap_provisioning_root)
+        lv_obj_delete(s_screen_ctx->ap_provisioning_root);
+    s_screen_ctx->ap_provisioning_root =
+        ap_provisioning_view_create(s_screen_ctx->root_screen, &config);
 }
 
 static void screen_ui_render_centered_label(const char *text)
@@ -883,8 +1034,9 @@ static void screen_ui_render_centered_label(const char *text)
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
     lv_obj_t *label = lv_label_create(screen);
-    lv_label_set_text(label, text ? text : "");
+    ui_i18n_label_set_text(label, text ? text : "");
     lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
     lv_obj_center(label);
 }
 
@@ -934,7 +1086,7 @@ static void screen_ui_sync_wifi_connected_toast(void)
     }
 
     const toast_config_t config = {
-        .title = "Wi-Fi Connected",
+        .title = i18n_get(I18N_SYSTEM_WIFI_CONNECTED),
         .icon_src = &ok_icon_green,
         .duration_ms = 2000,
         .background_color = 0x272B32,
@@ -1022,6 +1174,7 @@ static void screen_ui_sync_notification(void)
 
     char wifi_description[256] = {0};
     char firmware_status[96] = {0};
+    const bool light_theme = screen_theme_get() == SCREEN_THEME_LIGHT;
     notification_config_t config = {
         .durations = 0,
         .tips = NULL,
@@ -1034,65 +1187,69 @@ static void screen_ui_sync_notification(void)
 
     switch (selected) {
     case SCREEN_NOTIFICATION_HA_AUTH_CANCELED:
-        config.title = "Disconnected from Home Assistant";
+        config.title = i18n_get(I18N_SYSTEM_HA_DISCONNECTED);
         config.icon_src = &hass_red_48x48;
         config.status_icon_src = &warning_red;
-        config.status_text = "Not connected to Home Assistant";
-        config.description = "Reconnect to Home Assistant in the Web Console.";
+        config.status_text = i18n_get(I18N_SYSTEM_HA_NOT_CONNECTED);
+        config.description = i18n_get(I18N_SYSTEM_HA_RECONNECT);
         config.icon_includes_background = true;
         config.icon_size = 48;
         config.status_in_header = false;
         config.landscape_compact_layout = true;
-        config.dialog_background_color = 0x3B1919;
-        config.accent_color = 0xFF5C62;
-        config.description_color = 0x777277;
+        config.dialog_background_color = light_theme ? 0xFFDAD9 : 0x321918;
+        config.title_color = light_theme ? 0x333333 : 0xFFFFFF;
+        config.accent_color = 0xF1524B;
+        config.description_color = 0x666666;
         config.level = NOTIFICATION_LEVEL_ERROR;
         break;
     case SCREEN_NOTIFICATION_HA_DISCONNECTED:
-        config.title = "Home Assistant Connection Lost";
+        config.title = i18n_get(I18N_SYSTEM_HA_LOST);
         config.icon_src = &hass_yellow_48x48;
         config.status_icon_src = &warning_yellow;
-        config.status_text = "Not connected to Home Assistant";
-        config.description = "Check that Home Assistant is running and reachable.";
+        config.status_text = i18n_get(I18N_SYSTEM_HA_NOT_CONNECTED);
+        config.description = i18n_get(I18N_SYSTEM_HA_CHECK);
         config.icon_includes_background = true;
         config.icon_size = 48;
         config.status_in_header = false;
         config.landscape_compact_layout = true;
-        config.dialog_background_color = 0x332B17;
-        config.accent_color = 0xFF9800;
-        config.description_color = 0x777277;
+        config.dialog_background_color = light_theme ? 0xFDEDD1 : 0x322918;
+        config.title_color = light_theme ? 0x333333 : 0xFFFFFF;
+        config.accent_color = 0xEF961D;
+        config.description_color = 0x666666;
         config.level = NOTIFICATION_LEVEL_WARNING;
         break;
     case SCREEN_NOTIFICATION_HA_AUTH_EXPIRED:
-        config.title = "Home Assistant Authorization Invalid";
+        config.title = i18n_get(I18N_SYSTEM_HA_AUTH_INVALID);
         config.icon_src = &hass_grey_48x48;
         config.status_icon_src = &warning_grey;
-        config.status_text = "Not connected to Home Assistant";
-        config.description = "Reauthorize Home Assistant in the Web Console.";
+        config.status_text = i18n_get(I18N_SYSTEM_HA_NOT_CONNECTED);
+        config.description = i18n_get(I18N_SYSTEM_HA_REAUTHORIZE);
         config.icon_includes_background = true;
         config.icon_size = 48;
         config.status_in_header = false;
         config.landscape_compact_layout = true;
-        config.dialog_background_color = 0x17263C;
-        config.accent_color = 0x777277;
-        config.description_color = 0x777277;
+        config.dialog_background_color = light_theme ? 0xCACACA : 0x18253A;
+        config.title_color = light_theme ? 0x333333 : 0xFFFFFF;
+        config.accent_color = 0x666666;
+        config.description_color = 0x666666;
         config.level = NOTIFICATION_LEVEL_INACTIVE;
         break;
     case SCREEN_NOTIFICATION_WIFI_DISCONNECTED:
         screen_ui_build_wifi_notification_description(wifi_description,
                                                       sizeof(wifi_description));
-        config.title = "Wi-Fi Disconnected";
+        config.title = i18n_get(I18N_SYSTEM_WIFI_DISCONNECTED);
         config.icon_src = &wifi_disconnected_48x48;
         config.status_icon_src = &warning_red;
-        config.status_text = "Connection lost";
+        config.status_text = i18n_get(I18N_SYSTEM_NETWORK_LOST);
         config.description = wifi_description;
         config.icon_includes_background = true;
         config.icon_size = 48;
         config.status_in_header = false;
         config.landscape_compact_layout = true;
-        config.dialog_background_color = 0x3B1919;
-        config.accent_color = 0xFF5C62;
-        config.description_color = 0x777277;
+        config.dialog_background_color = light_theme ? 0xFFDAD9 : 0x321918;
+        config.title_color = light_theme ? 0x333333 : 0xFFFFFF;
+        config.accent_color = 0xF1524B;
+        config.description_color = 0x666666;
         config.level = NOTIFICATION_LEVEL_ERROR;
         break;
     case SCREEN_NOTIFICATION_FIRMWARE_UPDATE: {
@@ -1101,18 +1258,19 @@ static void screen_ui_sync_notification(void)
                                            sizeof(staged_version));
         snprintf(firmware_status,
                  sizeof(firmware_status),
-                 "Update available%s%s",
+                 i18n_get(I18N_DEVICE_AVAILABLE_VERSION),
                  staged_version[0] ? " " : "",
                  staged_version);
-        config.title = "Firmware Update";
+        config.title = i18n_get(I18N_SYSTEM_NEW_FIRMWARE);
         config.icon_src = &cloud_update_32;
         config.status_text = firmware_status;
-        config.description = "Swipe down to update";
+        config.description = i18n_get(I18N_SYSTEM_UPDATE_HINT);
         config.closeable = true;
         config.icon_includes_background = true;
-        config.dialog_background_color = 0x17263C;
-        config.accent_color = 0x0D84FF;
-        config.description_color = 0x666A70;
+        config.dialog_background_color = light_theme ? 0xDEEBFF : 0x18253A;
+        config.title_color = light_theme ? 0x333333 : 0xFFFFFF;
+        config.accent_color = 0x0177FD;
+        config.description_color = 0x666666;
         config.level = NOTIFICATION_LEVEL_INFO;
         break;
     }
@@ -1178,9 +1336,6 @@ static void screen_ui_build_wifi_notification_description(char *output, size_t o
     const char *ssid = network && network->ap_params.ssid[0]
                            ? (const char *)network->ap_params.ssid
                            : NETWORK_DEFAULT_AP_SSID_PREFIX;
-    const char *password = network && network->ap_params.password[0]
-                               ? (const char *)network->ap_params.password
-                               : NULL;
     char ap_ip[16] = {0};
     if (!screen_get_netif_ipv4("WIFI_AP_DEF", ap_ip, sizeof(ap_ip))) {
         if (network && network->current_ap_ip.gateway != 0) {
@@ -1194,27 +1349,9 @@ static void screen_ui_build_wifi_notification_description(char *output, size_t o
 
     snprintf(output,
              output_size,
-             "Join hotspot: %s, Open http://%s and select a working 2.4GHz Wi-Fi",
+             i18n_get(I18N_PROVISION_NETWORK_HELP),
              ssid,
              ap_ip);
-
-    /*
-    if (password) {
-        snprintf(output,
-                 output_size,
-                 "Join hotspot: %s,%s\nhttp://%s and select a working 2.4GHz Wi-Fi",
-                 ssid,
-                 password,
-                 ap_ip);
-    }
-    else {
-        snprintf(output,
-                 output_size,
-                 "Join hotspot: %s\nhttp://%s and select a working 2.4GHz Wi-Fi",
-                 ssid,
-                 ap_ip);
-    }
-    */
 }
 
 static void screen_create_components(screen_ctx_t *ctx, lv_obj_t *screen, const screen_config_t *config)
@@ -1229,14 +1366,208 @@ static void screen_create_components(screen_ctx_t *ctx, lv_obj_t *screen, const 
 
     screen_create_status_bar(ctx, screen);
     if (ctx->page_count == 0) {
-        system_status_bar_set_title(ctx->status_bar, "default screen");
-        screen_create_default_content(screen, 0);
+        system_status_bar_set_title(ctx->status_bar, "Default Screen");
+        screen_create_default_content(ctx, screen, 0);
+        screen_ui_apply_home_theme(ctx);
         return;
     }
 
     screen_create_pages(ctx, screen, config);
     screen_create_indicator(ctx, screen);
     screen_update_active_page(ctx, 0);
+    screen_ui_apply_home_theme(ctx);
+}
+
+static void screen_ui_apply_home_theme(screen_ctx_t *ctx)
+{
+    if (!ctx) {
+        return;
+    }
+
+    const screen_theme_mode_t mode = screen_theme_get();
+    const screen_theme_palette_t *palette =
+        screen_theme_get_palette_for_mode(mode);
+    const bool light = mode == SCREEN_THEME_LIGHT;
+    ctx->bg_color = lv_color_hex(light ? palette->page_bg : 0x010203);
+
+    if (ctx->root_screen) {
+        lv_obj_set_style_bg_color(ctx->root_screen, ctx->bg_color, 0);
+    }
+    if (ctx->home_loading_overlay) {
+        lv_obj_set_style_bg_color(ctx->home_loading_overlay, ctx->bg_color, 0);
+    }
+    if (ctx->home_text_style_initialized) {
+        lv_style_set_text_color(&ctx->home_text_style,
+                                lv_color_hex(light ? palette->text_primary
+                                                   : 0xFFFFFF));
+        lv_obj_report_style_change(&ctx->home_text_style);
+    }
+    if (ctx->status_bar) {
+        system_status_bar_apply_theme(ctx->status_bar);
+    }
+    if (ctx->screen_indicator) {
+        screen_indicator_apply_theme(ctx->screen_indicator);
+    }
+    if (ctx->root_screen) {
+        lv_obj_invalidate(ctx->root_screen);
+    }
+}
+
+static void screen_ui_set_home_loading_rotation(void *obj, int32_t angle)
+{
+    lv_image_set_rotation((lv_obj_t *)obj, angle);
+}
+
+static void screen_ui_layout_home_loading(screen_ctx_t *ctx)
+{
+    if (!ctx || !ctx->home_loading_overlay) {
+        return;
+    }
+    lv_obj_set_size(ctx->home_loading_overlay,
+                    LV_HOR_RES,
+                    LV_VER_RES - SYSTEM_STATUS_BAR_HEIGHT);
+    lv_obj_align(ctx->home_loading_overlay,
+                 LV_ALIGN_TOP_LEFT,
+                 0,
+                 SYSTEM_STATUS_BAR_HEIGHT);
+}
+
+static void screen_ui_create_home_loading(screen_ctx_t *ctx, lv_obj_t *screen)
+{
+    if (!ctx || !screen || !ctx->config || !ctx->config->screens) {
+        return;
+    }
+
+    lv_obj_t *overlay = lv_obj_create(screen);
+    if (!overlay) {
+        return;
+    }
+    ctx->home_loading_overlay = overlay;
+    lv_obj_remove_style_all(overlay);
+    lv_obj_remove_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_bg_color(overlay, ctx->bg_color, 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+    screen_ui_layout_home_loading(ctx);
+
+    lv_obj_t *content = lv_obj_create(overlay);
+    if (!content) {
+        lv_obj_delete(overlay);
+        ctx->home_loading_overlay = NULL;
+        return;
+    }
+    lv_obj_remove_style_all(content);
+    lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(content, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_layout(content, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(content, 0, 0);
+    lv_obj_set_style_pad_gap(content, 8, 0);
+    lv_obj_align(content, LV_ALIGN_CENTER, 0, 0);
+
+    ctx->home_loading_icon = lv_image_create(content);
+    if (!ctx->home_loading_icon) {
+        lv_obj_delete(overlay);
+        ctx->home_loading_overlay = NULL;
+        return;
+    }
+    lv_image_set_src(ctx->home_loading_icon, &loading_60);
+    lv_obj_set_size(ctx->home_loading_icon, 60, 60);
+    lv_image_set_pivot(ctx->home_loading_icon, 30, 30);
+
+    lv_obj_t *label = lv_label_create(content);
+    if (!label) {
+        lv_obj_delete(overlay);
+        ctx->home_loading_overlay = NULL;
+        ctx->home_loading_icon = NULL;
+        return;
+    }
+    ui_i18n_label_set_text(label, i18n_get(I18N_HOME_LOADING));
+    lv_obj_set_style_text_font(label, &ha_font_misan_medium_20, 0);
+    lv_obj_add_style(label, &ctx->home_text_style, 0);
+}
+
+static bool screen_ui_home_data_ready(const screen_ctx_t *ctx,
+                                      ha_entity_store_t *store)
+{
+    if (!ctx || !ctx->config || !ctx->config->screens) {
+        return true;
+    }
+
+    const bool store_ready = store &&
+        ha_entity_store_get_status(store) == HA_ENTITY_STORE_READY;
+    for (size_t i = 0; i < ctx->config->screen_count; i++) {
+        const screen_view_t *view = &ctx->config->screens[i];
+        for (size_t j = 0; view->badges && j < view->badge_count; j++) {
+            const screen_badge_config_t *badge = &view->badges[j];
+            if (badge->type != SCREEN_BADGE_TYPE_ENTITY || !badge->has_data ||
+                !badge_display_supported(badge->data.entity)) {
+                continue;
+            }
+            const char *id = badge->data.entity;
+            ha_entity_snapshot_t snapshot = {0};
+            if (!store_ready || ha_entity_store_get(store, id, &snapshot) != ESP_OK ||
+                (snapshot.sync_status != HA_ENTITY_SYNC_READY &&
+                 snapshot.sync_status != HA_ENTITY_SYNC_REMOVED)) {
+                return false;
+            }
+        }
+        for (size_t j = 0; view->cards && j < view->card_count; j++) {
+            const screen_card_config_t *card = &view->cards[j];
+            if (card->type != SCREEN_CARD_TYPE_TILE) {
+                continue;
+            }
+            const char *id = card->data.tile.entity;
+            if (!id || !id[0]) {
+                continue;
+            }
+            ha_entity_snapshot_t snapshot = {0};
+            if (!store_ready || ha_entity_store_get(store, id, &snapshot) != ESP_OK ||
+                (snapshot.sync_status != HA_ENTITY_SYNC_READY &&
+                 snapshot.sync_status != HA_ENTITY_SYNC_REMOVED)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void screen_ui_sync_home_loading(void)
+{
+    screen_ctx_t *ctx = s_screen_ctx;
+    if (!ctx || !ctx->home_loading_overlay || !ctx->home_loading_icon) {
+        return;
+    }
+
+    const bool should_show = !screen_ui_home_data_ready(
+        ctx, app_get_ha_entity_store());
+    const bool visible = !lv_obj_has_flag(ctx->home_loading_overlay,
+                                          LV_OBJ_FLAG_HIDDEN);
+    if (should_show == visible) {
+        return;
+    }
+    if (should_show) {
+        lv_obj_move_foreground(ctx->home_loading_overlay);
+        lv_obj_remove_flag(ctx->home_loading_overlay, LV_OBJ_FLAG_HIDDEN);
+        lv_image_set_rotation(ctx->home_loading_icon, 0);
+        lv_anim_t animation;
+        lv_anim_init(&animation);
+        lv_anim_set_var(&animation, ctx->home_loading_icon);
+        lv_anim_set_exec_cb(&animation, screen_ui_set_home_loading_rotation);
+        lv_anim_set_values(&animation, 0, 3600);
+        lv_anim_set_duration(&animation, 1000);
+        lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_start(&animation);
+    }
+    else {
+        lv_anim_delete(ctx->home_loading_icon,
+                       screen_ui_set_home_loading_rotation);
+        lv_obj_add_flag(ctx->home_loading_overlay, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void screen_create_device_info(screen_ctx_t *ctx)
@@ -1616,6 +1947,7 @@ static void screen_device_info_upgrade_cb(screen_device_info_t *view,
 
     app_set_manual_ota_web_lock(true);
     ctx->manual_ota_active = true;
+    firmware_auto_check_set_manual_ota_active(true);
     ctx->manual_ota_retry_check = retry_failed_download;
     ctx->manual_ota_activation_requested = staged;
     ctx->manual_ota_reboot_requested = false;
@@ -1768,6 +2100,7 @@ static void screen_manual_ota_cancel_cb(screen_ota_update_t *view,
     ctx->manual_ota_reboot_requested = false;
     ctx->manual_ota_retry_activation = false;
     ctx->manual_ota_failure_visible = false;
+    firmware_auto_check_set_manual_ota_active(false);
     app_set_manual_ota_web_lock(false);
     screen_ota_update_hide(view);
     ESP_LOGI(TAG, "Manual firmware update result dismissed");
@@ -1777,6 +2110,14 @@ static void screen_update_manual_ota(screen_ctx_t *ctx,
                                      const firmware_update_status_t *status)
 {
     if (!ctx || !ctx->ota_update || !status || !ctx->manual_ota_active) {
+        return;
+    }
+
+    /* A failed manual OTA is a user-decision state. Background Wi-Fi or daily
+     * checks share the firmware state machine, but must not replace this page.
+     * Retry and Cancel both clear this latch before starting their next UI
+     * transition. */
+    if (ctx->manual_ota_failure_visible) {
         return;
     }
 
@@ -2137,7 +2478,9 @@ static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const scree
             ctx->main_views[i] = main_view_create(tile, view);
         }
         else {
-            screen_create_default_content(tile, -(SYSTEM_STATUS_BAR_HEIGHT / 2));
+            screen_create_default_content(ctx,
+                                          tile,
+                                          -(SYSTEM_STATUS_BAR_HEIGHT / 2));
         }
     }
 
@@ -2169,7 +2512,9 @@ static void screen_create_indicator(screen_ctx_t *ctx, lv_obj_t *screen)
     }
 }
 
-static void screen_create_default_content(lv_obj_t *parent, lv_coord_t y_offset)
+static void screen_create_default_content(screen_ctx_t *ctx,
+                                          lv_obj_t *parent,
+                                          lv_coord_t y_offset)
 {
     lv_obj_t *container = lv_obj_create(parent);
     lv_obj_remove_style_all(container);
@@ -2190,8 +2535,9 @@ static void screen_create_default_content(lv_obj_t *parent, lv_coord_t y_offset)
     lv_obj_t *label = lv_label_create(container);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(label, LV_PCT(100));
-    lv_label_set_text(label, "No content. Add entities in Web Console > Screen Management");
-    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+    ui_i18n_label_set_text(label,
+                      i18n_get(I18N_SYSTEM_NO_ENTITIES));
+    lv_obj_add_style(label, &ctx->home_text_style, 0);
     lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
 
@@ -2350,4 +2696,35 @@ static bool screen_find_page_position(const screen_ctx_t *ctx, int32_t screen_in
     }
 
     return false;
+}
+
+/* LVGL timer callbacks already run under the display task's LVGL lock. */
+static void screen_ui_language_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    screen_ui_sync_home_loading();
+    const uint32_t revision = i18n_get_revision();
+    if (revision != s_rendered_language_revision && s_screen_ctx) {
+        s_rendered_language_revision = revision;
+        ui_i18n_refresh_labels();
+        ha_entity_store_t *store = app_get_ha_entity_store();
+        for (size_t i = 0; s_screen_ctx->main_views && i < s_screen_ctx->page_count; ++i)
+            main_view_refresh_language(s_screen_ctx->main_views[i], store);
+        if (screen_state_get_current() == SCREEN_PAGE_AP_PROVISIONING)
+            screen_ui_render_ap_provisioning_page();
+        screen_update_device_info(s_screen_ctx);
+        /* Recreate formatted notification descriptions without dismissing the
+         * underlying condition. Simple labels, password timers and OTA views
+         * are updated in place and retain their state. */
+        if (s_active_notification) {
+            notification_t *previous = s_active_notification;
+            s_active_notification = NULL;
+            s_visible_notification = 0;
+            notification_close(previous);
+        }
+        screen_ui_sync_notification();
+        s_language_detail_pending = true;
+    }
+    if (s_language_detail_pending && more_info_screen_refresh_language())
+        s_language_detail_pending = false;
 }

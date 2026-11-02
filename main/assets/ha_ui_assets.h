@@ -29,11 +29,17 @@ extern const lv_image_dsc_t warning_yellow;
 extern const lv_image_dsc_t warning_grey;
 extern const lv_image_dsc_t wifi_disconnected_48x48;
 extern const lv_image_dsc_t ok_icon_green;
+extern const lv_image_dsc_t success_24x24;
+extern const lv_image_dsc_t warn_red_24x24;
+extern const lv_image_dsc_t warn_yellow_24x24;
 extern const lv_image_dsc_t loading_icon_32;
-extern const lv_image_dsc_t cloud_update_22;
+extern const lv_image_dsc_t cloud_update_24x24;
+extern const lv_image_dsc_t cloud_update_light_24x24;
 extern const lv_image_dsc_t cloud_update_32;
 extern const lv_image_dsc_t hass_24x24;
+extern const lv_image_dsc_t hass_light_24x24;
 extern const lv_image_dsc_t wifi_24x24;
+extern const lv_image_dsc_t wifi_light_24x24;
 extern const lv_image_dsc_t wifi_60x60;
 extern const lv_image_dsc_t hass_60x60;
 extern const lv_image_dsc_t lock_60x60;
@@ -44,6 +50,7 @@ extern const lv_image_dsc_t restarting_120;
 extern const lv_image_dsc_t rgb_color_30;
 extern const lv_image_dsc_t rgb_color_230;
 extern const lv_image_dsc_t color_temp_30;
+extern const lv_image_dsc_t loading_60;
 
 /* PICS */
 extern const lv_image_dsc_t close_40;

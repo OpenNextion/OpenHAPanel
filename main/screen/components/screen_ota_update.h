@@ -32,6 +32,9 @@ void screen_ota_update_bring_to_front(screen_ota_update_t *view);
 /** Reapply orientation-specific layout after the logical resolution changes. */
 void screen_ota_update_apply_orientation(screen_ota_update_t *view);
 
+/** Reapply colors for the current OTA mode and selected screen theme. */
+void screen_ota_update_apply_theme(screen_ota_update_t *view);
+
 #ifdef __cplusplus
 }
 #endif

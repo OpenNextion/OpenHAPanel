@@ -1,3 +1,5 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "light_effect_selector.h"
 
 #include <stdio.h>
@@ -5,6 +7,7 @@
 
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include <lvgl_private.h>
 
 #define LIGHT_EFFECT_MAX_OPTIONS 16
 #define LIGHT_EFFECT_NAME_MAX    48
@@ -136,18 +139,7 @@ static void apply_trigger_layout(light_effect_selector_context_t *context)
 
 static void display_effect(const char *source, char *output, size_t size)
 {
-    if (!output || size == 0) {
-        return;
-    }
-    snprintf(output, size, "%s", source ? source : "-");
-    for (char *cursor = output; *cursor; ++cursor) {
-        if (*cursor == '_') {
-            *cursor = ' ';
-        }
-    }
-    if (output[0] >= 'a' && output[0] <= 'z') {
-        output[0] -= 'a' - 'A';
-    }
+    i18n_display_copy(output, size, effect_is_none(source) ? i18n_get(I18N_COMMON_NONE) : source);
 }
 
 static void close_popup(light_effect_selector_context_t *context)
@@ -176,22 +168,22 @@ static void refresh_trigger(light_effect_selector_context_t *context)
     if (has_effect) {
         char label[LIGHT_EFFECT_NAME_MAX];
         display_effect(context->options[context->selected], label, sizeof(label));
-        lv_label_set_text(context->icon_label, MDI_SYMBOL_CIRCLE_MEDIUM);
+        ui_i18n_label_set_text(context->icon_label, MDI_SYMBOL_CIRCLE_MEDIUM);
         lv_obj_set_y(context->title_label,
                      context->landscape
                          ? LIGHT_EFFECT_TITLE_ACTIVE_Y_LAND
                          : LIGHT_EFFECT_TITLE_ACTIVE_Y);
-        lv_label_set_text(context->value_label, label);
+        ui_i18n_label_set_text(context->value_label, label);
         lv_obj_remove_flag(context->value_label, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
     /* Preserve the light-off state: no active effect value is displayed. */
-    lv_label_set_text(context->icon_label, MDI_SYMBOL_CREATION);
+    ui_i18n_label_set_text(context->icon_label, MDI_SYMBOL_CREATION);
     lv_obj_set_y(context->title_label,
                  context->landscape ? LIGHT_EFFECT_TITLE_Y_LAND
                                     : LIGHT_EFFECT_TITLE_Y);
-    lv_label_set_text(context->value_label, "");
+    ui_i18n_label_set_text(context->value_label, "");
     lv_obj_add_flag(context->value_label, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -288,7 +280,7 @@ static lv_obj_t *create_menu_row(light_effect_selector_context_t *context,
     lv_obj_t *label = lv_label_create(row);
     char text[LIGHT_EFFECT_NAME_MAX];
     display_effect(context->options[index], text, sizeof(text));
-    lv_label_set_text(label, text);
+    ui_i18n_label_set_text(label, text);
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     lv_obj_set_pos(label, 30, 10);
     lv_obj_set_size(label, LV_MAX(1, width - 38), 20);
@@ -297,7 +289,7 @@ static lv_obj_t *create_menu_row(light_effect_selector_context_t *context,
 
     lv_obj_t *icon = lv_label_create(row);
     if (icon) {
-        lv_label_set_text(icon, MDI_SYMBOL_CIRCLE_MEDIUM);
+        ui_i18n_label_set_text(icon, MDI_SYMBOL_CIRCLE_MEDIUM);
         lv_obj_set_pos(icon, 6, 10);
         lv_obj_set_size(icon, 20, 20);
         lv_obj_set_style_text_font(icon, &ha_font_mdi_20, 0);
@@ -355,9 +347,18 @@ static void open_popup(light_effect_selector_context_t *context)
         menu_y = root_coords.y1 - menu_height;
     }
 
-    int32_t menu_width = context->landscape
-                             ? LIGHT_EFFECT_MENU_W_LAND
-                             : LV_MAX(133, lv_area_get_width(&root_coords));
+    int32_t max_text_w = 0;
+    lv_text_attributes_t text_attr;
+    lv_text_attributes_init(&text_attr);
+    for (size_t i = 0; i < context->option_count; i++) {
+        char text[LIGHT_EFFECT_NAME_MAX];
+        display_effect(context->options[i], text, sizeof(text));
+        int32_t tw = lv_text_get_width(text, strlen(text),
+                                       &ha_font_misan_regular_16, &text_attr);
+        int32_t row_w = tw + 38;
+        if (row_w > max_text_w) max_text_w = row_w;
+    }
+    int32_t menu_width = LV_MAX(lv_area_get_width(&root_coords), max_text_w);
     menu_width = LV_MIN(menu_width,
                         LV_MAX(1,
                                screen_width - 2 * LIGHT_EFFECT_MARGIN));
@@ -484,7 +485,7 @@ lv_obj_t *light_effect_selector_create(lv_obj_t *parent)
     lv_obj_add_event_cb(root, root_event_cb, LV_EVENT_ALL, context);
 
     context->icon_label = lv_label_create(root);
-    lv_label_set_text(context->icon_label, MDI_SYMBOL_CREATION);
+    ui_i18n_label_set_text(context->icon_label, MDI_SYMBOL_CREATION);
     lv_obj_set_style_text_font(context->icon_label, &ha_font_mdi_20, 0);
     lv_obj_set_style_text_color(context->icon_label,
                                 lv_color_hex(LIGHT_EFFECT_TEXT_COLOR),
@@ -499,7 +500,7 @@ lv_obj_t *light_effect_selector_create(lv_obj_t *parent)
                  0);
 
     context->title_label = lv_label_create(root);
-    lv_label_set_text(context->title_label, "Effect");
+    ui_i18n_label_set_text(context->title_label, i18n_get(I18N_LIGHT_EFFECT));
     lv_obj_set_pos(context->title_label,
                    LIGHT_EFFECT_TEXT_X,
                    LIGHT_EFFECT_TITLE_Y);
@@ -512,7 +513,7 @@ lv_obj_t *light_effect_selector_create(lv_obj_t *parent)
                                 0);
 
     context->value_label = lv_label_create(root);
-    lv_label_set_text(context->value_label, "");
+    ui_i18n_label_set_text(context->value_label, "");
     lv_label_set_long_mode(context->value_label, LV_LABEL_LONG_DOT);
     lv_obj_set_pos(context->value_label,
                    LIGHT_EFFECT_TEXT_X,
@@ -573,10 +574,8 @@ bool light_effect_selector_set_options(lv_obj_t *obj,
     close_popup(context);
     memset(context->options, 0, sizeof(context->options));
     for (size_t i = 0; i < count; i++) {
-        snprintf(context->options[i],
-                 sizeof(context->options[i]),
-                 "%s",
-                 options[i] ? options[i] : "");
+        i18n_copy(context->options[i], sizeof(context->options[i]),
+                  options[i] ? options[i] : "");
     }
     context->option_count = count;
     context->selected = LV_MIN(context->selected, count - 1);

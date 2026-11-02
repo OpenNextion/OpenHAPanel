@@ -6,10 +6,13 @@
 #include <string.h>
 #include <strings.h>
 
+#include "esp_log.h"
 #include "ha_auth.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 #include "mdns.h"
+#include "screen.h"
+#include "screen_api.h"
 #include "webserver_api.h"
 #include "webserver_client_node.h"
 #include "webserver_method_api.h"
@@ -27,6 +30,8 @@
 #define HASS_API_ERROR_INTERNAL 930
 #define HASS_API_ERROR_AUTH_INVALID 931
 #define HASS_MDNS_HOSTNAME_MAX_LEN 64
+
+static const char *TAG = "webserver_ha_auth";
 
 typedef struct {
     int socket_fd;
@@ -420,6 +425,24 @@ esp_err_t method_api_handle_hass_remove_authorization(cJSON *data, async_resp_ar
     esp_err_t err = ha_auth_remove_authorization();
     int error = err == ESP_OK ? WEB_API_ERROR_OK :
                 (err == ESP_ERR_INVALID_STATE ? HASS_API_ERROR_OAUTH_BUSY : HASS_API_ERROR_STORAGE);
+    if (err == ESP_OK) {
+        err = screen_reset_config();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG,
+                     "Failed to reset screen config after removing HA authorization: %s",
+                     esp_err_to_name(err));
+            error = HASS_API_ERROR_STORAGE;
+        }
+        else {
+            esp_err_t notify_err =
+                screen_config_notify_authenticated_clients();
+            if (notify_err != ESP_OK) {
+                ESP_LOGW(TAG,
+                         "Failed to notify authenticated clients after removing HA authorization: %s",
+                         esp_err_to_name(notify_err));
+            }
+        }
+    }
     return webserver_data_code_response_to_special_client_not_log(NULL,
                                                                    WEB_API_METHOD_HASS_REMOVE_AUTH_RSP,
                                                                    now_resp_arg->seq,

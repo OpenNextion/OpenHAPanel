@@ -1,3 +1,5 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "more_info_screen.h"
 
 #include <math.h>
@@ -11,8 +13,6 @@
 #include "lvgl.h"
 #include "esp_event.h"
 #include "screen.h"
-
-#define MORE_INFO_SCREEN_ANIM_MS 250
 
 typedef struct {
     lv_obj_t *screen;
@@ -91,11 +91,7 @@ bool more_info_screen_open(ha_entity_store_t *store,
                         more_info_screen_lifecycle_event_cb,
                         LV_EVENT_ALL,
                         NULL);
-    lv_screen_load_anim(screen,
-                        LV_SCREEN_LOAD_ANIM_MOVE_LEFT,
-                        MORE_INFO_SCREEN_ANIM_MS,
-                        0,
-                        false);
+    lv_screen_load(screen);
     return true;
 }
 
@@ -108,11 +104,7 @@ void more_info_screen_close(void)
     }
 
     s_more_info.closing = true;
-    lv_screen_load_anim(s_more_info.previous_screen,
-                        LV_SCREEN_LOAD_ANIM_MOVE_RIGHT,
-                        MORE_INFO_SCREEN_ANIM_MS,
-                        0,
-                        false);
+    lv_screen_load(s_more_info.previous_screen);
 }
 
 bool more_info_screen_refresh_entity(ha_entity_store_t *store,
@@ -291,7 +283,7 @@ static void more_info_screen_render_default(
                         NULL);
 
     lv_obj_t *close_label = lv_label_create(header_box);
-    lv_label_set_text(close_label,
+    ui_i18n_label_set_text(close_label,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -313,20 +305,20 @@ static void more_info_screen_render_default(
                                                 "percentage",
                                                 &percentage) == ESP_OK &&
                 isfinite(percentage)) {
-                snprintf(state_text, sizeof(state_text), "Speed: %.0f%%",
+                snprintf(state_text, sizeof(state_text), i18n_get(I18N_ENTITY_SPEED),
                          LV_CLAMP(0.0, percentage, 100.0));
             } else {
-                snprintf(state_text, sizeof(state_text), "On");
+                i18n_copy(state_text, sizeof(state_text), i18n_get(I18N_STATE_ON));
             }
         } else if (strcmp(state, "off") == 0) {
-            snprintf(state_text, sizeof(state_text), "Closed");
+            i18n_copy(state_text, sizeof(state_text), i18n_get(I18N_STATE_CLOSED));
         } else {
             snprintf(state_text, sizeof(state_text), "%s",
-                     state[0] ? state : "Unknown");
+                     state[0] ? state : i18n_get(I18N_STATE_UNKNOWN));
         }
-        lv_label_set_text(tip, state_text);
+        ui_i18n_label_set_text(tip, state_text);
     } else {
-        lv_label_set_text(tip, "Unsupport");
+        ui_i18n_label_set_text(tip, i18n_get(I18N_COMMON_UNSUPPORTED));
     }
     lv_obj_set_style_text_font(tip, &ha_font_misan_medium_24, 0);
     lv_obj_set_style_text_color(tip, lv_color_hex(0xFFFFFF), 0);
@@ -441,4 +433,16 @@ static void more_info_screen_orientation_handler(void *arg,
         more_info_screen_refresh();
     }
     lvgl_port_unlock();
+}
+
+bool more_info_screen_refresh_language(void)
+{
+    if (!s_more_info.screen) return true;
+    if (s_more_info.closing || !s_more_info.loaded || s_more_info.rotation_prepared)
+        return false;
+    for (lv_indev_t *input = lv_indev_get_next(NULL); input; input = lv_indev_get_next(input)) {
+        if (lv_indev_get_state(input) == LV_INDEV_STATE_PRESSED) return false;
+    }
+    s_more_info.rendered = false;
+    return more_info_screen_refresh();
 }

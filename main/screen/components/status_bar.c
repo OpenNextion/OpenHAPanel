@@ -1,6 +1,9 @@
+#include "ui_i18n.h"
 #include "status_bar.h"
 
 #include <string.h>
+
+#include "../../assets/ha_ui_assets.h"
 
 #define STATUS_BAR_HEIGHT 36
 #define STATUS_BAR_TITLE_WIDTH 150
@@ -68,7 +71,7 @@ void status_bar_set_title(status_bar_t *bar, const char *title)
         return;
     }
 
-    lv_label_set_text(bar->title_label, title ? title : "");
+    ui_i18n_label_set_text(bar->title_label, title ? title : "");
 }
 
 void status_bar_set_time(status_bar_t *bar, const char *time_text)
@@ -104,7 +107,7 @@ void status_bar_set_icons(status_bar_t *bar, const status_bar_icon_config_t *ico
     for (size_t i = 0; i < icon_count; i++) {
         lv_obj_t *label = lv_label_create(bar->icon_container);
         bar->icons[i].label = label;
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(label, &ha_font_misan_regular_14, 0);
         lv_obj_set_style_pad_hor(label, 2, 0);
         status_bar_apply_icon(&bar->icons[i], &icons[i]);
     }
@@ -149,7 +152,7 @@ static void status_bar_create_layout(status_bar_t *bar, lv_obj_t *parent)
     lv_obj_set_width(bar->title_label, STATUS_BAR_TITLE_WIDTH);
     lv_obj_set_style_pad_hor(bar->title_label, 8, 0);
     lv_obj_set_style_text_color(bar->title_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(bar->title_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(bar->title_label, &ha_font_misan_regular_14, 0);
     lv_label_set_long_mode(bar->title_label, LV_LABEL_LONG_DOT);
 
     bar->right_container = lv_obj_create(container);
@@ -171,7 +174,7 @@ static void status_bar_create_layout(status_bar_t *bar, lv_obj_t *parent)
 
     bar->time_label = lv_label_create(bar->right_container);
     lv_obj_set_style_text_color(bar->time_label, lv_color_hex(0xC8CDD8), 0);
-    lv_obj_set_style_text_font(bar->time_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(bar->time_label, &ha_font_misan_regular_14, 0);
 }
 
 static void status_bar_clear_icons(status_bar_t *bar)

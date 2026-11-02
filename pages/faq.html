@@ -20,7 +20,7 @@
     code { padding: 2px 6px; border-radius: 4px; background: #f3f4f6; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
     img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
     .image-block { margin: 18px 0 24px; }
-    .media-pair { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); align-items: start; gap: 0; width: 100%; margin: 16px 0 26px; }
+    .media-pair { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); align-items: start; column-gap: 12px; width: 100%; margin: 16px 0 26px; }
     .media-pair figure { min-width: 0; margin: 0; text-align: center; }
     .media-pair img { width: 100%; max-width: 100%; height: auto; }
     .media-pair figcaption { margin-top: 7px; color: #374151; font-size: 14px; line-height: 1.4; text-align: center; }
@@ -49,7 +49,7 @@
     <li>Set a password, then enter it again to confirm. After saving, the Wi-Fi setup page opens.</li>
     </ul>
 
-    <div class="media-pair" style="grid-template-columns: 1.600000fr 0.461823fr">
+    <div class="media-pair" style="grid-template-columns: 3.464533fr 1fr">
       <figure>
         <img src="assets/password-pc.png" alt="Desktop password setup page">
         <figcaption>Desktop</figcaption>
@@ -64,7 +64,7 @@
     <li>Select your 2.4 GHz Wi-Fi network from the list and enter its password.</li>
     </ul>
 
-    <div class="media-pair" style="grid-template-columns: 2.006314fr 0.553208fr">
+    <div class="media-pair" style="grid-template-columns: 3.443662fr 1fr">
       <figure>
         <img src="assets/wifi-list-pc.png" alt="Desktop Wi-Fi network list">
         <figcaption>Desktop</figcaption>
@@ -79,7 +79,7 @@
     <li>After the Wi-Fi connection is configured successfully, a dialog appears. Copy the IP address or domain name shown in the dialog, then open the Web Console in a browser.</li>
     </ul>
 
-    <div class="media-pair" style="grid-template-columns: 2.005525fr 0.545833fr">
+    <div class="media-pair" style="grid-template-columns: 3.674244fr 1fr">
       <figure>
         <img src="assets/wifi-connected-pc.png" alt="Desktop Wi-Fi connection success dialog">
         <figcaption>Desktop</figcaption>
@@ -94,7 +94,7 @@
     <li>The first time you open the Web Console, enter the password you set earlier to sign in.</li>
     </ul>
 
-    <div class="media-pair" style="grid-template-columns: 2.019841fr 0.544179fr">
+    <div class="media-pair" style="grid-template-columns: 3.711724fr 1fr">
       <figure>
         <img src="assets/login-pc.png" alt="Desktop sign-in page">
         <figcaption>Desktop</figcaption>
@@ -109,7 +109,7 @@
     <li>The configuration page opens on the Home Assistant setup page. Select “Add Home Assistant” and follow the prompts to authorize Home Assistant. Confirm that the connection is working.</li>
     </ul>
 
-    <div class="media-pair" style="grid-template-columns: 2.019048fr 0.342969fr">
+    <div class="media-pair" style="grid-template-columns: 5.960648fr 1fr">
       <figure>
         <img src="assets/ha-add-pc.png" alt="Desktop Add Home Assistant page">
         <figcaption>Desktop</figcaption>
@@ -124,7 +124,7 @@
     <li>Once Home Assistant is connected, open Screen Settings. You can add, rename, reorder, or delete screen pages, and add or remove entities synced from Home Assistant. Save your changes when finished.</li>
     </ul>
 
-    <div class="media-pair" style="grid-template-columns: 3.439fr 1fr">
+    <div class="media-pair" style="grid-template-columns: 3.439371fr 1fr">
       <figure>
         <img src="assets/screen-config-pc.png" alt="Desktop screen page configuration">
         <figcaption>Desktop</figcaption>
@@ -208,7 +208,7 @@
     <li>Go to <code>Network &gt; AP Settings</code> to change the hotspot name and password, IPv4 LAN address, and operating frequency band.</li>
     </ol>
 
-    <div class="media-pair" style="grid-template-columns: 3.354302fr 1fr">
+    <div class="media-pair" style="grid-template-columns: 3.373372fr 1fr">
       <figure>
         <img src="assets/ap-settings-pc.png" alt="Desktop AP settings page">
         <figcaption>Desktop</figcaption>
@@ -226,7 +226,7 @@
     <li><strong>Note:</strong> Switching Wi-Fi changes the device IP address. If Home Assistant and the device are no longer on the same local network, the connection will be lost. When accessing the Web Console by IP address, the phone or computer must also be connected to the corresponding Wi-Fi network.</li>
     </ol>
 
-    <div class="media-pair" style="grid-template-columns: 5.637fr 1fr">
+    <div class="media-pair" style="grid-template-columns: 4.996169fr 1fr">
       <figure>
         <img src="assets/wlan-ssid-pc.png" alt="Desktop WLAN SSID settings page">
         <figcaption>Desktop</figcaption>
@@ -238,16 +238,16 @@
     </div>
 
     <ol start="3">
-    <li>Go to <code>Network &gt; WLAN Settings &gt; IP Settings</code> to obtain an IP address automatically or configure a static IP address manually.</li>
+    <li>Go to <code>Network &gt; WLAN Settings &gt; IP Configuration</code> to obtain an IP address automatically or configure a static IP address manually.</li>
     </ol>
 
-    <div class="media-pair" style="grid-template-columns: 2.022998fr 0.586719fr">
+    <div class="media-pair" style="grid-template-columns: 3.348322fr 1fr">
       <figure>
-        <img src="assets/ip-settings-pc.png" alt="Desktop IP settings page">
+        <img src="assets/ip-settings-pc.png" alt="Desktop IP configuration page">
         <figcaption>Desktop</figcaption>
       </figure>
       <figure>
-        <img src="assets/ip-settings-mobile.jpg" alt="Mobile IP settings page">
+        <img src="assets/ip-settings-mobile.jpg" alt="Mobile IP configuration page">
         <figcaption>Mobile</figcaption>
       </figure>
     </div>
@@ -259,14 +259,15 @@
     <ol>
     <li>Change the device name.</li>
     <li>Change the mDNS hostname. It must end in <code>.local</code>.</li>
-    <li>Change the current time zone. Select “Auto Detect” to detect your time zone and display the local time.</li>
-    <li>Display settings: adjust screen brightness, enable or disable screen lock, and set the auto-lock timeout.</li>
-    <li>Dark mode settings: enable or disable dark mode, set its brightness, and choose its active time range.</li>
-    <li>Screen orientation: choose portrait or landscape orientation.</li>
+    <li>Change the time zone. Select “Auto Detect” to detect your time zone and display the local time.</li>
+    <li>Change the language used by the Web Console and device screen.</li>
+    <li>Display settings: adjust screen brightness, enable or disable Night Mode, set its brightness and active hours, and configure screen lock and its timeout.</li>
+    <li>Dark Mode settings: choose Light Mode or Dark Mode.</li>
+    <li>Screen orientation: choose landscape or portrait orientation.</li>
     <li>Restart the device.</li>
     </ol>
 
-    <div class="media-pair" style="grid-template-columns: 4.059fr 1fr">
+    <div class="media-pair" style="grid-template-columns: 4.218247fr 1fr">
       <figure>
         <img src="assets/device-settings-pc.png" alt="Desktop device settings page">
         <figcaption>Desktop</figcaption>
@@ -291,15 +292,14 @@
 
     <h3>3.1 Home Assistant Statuses</h3>
 
-    <p>The highlighted area below shows the Home Assistant status. There are four possible states:</p>
+    <p>The highlighted area below shows the Home Assistant status. There are three possible states:</p>
 
     <p class="image-block"><img src="assets/ha-status.png" alt="Home Assistant status"></p>
 
     <ol>
-    <li><strong>Authorized and connected.</strong></li>
-    <li><strong>Authorized, device disconnected:</strong> The Home Assistant connection was manually disconnected from the Edit Home Assistant page. Select Connect to restore the connection.</li>
-    <li><strong>Authorized, connection lost:</strong> The Home Assistant connection ended unexpectedly. Common causes include Home Assistant stopping, becoming unavailable, or losing power while its settings are being saved, or Home Assistant and the device no longer being on the same local network. Reconnect after the Home Assistant service is available again.</li>
-    <li><strong>Authorization invalid:</strong> The long-lived access token was deleted in Home Assistant, expired, or otherwise became invalid.</li>
+    <li><strong>Connected:</strong> Home Assistant is authorized and connected.</li>
+    <li><strong>Connection Lost:</strong> The device is authorized, but its connection to Home Assistant has been interrupted. This can happen if Home Assistant stops, becomes unavailable, loses power while saving settings, or is no longer on the same local network as the device. Reconnect when Home Assistant is available again.</li>
+    <li><strong>Authorization Invalid:</strong> The Home Assistant long-lived access token was deleted, expired, or otherwise became invalid.</li>
     </ol>
 
     <h3>3.2 Unable to Add Home Assistant Manually?</h3>

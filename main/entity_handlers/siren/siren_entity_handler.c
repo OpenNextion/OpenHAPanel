@@ -1,4 +1,5 @@
 #include "siren_entity_handler.h"
+#include "siren_feature_handler.h"
 
 #include <string.h>
 
@@ -15,6 +16,8 @@ static const char *TAG = "siren_entity_handler";
 #define SIREN_TILE_BG              0x1E2228
 #define SIREN_TILE_ICON_OFF        0x999999
 #define SIREN_TILE_ICON_ON         0xF44336
+#define SIREN_TILE_CIRCLE_OFF      0x363636
+#define SIREN_TILE_CIRCLE_ON       0x472421
 #define SIREN_TILE_TITLE           0xFFFFFF
 #define SIREN_TILE_STATE           0x666666
 #define SIREN_DETAIL_CONTENT_WIDTH 280
@@ -189,15 +192,16 @@ static esp_err_t siren_render_tile(ha_entity_store_t *store,
     model->background_color = lv_color_hex(SIREN_TILE_BG);
     model->icon_color =
         lv_color_hex(is_on ? SIREN_TILE_ICON_ON : SIREN_TILE_ICON_OFF);
-    model->icon_circle_background_color = lv_color_hex(0x1E2228);
+    model->icon_circle_background_color =
+        lv_color_hex(is_on ? SIREN_TILE_CIRCLE_ON : SIREN_TILE_CIRCLE_OFF);
     model->title_color = lv_color_hex(SIREN_TILE_TITLE);
     model->state_color = lv_color_hex(SIREN_TILE_STATE);
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
                                            sizeof(model->state_text),
                                            snapshot);
-        model->icon_color = lv_color_hex(0x670425);
-        // model->icon_circle_background_color = lv_color_hex();
+        model->icon_color = lv_color_hex(0x6f6f6f);
+        model->icon_circle_background_color = lv_color_hex(0x2d2d2d);
         return ESP_OK;
     }
     entity_handler_copy_snapshot_state(model->state_text,
@@ -387,6 +391,12 @@ static bool siren_entity_snapshot_is_on(const ha_entity_snapshot_t *snapshot)
     return snapshot && strcmp(snapshot->state, "on") == 0;
 }
 
+static void siren_knob_y_anim_cb(void *var, int32_t v)
+{
+    lv_obj_t *obj = (lv_obj_t *)var;
+    lv_obj_set_y(obj, v);
+}
+
 static void siren_more_info_control_event_cb(lv_event_t *event)
 {
     const entity_more_info_context_t *context = lv_event_get_user_data(event);
@@ -394,7 +404,9 @@ static void siren_more_info_control_event_cb(lv_event_t *event)
         ESP_LOGW(TAG, "detail control tapped but context/entity_id is empty");
         return;
     }
-    if (entity_handler_snapshot_is_service_unavailable(&context->snapshot)) {
+    const bool unavailable =
+        entity_handler_snapshot_is_service_unavailable(&context->snapshot);
+    if (unavailable) {
         ESP_LOGW(TAG,
                  "detail control: cached state '%s' (sync_status=%d) looks "
                  "unavailable for %s, refreshing the cache and sending anyway",
@@ -403,16 +415,38 @@ static void siren_more_info_control_event_cb(lv_event_t *event)
                  context->snapshot.entity_id);
         siren_request_store_sync();
     }
-    siren_call_reverse(context->snapshot.entity_id, "detail control:");
-}
 
-/* Knob y-position animation: mirrors HA's .switch .button { transition: transform
- * 180ms ease-in-out } translateY. The knob is always aligned TOP_MID so the
- * animated int32_t is the y inset from the top of the track. */
-static void siren_knob_y_anim_cb(void *var, int32_t v)
-{
-    lv_obj_t *obj = (lv_obj_t *)var;
-    lv_obj_set_y(obj, v);
+    lv_obj_t *track = lv_event_get_target_obj(event);
+    lv_obj_t *knob = lv_obj_get_child(track, 0);
+    if (knob && !unavailable) {
+        const bool is_on = siren_entity_snapshot_is_on(&context->snapshot);
+
+        lv_obj_set_style_bg_color(track,
+                                  lv_color_hex(is_on ? SIREN_TRACK_COLOR_OFF
+                                                     : SIREN_TRACK_COLOR_ON),
+                                  0);
+        lv_obj_set_style_bg_color(knob,
+                                  lv_color_hex(is_on ? SIREN_KNOB_COLOR_OFF
+                                                     : SIREN_KNOB_COLOR_ON),
+                                  0);
+
+        const int32_t trk_h_eff  = siren_eff_track_height();
+        const int32_t knob_h_eff = siren_eff_knob_height();
+        const int32_t knob_y_off = SIREN_KNOB_Y_OFF(trk_h_eff, knob_h_eff);
+        const int32_t current_y = is_on ? SIREN_KNOB_Y_ON : knob_y_off;
+        const int32_t target_y = is_on ? knob_y_off : SIREN_KNOB_Y_ON;
+
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, knob);
+        lv_anim_set_exec_cb(&a, siren_knob_y_anim_cb);
+        lv_anim_set_values(&a, current_y, target_y);
+        lv_anim_set_duration(&a, 180);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+        lv_anim_start(&a);
+    }
+
+    siren_call_reverse(context->snapshot.entity_id, "detail control:");
 }
 
 static void siren_build_control(lv_obj_t *parent,
@@ -484,9 +518,9 @@ static void siren_build_control(lv_obj_t *parent,
                                   lv_color_hex(SIREN_DISABLED_TRACK_COLOR_PRESSED),
                                   LV_STATE_PRESSED);
     }
-    else {
-        lv_obj_set_style_bg_opa(track, SIREN_TRACK_OPA_PRESSED, LV_STATE_PRESSED);
-    }
+    // else {
+    //     lv_obj_set_style_bg_opa(track, SIREN_TRACK_OPA_PRESSED, LV_STATE_PRESSED);
+    // }
     lv_obj_add_event_cb(track,
                         siren_more_info_control_event_cb,
                         LV_EVENT_CLICKED,
@@ -516,17 +550,7 @@ static void siren_build_control(lv_obj_t *parent,
     const int32_t knob_h_eff = siren_eff_knob_height();
     const int32_t knob_y_off = SIREN_KNOB_Y_OFF(trk_h_eff, knob_h_eff);
     const int32_t target_y = is_on ? SIREN_KNOB_Y_ON : knob_y_off;
-    const int32_t start_y  = is_on ? knob_y_off : SIREN_KNOB_Y_ON;
-    lv_obj_align(knob, LV_ALIGN_TOP_MID, 0, start_y);
-
-    lv_anim_t knob_anim;
-    lv_anim_init(&knob_anim);
-    lv_anim_set_var(&knob_anim, knob);
-    lv_anim_set_exec_cb(&knob_anim, siren_knob_y_anim_cb);
-    lv_anim_set_values(&knob_anim, start_y, target_y);
-    lv_anim_set_time(&knob_anim, 180);
-    lv_anim_set_path_cb(&knob_anim, lv_anim_path_ease_in_out);
-    lv_anim_start(&knob_anim);
+    lv_obj_align(knob, LV_ALIGN_TOP_MID, 0, target_y);
     lv_obj_t *icon_label = lv_label_create(knob);
     lv_obj_set_style_text_font(icon_label, &ha_font_mdi_20, 0);
     lv_obj_set_style_text_color(icon_label, lv_color_hex(0xFFFFFF), 0);
@@ -560,9 +584,10 @@ const entity_handler_t siren_entity_handler = {
         .has_hold_action = true,
         .hold_action = { .action = SCREEN_ACTION_NOTHING },
         .has_icon_tap_action = true,
-        .icon_tap_action = { .action = SCREEN_ACTION_TOGGLE },
+        .icon_tap_action = { .action = SCREEN_ACTION_NOTHING },
     },
     .handle_action = siren_handle_action,
     .render_tile = siren_render_tile,
+    .feature_handler = &siren_feature_handler,
     .render_more_info = siren_render_more_info,
 };

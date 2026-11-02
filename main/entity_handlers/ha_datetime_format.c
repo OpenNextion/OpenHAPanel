@@ -1,3 +1,4 @@
+#include "i18n.h"
 #include "ha_datetime_format.h"
 
 #include <math.h>
@@ -33,10 +34,16 @@ static int64_t ha_datetime_civil_day_number(int year,
                                             unsigned day);
 static int64_t ha_datetime_floor_mod(int64_t value, int64_t divisor);
 static int ha_datetime_js_round(double value);
-static void ha_datetime_format_english(int value,
+static void ha_datetime_format_localized(int value,
                                        const char *unit,
+                                       bool include_tense,
                                        char *output,
                                        size_t output_size);
+static esp_err_t ha_datetime_format_relative_epoch_impl(time_t from_epoch,
+                                                        time_t now_epoch,
+                                                        bool include_tense,
+                                                        char *output,
+                                                        size_t output_size);
 static esp_err_t ha_datetime_write_error(const char *text,
                                          esp_err_t error,
                                          char *output,
@@ -60,11 +67,11 @@ esp_err_t ha_datetime_format_relative(const char *raw_value,
         value_length -= 2;
     }
     if (ha_datetime_is_missing(value, value_length)) {
-        snprintf(output, output_size, "Never");
+        i18n_copy(output, output_size, i18n_get(I18N_TIME_NEVER));
         return ESP_OK;
     }
     if (now_epoch < HA_DATETIME_MIN_VALID_EPOCH) {
-        return ha_datetime_write_error("Invalid date",
+        return ha_datetime_write_error(i18n_get(I18N_TIME_INVALID),
                                        ESP_ERR_INVALID_STATE,
                                        output,
                                        output_size);
@@ -72,7 +79,7 @@ esp_err_t ha_datetime_format_relative(const char *raw_value,
 
     time_t from_epoch = 0;
     if (ha_datetime_parse_epoch(raw_value, &from_epoch) != ESP_OK) {
-        return ha_datetime_write_error("Invalid date",
+        return ha_datetime_write_error(i18n_get(I18N_TIME_INVALID),
                                        ESP_ERR_INVALID_ARG,
                                        output,
                                        output_size);
@@ -89,12 +96,37 @@ esp_err_t ha_datetime_format_relative_epoch(time_t from_epoch,
                                             char *output,
                                             size_t output_size)
 {
+    return ha_datetime_format_relative_epoch_impl(from_epoch,
+                                                  now_epoch,
+                                                  true,
+                                                  output,
+                                                  output_size);
+}
+
+esp_err_t ha_datetime_format_elapsed_epoch(time_t from_epoch,
+                                           time_t now_epoch,
+                                           char *output,
+                                           size_t output_size)
+{
+    return ha_datetime_format_relative_epoch_impl(from_epoch,
+                                                  now_epoch,
+                                                  false,
+                                                  output,
+                                                  output_size);
+}
+
+static esp_err_t ha_datetime_format_relative_epoch_impl(time_t from_epoch,
+                                                        time_t now_epoch,
+                                                        bool include_tense,
+                                                        char *output,
+                                                        size_t output_size)
+{
     if (!output || output_size == 0) {
         return ESP_ERR_INVALID_ARG;
     }
     output[0] = '\0';
     if (now_epoch < HA_DATETIME_MIN_VALID_EPOCH) {
-        return ha_datetime_write_error("Invalid date",
+        return ha_datetime_write_error(i18n_get(I18N_TIME_INVALID),
                                        ESP_ERR_INVALID_STATE,
                                        output,
                                        output_size);
@@ -104,7 +136,7 @@ esp_err_t ha_datetime_format_relative_epoch(time_t from_epoch,
     ha_datetime_parts_t to = {0};
     if (!ha_datetime_parse_local_epoch(from_epoch, &from) ||
         !ha_datetime_parse_local_epoch(now_epoch, &to)) {
-        return ha_datetime_write_error("Invalid date",
+        return ha_datetime_write_error(i18n_get(I18N_TIME_INVALID),
                                        ESP_FAIL,
                                        output,
                                        output_size);
@@ -112,8 +144,9 @@ esp_err_t ha_datetime_format_relative_epoch(time_t from_epoch,
 
     const double seconds = difftime(from_epoch, now_epoch);
     if (fabs(seconds) < 59.0) {
-        ha_datetime_format_english(ha_datetime_js_round(seconds),
+        ha_datetime_format_localized(ha_datetime_js_round(seconds),
                                    "second",
+                                   include_tense,
                                    output,
                                    output_size);
         return ESP_OK;
@@ -121,8 +154,9 @@ esp_err_t ha_datetime_format_relative_epoch(time_t from_epoch,
 
     const double minutes = seconds / 60.0;
     if (fabs(minutes) < 59.0) {
-        ha_datetime_format_english(ha_datetime_js_round(minutes),
+        ha_datetime_format_localized(ha_datetime_js_round(minutes),
                                    "minute",
+                                   include_tense,
                                    output,
                                    output_size);
         return ESP_OK;
@@ -130,8 +164,9 @@ esp_err_t ha_datetime_format_relative_epoch(time_t from_epoch,
 
     const double hours = minutes / 60.0;
     if (fabs(hours) < 22.0) {
-        ha_datetime_format_english(ha_datetime_js_round(hours),
+        ha_datetime_format_localized(ha_datetime_js_round(hours),
                                    "hour",
+                                   include_tense,
                                    output,
                                    output_size);
         return ESP_OK;
@@ -145,14 +180,15 @@ esp_err_t ha_datetime_format_relative_epoch(time_t from_epoch,
                                                          to.day);
     const int days = (int)(from_day - to_day);
     if (days == 0) {
-        ha_datetime_format_english(ha_datetime_js_round(hours),
+        ha_datetime_format_localized(ha_datetime_js_round(hours),
                                    "hour",
+                                   include_tense,
                                    output,
                                    output_size);
         return ESP_OK;
     }
     if (days > -5 && days < 5) {
-        ha_datetime_format_english(days, "day", output, output_size);
+        ha_datetime_format_localized(days, "day", include_tense, output, output_size);
         return ESP_OK;
     }
 
@@ -162,24 +198,24 @@ esp_err_t ha_datetime_format_relative_epoch(time_t from_epoch,
                             ha_datetime_floor_mod(to_day + 4, 7);
     const int weeks = (int)((from_week - to_week) / 7);
     if (weeks == 0) {
-        ha_datetime_format_english(days, "day", output, output_size);
+        ha_datetime_format_localized(days, "day", include_tense, output, output_size);
         return ESP_OK;
     }
     if (weeks > -4 && weeks < 4) {
-        ha_datetime_format_english(weeks, "week", output, output_size);
+        ha_datetime_format_localized(weeks, "week", include_tense, output, output_size);
         return ESP_OK;
     }
 
     const int years = from.year - to.year;
     const int months = years * 12 + (int)from.month - (int)to.month;
     if (months == 0) {
-        ha_datetime_format_english(weeks, "week", output, output_size);
+        ha_datetime_format_localized(weeks, "week", include_tense, output, output_size);
     }
     else if ((months > -11 && months < 11) || years == 0) {
-        ha_datetime_format_english(months, "month", output, output_size);
+        ha_datetime_format_localized(months, "month", include_tense, output, output_size);
     }
     else {
-        ha_datetime_format_english(years, "year", output, output_size);
+        ha_datetime_format_localized(years, "year", include_tense, output, output_size);
     }
     return ESP_OK;
 }
@@ -397,87 +433,13 @@ static int ha_datetime_js_round(double value)
     return (int)floor(value + 0.5);
 }
 
-static void ha_datetime_format_english(int value,
+static void ha_datetime_format_localized(int value,
                                        const char *unit,
+                                       bool include_tense,
                                        char *output,
                                        size_t output_size)
 {
-    if (value == 0) {
-        if (strcmp(unit, "second") == 0) {
-            snprintf(output, output_size, "now");
-            return;
-        }
-        if (strcmp(unit, "day") == 0) {
-            snprintf(output, output_size, "today");
-            return;
-        }
-        if (strcmp(unit, "week") == 0) {
-            snprintf(output, output_size, "this week");
-            return;
-        }
-        if (strcmp(unit, "month") == 0) {
-            snprintf(output, output_size, "this month");
-            return;
-        }
-        if (strcmp(unit, "year") == 0) {
-            snprintf(output, output_size, "this year");
-            return;
-        }
-    }
-    if (value == -1) {
-        if (strcmp(unit, "day") == 0) {
-            snprintf(output, output_size, "yesterday");
-            return;
-        }
-        if (strcmp(unit, "week") == 0) {
-            snprintf(output, output_size, "last week");
-            return;
-        }
-        if (strcmp(unit, "month") == 0) {
-            snprintf(output, output_size, "last month");
-            return;
-        }
-        if (strcmp(unit, "year") == 0) {
-            snprintf(output, output_size, "last year");
-            return;
-        }
-    }
-    if (value == 1) {
-        if (strcmp(unit, "day") == 0) {
-            snprintf(output, output_size, "tomorrow");
-            return;
-        }
-        if (strcmp(unit, "week") == 0) {
-            snprintf(output, output_size, "next week");
-            return;
-        }
-        if (strcmp(unit, "month") == 0) {
-            snprintf(output, output_size, "next month");
-            return;
-        }
-        if (strcmp(unit, "year") == 0) {
-            snprintf(output, output_size, "next year");
-            return;
-        }
-    }
-
-    const int magnitude = value < 0 ? -value : value;
-    if (value < 0) {
-        snprintf(output,
-                 output_size,
-                 "%d %s%s ago",
-                 magnitude,
-                 unit,
-                 magnitude == 1 ? "" : "s");
-    }
-    else {
-        snprintf(output,
-                 output_size,
-                 "in %d %s%s",
-                 magnitude,
-                 unit,
-                 magnitude == 1 ? "" : "s");
-    }
+    i18n_format_relative(output, output_size, unit, value, include_tense);
 }
 
 static esp_err_t ha_datetime_write_error(const char *text,

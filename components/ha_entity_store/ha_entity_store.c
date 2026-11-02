@@ -15,6 +15,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "ha_ws.h"
+#include "i18n.h"
 
 #define DEFAULT_MAX_ENTITIES 64
 #define DEFAULT_QUEUE_SIZE 16
@@ -39,6 +40,8 @@ typedef struct {
     uint32_t requested_sync_generation;
     uint32_t requested_fields;
     uint16_t ref_count;
+    bool has_display_precision;
+    uint8_t display_precision;
     ha_entity_sync_status_t sync_status;
     bool occupied;
 } entity_entry_t;
@@ -1395,17 +1398,19 @@ esp_err_t ha_entity_store_get(ha_entity_store_t *store,
         return ESP_ERR_NOT_FOUND;
     }
     copy_string(out->entity_id, sizeof(out->entity_id), entry->entity_id);
-    copy_string(out->state, sizeof(out->state), entry->state);
+    i18n_display_copy(out->state, sizeof(out->state), entry->state);
     const char *friendly_name = entry->attributes ? json_string(entry->attributes, "friendly_name") : NULL;
     const char *unit = entry->attributes ? json_string(entry->attributes, "unit_of_measurement") : NULL;
     const char *device_class = entry->attributes ? json_string(entry->attributes, "device_class") : NULL;
-    copy_string(out->friendly_name, sizeof(out->friendly_name), friendly_name);
-    copy_string(out->unit_of_measurement, sizeof(out->unit_of_measurement), unit);
+    i18n_display_copy(out->friendly_name, sizeof(out->friendly_name), friendly_name);
+    i18n_display_copy(out->unit_of_measurement, sizeof(out->unit_of_measurement), unit);
     copy_string(out->device_class, sizeof(out->device_class), device_class);
     out->has_unit_of_measurement = entry->attributes &&
         cJSON_GetObjectItemCaseSensitive(entry->attributes, "unit_of_measurement") != NULL;
     out->has_state_class = entry->attributes &&
         cJSON_GetObjectItemCaseSensitive(entry->attributes, "state_class") != NULL;
+    out->has_display_precision = entry->has_display_precision;
+    out->display_precision = entry->display_precision;
     copy_string(out->last_updated,
                 sizeof(out->last_updated),
                 entry->last_updated);
@@ -1414,6 +1419,37 @@ esp_err_t ha_entity_store_get(ha_entity_store_t *store,
     out->updated_at_ms = entry->updated_at_ms;
     out->sync_status = entry->sync_status;
     xSemaphoreGive(store->lock);
+    return ESP_OK;
+}
+
+esp_err_t ha_entity_store_set_display_precision(ha_entity_store_t *store,
+                                                const char *entity_id,
+                                                bool has_precision,
+                                                uint8_t precision)
+{
+    if (!store || !entity_id || (has_precision && precision > 100)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint32_t revision = 0;
+    bool changed = false;
+    xSemaphoreTake(store->lock, portMAX_DELAY);
+    entity_entry_t *entry = find_entry_locked(store, entity_id, NULL);
+    if (entry) {
+        changed = entry->has_display_precision != has_precision ||
+                  (has_precision && entry->display_precision != precision);
+        if (changed) {
+            entry->has_display_precision = has_precision;
+            entry->display_precision = has_precision ? precision : 0;
+            revision = ++entry->revision;
+        }
+    }
+    xSemaphoreGive(store->lock);
+    if (!entry) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (changed) {
+        fire_entity_changed(store, entity_id, revision, HA_ENTITY_CHANGE_ATTRIBUTES);
+    }
     return ESP_OK;
 }
 
@@ -1435,7 +1471,7 @@ esp_err_t ha_entity_store_get_attr_string(ha_entity_store_t *store,
         xSemaphoreGive(store->lock);
         return ESP_ERR_NOT_FOUND;
     }
-    copy_string(buffer, buffer_size, item->valuestring);
+    i18n_display_copy(buffer, buffer_size, item->valuestring);
     xSemaphoreGive(store->lock);
     return ESP_OK;
 }

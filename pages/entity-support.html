@@ -173,8 +173,8 @@
     <body>
         <main>
             <section aria-labelledby="supported-title">
-                <h2 id="supported-title">1. Entities supported in v1.2.0</h2>
-                <div class="table-scroll" role="region" aria-label="Entities supported in v1.2.0" tabindex="0">
+                <h2 id="supported-title">1. Entities supported in v1.3.0</h2>
+                <div class="table-scroll" role="region" aria-label="Entities supported in v1.3.0" tabindex="0">
                     <table class="supported">
                         <colgroup>
                             <col />
@@ -257,16 +257,6 @@
                             </tr>
                             <tr>
                                 <td class="device">window</td>
-                            </tr>
-
-                            <tr>
-                                <td class="entity" rowspan="2">sensor</td>
-                                <td class="device">temperature</td>
-                                <td class="methods">Measurement (℃, ℉, K)</td>
-                            </tr>
-                            <tr>
-                                <td class="device">humidity</td>
-                                <td class="methods">Measurement (%)</td>
                             </tr>
 
                             <tr>
@@ -429,7 +419,7 @@
                                 <td class="device">motion</td>
                                 <td class="methods">For motion events detected by a motion sensor.</td>
                             </tr>
-							<tr>
+                            <tr>
                                 <td class="entity">siren</td>
                                 <td class="device center">/</td>
                                 <td class="methods">
@@ -442,28 +432,6 @@
                                     </ol>
                                 </td>
                             </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
-            <section aria-labelledby="upcoming-title">
-                <h2 id="upcoming-title">2. Upcoming entities</h2>
-                <div class="table-scroll" role="region" aria-label="Upcoming entities" tabindex="0">
-                    <table class="upcoming">
-                        <colgroup>
-                            <col />
-                            <col />
-                            <col />
-                        </colgroup>
-                        <thead>
-                            <tr>
-                                <th scope="col">Entity</th>
-                                <th scope="col">DeviceClass</th>
-                                <th scope="col">Methods / Description</th>
-                            </tr>
-                        </thead>
-                        <tbody>
                             <tr>
                                 <td class="entity">fan</td>
                                 <td class="device center">/</td>
@@ -480,8 +448,16 @@
                                 </td>
                             </tr>
 
+							<tr>
+								<td class="entity" rowspan="62">sensor</td>
+								<td class="device">temperature</td>
+								<td class="methods">Measurement (℃, ℉, K)</td>
+							</tr>
+							<tr>
+								<td class="device">humidity</td>
+								<td class="methods">Measurement (%)</td>
+							</tr>
                             <tr>
-                                <td class="entity" rowspan="60">sensor</td>
                                 <td class="device">absolute_humidity</td>
                                 <td class="methods">Measurement (g/m³)</td>
                             </tr>

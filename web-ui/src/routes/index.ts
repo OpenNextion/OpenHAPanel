@@ -28,7 +28,6 @@ import ScreenLockSettings from '@/pages/settings/ScreenLockSettings.svelte';
 import ScreenRotationSettings from '@/pages/settings/ScreenRotationSettings.svelte';
 import NightMode from '@/pages/settings/NightMode.svelte';
 import DarkMode from '@/pages/settings/DarkMode.svelte';
-import DebugSettings from '@/pages/settings/DebugSettings.svelte';
 import FeedbackSettings from '@/pages/settings/FeedbackSettings.svelte';
 import NotFound from '@/pages/not-found';
 import WifiSetup from '@/pages/setup/WifiSetup.svelte';
@@ -68,7 +67,6 @@ export const protectedRoutes: RouteDefinition = {
     [ROUTES_PATH.SETTINGS_SCREEN_ROTATION]: ScreenRotationSettings,
     [ROUTES_PATH.SETTINGS_NIGHT_MODE]: NightMode,
     [ROUTES_PATH.SETTINGS_DARK_MODE]: DarkMode,
-    [ROUTES_PATH.SETTINGS_DEBUG]: DebugSettings,
     [ROUTES_PATH.SETTINGS_FEEDBACK]: FeedbackSettings,
     [ROUTES_PATH.NOT_FOUND]: NotFound,
 };

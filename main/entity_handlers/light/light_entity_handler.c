@@ -1,3 +1,5 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "light_entity_handler.h"
 
 #include <math.h>
@@ -19,6 +21,7 @@
 #include "entity_handlers/ha_datetime_format.h"
 #include "esp_log.h"
 #include "light_favorite_colors_store.h"
+#include "light_feature_handler.h"
 #include "screen/components/ha_relative_time_label.h"
 
 #define LIGHT_EFFECT_MAX_COUNT 16
@@ -55,8 +58,53 @@
 #define LIGHT_TILEVIEW_GESTURE_RELEASE_POLL_MS 20
 /* Let rapid taps settle before issuing a state-changing HA service call. */
 #define LIGHT_PRESET_DEBOUNCE_MS 120
+#define LIGHT_LAST_COLOR_CACHE_SIZE 24
 
 static const char *TAG = "light_entity_handler";
+
+typedef struct {
+    char entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
+    lv_color_t color;
+} light_last_color_entry_t;
+
+/* UI color memory for lights whose color attributes disappear while off. */
+static light_last_color_entry_t s_last_colors[LIGHT_LAST_COLOR_CACHE_SIZE];
+static size_t s_next_last_color;
+
+static bool light_last_color_get(const char *entity_id, lv_color_t *color)
+{
+    if (!entity_id || !color) {
+        return false;
+    }
+    for (size_t i = 0; i < LIGHT_LAST_COLOR_CACHE_SIZE; i++) {
+        if (s_last_colors[i].entity_id[0] &&
+            strcmp(s_last_colors[i].entity_id, entity_id) == 0) {
+            *color = s_last_colors[i].color;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void light_last_color_remember(const char *entity_id, lv_color_t color)
+{
+    if (!entity_id || !entity_id[0]) {
+        return;
+    }
+    size_t index = LIGHT_LAST_COLOR_CACHE_SIZE;
+    for (size_t i = 0; i < LIGHT_LAST_COLOR_CACHE_SIZE; i++) {
+        if (strcmp(s_last_colors[i].entity_id, entity_id) == 0) {
+            index = i;
+            break;
+        }
+    }
+    if (index == LIGHT_LAST_COLOR_CACHE_SIZE) {
+        index = s_next_last_color++ % LIGHT_LAST_COLOR_CACHE_SIZE;
+    }
+    snprintf(s_last_colors[index].entity_id,
+             sizeof(s_last_colors[index].entity_id), "%s", entity_id);
+    s_last_colors[index].color = color;
+}
 
 typedef struct {
     light_mode_t active_mode;
@@ -94,6 +142,7 @@ typedef struct {
     bool assumed_state;
     bool landscape;
     bool has_rgb_color;
+    bool has_color_temp_value;
     light_capabilities_t capabilities;
     uint32_t mode_mask;
     light_mode_t active_mode;
@@ -279,10 +328,8 @@ static void light_parse_effects(const cJSON *effects,
         if (!cJSON_IsString(item) || !item->valuestring) {
             continue;
         }
-        snprintf(page->effects[page->effect_count],
-                 sizeof(page->effects[page->effect_count]),
-                 "%s",
-                 item->valuestring);
+        i18n_copy(page->effects[page->effect_count],
+                  sizeof(page->effects[page->effect_count]), item->valuestring);
         page->effect_count++;
     }
 }
@@ -353,6 +400,7 @@ static void light_read_page_state(const entity_more_info_context_t *context,
         page->kelvin = (uint16_t)LV_CLAMP(page->min_kelvin,
                                          (int)number,
                                          page->max_kelvin);
+        page->has_color_temp_value = true;
     }
 
     cJSON *attribute = NULL;
@@ -456,7 +504,9 @@ static void light_read_page_state(const entity_more_info_context_t *context,
                                         effect,
                                         sizeof(effect)) == ESP_OK) {
         for (size_t i = 0; i < page->effect_count; i++) {
-            if (strcmp(effect, page->effects[i]) == 0) {
+            char display_effect[LIGHT_EFFECT_NAME_MAX];
+            i18n_display_copy(display_effect, sizeof(display_effect), page->effects[i]);
+            if (strcmp(effect, display_effect) == 0) {
                 page->selected_effect = i;
                 break;
             }
@@ -475,21 +525,21 @@ static void light_page_set_state_text(light_more_info_page_t *page,
         snprintf(text, sizeof(text), "%s", override);
     }
     else if (!page->available) {
-        snprintf(text, sizeof(text), "Unavailable");
+        i18n_copy(text, sizeof(text), i18n_get(I18N_STATE_UNAVAILABLE));
     }
     else if (page->state_unknown) {
-        snprintf(text, sizeof(text), "Unknown");
+        i18n_copy(text, sizeof(text), i18n_get(I18N_STATE_UNKNOWN));
     }
     else if (!page->on) {
-        snprintf(text, sizeof(text), "Off");
+        i18n_copy(text, sizeof(text), i18n_get(I18N_STATE_OFF));
     }
     else if (page->capabilities.supports_brightness) {
         snprintf(text, sizeof(text), "%u%%", page->brightness_percent);
     }
     else {
-        snprintf(text, sizeof(text), "On");
+        i18n_copy(text, sizeof(text), i18n_get(I18N_STATE_ON));
     }
-    lv_label_set_text(page->state_label, text);
+    ui_i18n_label_set_text(page->state_label, text);
 }
 
 static void light_call_service(light_more_info_page_t *page,
@@ -558,6 +608,7 @@ static void light_color_temp_changed(uint16_t kelvin,
         return;
     }
     page->kelvin = kelvin;
+    page->has_color_temp_value = true;
     page->color_source = LIGHT_COLOR_SOURCE_COLOR_TEMP;
     light_remember_brightness_display_color(page);
     page->on = true;
@@ -737,6 +788,7 @@ static void light_preset_selected(size_t index,
 
     if (color->type == LIGHT_FAVORITE_COLOR_TEMP) {
         page->kelvin = color->value.color_temp_kelvin;
+        page->has_color_temp_value = true;
         page->color_source = LIGHT_COLOR_SOURCE_COLOR_TEMP;
     }
     else {
@@ -919,7 +971,7 @@ static void light_mode_bar_event(const light_mode_bar_event_t *event,
         if (page->effect_selector) {
             light_effect_selector_set_power(page->effect_selector, page->on);
         }
-        light_page_set_state_text(page, turning_on ? "On" : NULL);
+        light_page_set_state_text(page, turning_on ? i18n_get(I18N_STATE_ON) : NULL);
         return;
     }
     if (!(page->mode_mask & (1U << event->mode))) {
@@ -1023,7 +1075,7 @@ static void light_build_header(lv_obj_t *root,
     lv_obj_t *title = lv_label_create(header);
     lv_obj_set_flex_grow(title, 1);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_label_set_text(title,
+    ui_i18n_label_set_text(title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -1097,7 +1149,7 @@ static void light_build_state_block(lv_obj_t *parent,
     }
     lv_obj_t *time_label = lv_label_create(state_block);
     lv_obj_set_size(time_label, 280, 24);
-    lv_label_set_text(time_label, time_text);
+    ui_i18n_label_set_text(time_label, time_text);
     lv_obj_set_style_text_font(time_label, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(time_label, lv_color_hex(0x666666), 0);
     lv_obj_set_style_text_align(time_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -1197,12 +1249,10 @@ static void light_update_dots(light_more_info_page_t *page)
         }
         const bool selected = active == page->tileview_pages[i];
         lv_obj_set_style_bg_color(page->page_dots[i],
-                                  lv_color_hex(selected ? 0xFBFBFB
-                                                        : 0x999999),
+                                  lv_color_hex(selected ? 0xE1E1E1
+                                                        : 0x5C5C5C),
                                   0);
-        lv_obj_set_style_bg_opa(page->page_dots[i],
-                                selected ? LV_OPA_COVER : LV_OPA_40,
-                                0);
+        lv_obj_set_style_bg_opa(page->page_dots[i], LV_OPA_COVER, 0);
         if (selected && page->session) {
             page->session->tileview_page = (uint8_t)i;
         }
@@ -1436,7 +1486,8 @@ static size_t light_build_default_favorite_colors(
 static lv_color_t light_brightness_display_color(
     const light_more_info_page_t *page)
 {
-    if (page && page->color_source == LIGHT_COLOR_SOURCE_COLOR_TEMP) {
+    if (page && page->color_source == LIGHT_COLOR_SOURCE_COLOR_TEMP &&
+        (page->on || page->has_color_temp_value)) {
         return light_kelvin_color(page->kelvin);
     }
     if (page && page->color_source == LIGHT_COLOR_SOURCE_RGB &&
@@ -1449,7 +1500,10 @@ static lv_color_t light_brightness_display_color(
         page->session->last_brightness_display_color_initialized) {
         return page->session->last_brightness_display_color;
     }
-    return lv_color_hex(0xFFC107);
+    ha_entity_store_t *store = app_get_ha_entity_store();
+    return store && page
+               ? light_entity_active_color(store, page->entity_id)
+               : lv_color_hex(0xE1E1E1);
 }
 
 static void light_remember_brightness_display_color(
@@ -1458,7 +1512,8 @@ static void light_remember_brightness_display_color(
     if (!page || !page->session) {
         return;
     }
-    if (page->color_source == LIGHT_COLOR_SOURCE_COLOR_TEMP) {
+    if (page->color_source == LIGHT_COLOR_SOURCE_COLOR_TEMP &&
+        page->has_color_temp_value) {
         page->session->last_brightness_display_color =
             light_kelvin_color(page->kelvin);
     }
@@ -1473,6 +1528,8 @@ static void light_remember_brightness_display_color(
         return;
     }
     page->session->last_brightness_display_color_initialized = true;
+    light_last_color_remember(page->entity_id,
+                              page->session->last_brightness_display_color);
 }
 
 static bool light_tile_read_rgb_color(ha_entity_store_t *store,
@@ -1541,10 +1598,17 @@ static lv_color_t light_tile_color_temp_color(ha_entity_store_t *store,
     return light_kelvin_color((uint16_t)kelvin);
 }
 
-static lv_color_t light_tile_active_color(ha_entity_store_t *store,
-                                          const char *entity_id)
+lv_color_t light_entity_active_color(ha_entity_store_t *store,
+                                     const char *entity_id)
 {
     const lv_color_t default_color = lv_color_hex(0xFFC107);
+    const lv_color_t unknown_color = lv_color_hex(0xE1E1E1);
+    if (!store || !entity_id) {
+        return unknown_color;
+    }
+    ha_entity_snapshot_t snapshot = {0};
+    const bool off = ha_entity_store_get(store, entity_id, &snapshot) == ESP_OK &&
+                     strcmp(snapshot.state, "off") == 0;
     char color_mode[24] = {0};
     const bool has_color_mode =
         ha_entity_store_get_attr_string(store,
@@ -1555,15 +1619,25 @@ static lv_color_t light_tile_active_color(ha_entity_store_t *store,
         color_mode[0] != '\0';
     if (has_color_mode) {
         if (strcmp(color_mode, "color_temp") == 0) {
-            return light_tile_color_temp_color(store, entity_id);
+            double kelvin = 0;
+            const bool known = light_get_number(store, entity_id,
+                                                 "color_temp_kelvin", &kelvin) &&
+                               isfinite(kelvin);
+            if (known || !off) {
+                lv_color_t color = light_tile_color_temp_color(store, entity_id);
+                if (known) {
+                    light_last_color_remember(entity_id, color);
+                }
+                return color;
+            }
         }
         if (light_color_mode_is_rgb(color_mode)) {
             lv_color_t rgb_color;
-            return light_tile_read_rgb_color(store, entity_id, &rgb_color)
-                       ? rgb_color
-                       : default_color;
+            if (light_tile_read_rgb_color(store, entity_id, &rgb_color)) {
+                light_last_color_remember(entity_id, rgb_color);
+                return rgb_color;
+            }
         }
-        return default_color;
     }
 
     light_capabilities_t capabilities = {0};
@@ -1575,14 +1649,33 @@ static lv_color_t light_tile_active_color(ha_entity_store_t *store,
         light_analyze_supported_modes(supported_modes, &capabilities);
         cJSON_Delete(supported_modes);
     }
-    if (capabilities.supports_color_temp && !capabilities.supports_color) {
-        return light_tile_color_temp_color(store, entity_id);
+    if (!has_color_mode && capabilities.supports_color_temp &&
+        !capabilities.supports_color) {
+        double kelvin = 0;
+        const bool known = light_get_number(store, entity_id,
+                                             "color_temp_kelvin", &kelvin) &&
+                           isfinite(kelvin);
+        if (known || !off) {
+            lv_color_t color = light_tile_color_temp_color(store, entity_id);
+            if (known) {
+                light_last_color_remember(entity_id, color);
+            }
+            return color;
+        }
     }
-    if (capabilities.supports_color) {
+    if ((!has_color_mode || off) && capabilities.supports_color) {
         lv_color_t rgb_color;
         if (light_tile_read_rgb_color(store, entity_id, &rgb_color)) {
+            light_last_color_remember(entity_id, rgb_color);
             return rgb_color;
         }
+    }
+    lv_color_t last_color;
+    if (light_last_color_get(entity_id, &last_color)) {
+        return last_color;
+    }
+    if (off) {
+        return unknown_color;
     }
     return default_color;
 }
@@ -2039,8 +2132,8 @@ static esp_err_t light_render_tile(ha_entity_store_t *store,
 
     if (strcmp(snapshot->state, "on") == 0) {
         model->icon = MDI_SYMBOL_LIGHTBULB;
-        model->icon_color = light_tile_active_color(store,
-                                                    snapshot->entity_id);
+        model->icon_color = light_entity_active_color(store,
+                                                     snapshot->entity_id);
         model->icon_circle_background_color =
             light_tile_icon_circle_color(model->icon_color);
 
@@ -2054,7 +2147,7 @@ static esp_err_t light_render_tile(ha_entity_store_t *store,
                                       100.0);
             snprintf(model->state_text,
                      sizeof(model->state_text),
-                     "Open - %.0f%%",
+                     i18n_get(I18N_ENTITY_OPEN_POSITION),
                      percent);
             return ESP_OK;
         }
@@ -2081,5 +2174,6 @@ const entity_handler_t light_entity_handler = {
     },
     .handle_action = light_handle_action,
     .render_tile = light_render_tile,
+    .feature_handler = &light_feature_handler,
     .render_more_info = light_render_more_info,
 };

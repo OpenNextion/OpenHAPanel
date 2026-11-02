@@ -1,3 +1,5 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "event_entity_handler.h"
 
 #include <string.h>
@@ -293,12 +295,11 @@ static void event_history_insert(time_t epoch,
            s_event_history.records[position].epoch > epoch) {
         position++;
     }
+    /* Preserve different state changes within the same second. A live
+     * update may duplicate the adjacent history entry. */
     if (position < s_event_history.record_count &&
-        s_event_history.records[position].epoch == epoch) {
-        snprintf(s_event_history.records[position].state,
-                 sizeof(s_event_history.records[position].state),
-                 "%s",
-                 state);
+        s_event_history.records[position].epoch == epoch &&
+        strcmp(s_event_history.records[position].state, state) == 0) {
         if (event_type && event_type[0]) {
             snprintf(s_event_history.records[position].event_type,
                      sizeof(s_event_history.records[position].event_type),
@@ -366,12 +367,12 @@ static void event_history_render(lv_obj_t *parent)
     const char *message = NULL;
     if (s_event_history.loading &&
         s_event_history.record_count == 0) {
-        message = "Loading history...";
+        message = i18n_get(I18N_HISTORY_LOADING);
     } else if (s_event_history.failed &&
                s_event_history.record_count == 0) {
-        message = "History unavailable";
+        message = i18n_get(I18N_HISTORY_UNAVAILABLE);
     } else if (s_event_history.record_count == 0) {
-        message = "No history";
+        message = i18n_get(I18N_HISTORY_EMPTY);
     }
 
     ha_history_list_item_t items[EVENT_HISTORY_MAX_RECORDS] = {0};
@@ -379,12 +380,12 @@ static void event_history_render(lv_obj_t *parent)
         items[i].epoch = s_event_history.records[i].epoch;
         items[i].text = strcmp(s_event_history.records[i].state,
                                 "unavailable") == 0
-                            ? "Unavailable"
-                            : "Event_triggered";
+                            ? i18n_get(I18N_STATE_UNAVAILABLE)
+                            : i18n_get(I18N_EVENT_TRIGGERED);
     }
 
     const ha_history_list_config_t config = {
-        .title = "History",
+        .title = i18n_get(I18N_HISTORY_TITLE),
         .items = items,
         .item_count = s_event_history.record_count,
         .message = message,
@@ -420,11 +421,11 @@ static const char *event_history_format_event_type(
     }
 
     if (device_class) {
-        if (strcmp(device_class, "doorbell") == 0) return "Ring";
-        if (strcmp(device_class, "button") == 0) return "Press";
-        if (strcmp(device_class, "motion") == 0) return "Detected";
+        if (strcmp(device_class, "doorbell") == 0) return i18n_get(I18N_EVENT_RING);
+        if (strcmp(device_class, "button") == 0) return i18n_get(I18N_ACTION_PRESS);
+        if (strcmp(device_class, "motion") == 0) return i18n_get(I18N_STATE_DETECTED);
     }
-    return "Event";
+    return i18n_get(I18N_EVENT_DETECTED);
 }
 
 static const char *event_get_icon(const ha_entity_snapshot_t *snapshot)
@@ -557,7 +558,7 @@ static lv_obj_t *event_more_info_build_page(
     lv_obj_t *title = lv_label_create(header);
     lv_obj_set_flex_grow(title, 1);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_label_set_text(title,
+    ui_i18n_label_set_text(title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -602,9 +603,9 @@ static void event_format_state(const ha_entity_snapshot_t *snapshot,
     if (entity_handler_snapshot_is_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(output, output_size, snapshot);
         return;
+    }else{
+        snprintf(output, output_size, "Event_triggered");
     }
-
-    entity_handler_copy_snapshot_state(output, output_size, snapshot);
 }
 
 static esp_err_t event_render_more_info(
@@ -649,7 +650,7 @@ static esp_err_t event_render_more_info(
 
 
     lv_obj_t *tile_icon = lv_label_create(tile_box);
-    lv_label_set_text(tile_icon, event_get_icon(&context->snapshot));
+    ui_i18n_label_set_text(tile_icon, event_get_icon(&context->snapshot));
     lv_obj_set_style_text_font(tile_icon, &ha_font_mdi_20, 0);
     if (entity_handler_snapshot_is_service_unavailable(&context->snapshot)) {
         lv_obj_set_style_text_color(tile_icon, lv_color_hex(0xBDBDBD), 0);
@@ -676,19 +677,23 @@ static esp_err_t event_render_more_info(
     lv_label_set_long_mode(tile_content_title, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_height(tile_content_title, lv_font_get_line_height(&ha_font_misan_medium_24));
-    lv_label_set_text(tile_content_title,
+    ui_i18n_label_set_text(tile_content_title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
 
-    // lv_obj_t *tile_content_cur_state = lv_label_create(tile_content_ctx);
-    // lv_obj_set_style_text_font(tile_content_cur_state, &ha_font_misan_regular_16, 0);
-    // lv_obj_set_style_text_color(tile_content_cur_state, lv_color_white(), 0);
-    // char cur_state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
-    // event_format_state(&context->snapshot,
-    //                 cur_state_text,
-    //                 sizeof(cur_state_text));
-    // lv_label_set_text(tile_content_cur_state, cur_state_text);
+    lv_obj_t *tile_content_cur_state = lv_label_create(tile_content_ctx);
+    lv_obj_set_style_text_font(tile_content_cur_state, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_color(tile_content_cur_state, lv_color_white(), 0);
+    lv_obj_set_size(tile_content_cur_state, LV_PCT(100), LV_SIZE_CONTENT);
+    if (bsp_lcd_is_landscape()) {
+        lv_obj_set_style_text_align(tile_content_cur_state, LV_TEXT_ALIGN_RIGHT, 0);
+    }
+    char cur_state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
+    event_format_state(&context->snapshot,
+                    cur_state_text,
+                    sizeof(cur_state_text));
+    lv_label_set_text(tile_content_cur_state, cur_state_text);
 
     lv_obj_t *tile_content_state = lv_label_create(tile_content_ctx);
     char state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
@@ -701,9 +706,9 @@ static esp_err_t event_render_more_info(
                                           sizeof(state_text));
     }
     if (!state_text[0]) {
-        snprintf(state_text, sizeof(state_text), "Unknown");
+        i18n_copy(state_text, sizeof(state_text), i18n_get(I18N_STATE_UNKNOWN));
     }
-    lv_label_set_text(tile_content_state, state_text);
+    ui_i18n_label_set_text(tile_content_state, state_text);
     if (last_updated_epoch > 0) {
         ha_relative_time_label_bind(tile_content_state,
                                     last_updated_epoch);

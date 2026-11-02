@@ -1,3 +1,4 @@
+#include "ui_i18n.h"
 #include "ha_tile_card.h"
 
 #include "lvgl_private.h"
@@ -13,11 +14,14 @@ typedef struct {
     lv_obj_t obj;
     lv_obj_t *icon_circle;
     lv_obj_t *icon_label;
+    lv_obj_t *icon_badge;
+    lv_obj_t *icon_badge_label;
     lv_obj_t *unavailable_icon;
     lv_obj_t *title_label;
     lv_obj_t *state_icon_label;
     lv_obj_t *state_split_line;
     lv_obj_t *state_label;
+    lv_obj_t *features_container;
     ha_tile_card_icon_click_cb_t icon_click_cb;
     void *icon_click_user_data;
     ha_tile_card_body_click_cb_t body_click_cb;
@@ -31,6 +35,47 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
 static void ha_tile_card_event(const lv_obj_class_t *class_p, lv_event_t *event);
 static void ha_tile_card_icon_event_cb(lv_event_t *event);
 static void apply_clear_style(lv_obj_t *obj);
+
+lv_obj_t *ha_tile_card_add_feature_host(lv_obj_t *obj)
+{
+    LV_ASSERT_OBJ(obj, MY_CLASS);
+    ha_tile_card_t *card = (ha_tile_card_t *)obj;
+    if (!card->features_container) {
+        card->features_container = lv_obj_create(obj);
+        if (!card->features_container) {
+            return NULL;
+        }
+        apply_clear_style(card->features_container);
+        lv_obj_remove_flag(card->features_container, LV_OBJ_FLAG_SCROLLABLE |
+                                                  LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_size(card->features_container, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(card->features_container, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_gap(card->features_container, 10, 0);
+    }
+    lv_obj_t *host = lv_obj_create(card->features_container);
+    if (!host) {
+        return NULL;
+    }
+    apply_clear_style(host);
+    lv_obj_remove_flag(host, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(host, LV_PCT(100), 56);
+    return host;
+}
+
+void ha_tile_card_remove_feature_host(lv_obj_t *obj, lv_obj_t *host)
+{
+    LV_ASSERT_OBJ(obj, MY_CLASS);
+    ha_tile_card_t *card = (ha_tile_card_t *)obj;
+    if (!card->features_container || !host ||
+        lv_obj_get_parent(host) != card->features_container) {
+        return;
+    }
+    lv_obj_delete(host);
+    if (lv_obj_get_child_count(card->features_container) == 0) {
+        lv_obj_delete(card->features_container);
+        card->features_container = NULL;
+    }
+}
 
 const lv_obj_class_t ha_tile_card_class = {
     .constructor_cb = ha_tile_card_constructor,
@@ -59,7 +104,7 @@ void ha_tile_card_set_title(lv_obj_t *obj, const char *title)
 {
     LV_ASSERT_OBJ(obj, MY_CLASS);
     ha_tile_card_t *card = (ha_tile_card_t *)obj;
-    lv_label_set_text(card->title_label, title ? title : "");
+    ui_i18n_label_set_text(card->title_label, title ? title : "");
 }
 
 void ha_tile_card_set_state_text(lv_obj_t *obj, const char *state_text)
@@ -67,7 +112,7 @@ void ha_tile_card_set_state_text(lv_obj_t *obj, const char *state_text)
     LV_ASSERT_OBJ(obj, MY_CLASS);
     ha_tile_card_t *card = (ha_tile_card_t *)obj;
     ha_relative_time_label_unbind(card->state_label);
-    lv_label_set_text(card->state_label, state_text ? state_text : "");
+    ui_i18n_label_set_text(card->state_label, state_text ? state_text : "");
 }
 
 esp_err_t ha_tile_card_set_relative_state_time(lv_obj_t *obj,
@@ -78,11 +123,36 @@ esp_err_t ha_tile_card_set_relative_state_time(lv_obj_t *obj,
     return ha_relative_time_label_bind(card->state_label, event_epoch);
 }
 
+esp_err_t ha_tile_card_set_elapsed_state_time(lv_obj_t *obj,
+                                              time_t event_epoch)
+{
+    LV_ASSERT_OBJ(obj, MY_CLASS);
+    ha_tile_card_t *card = (ha_tile_card_t *)obj;
+    return ha_relative_time_label_bind_elapsed(card->state_label, event_epoch);
+}
+
 void ha_tile_card_set_icon(lv_obj_t *obj, const char *icon)
 {
     LV_ASSERT_OBJ(obj, MY_CLASS);
     ha_tile_card_t *card = (ha_tile_card_t *)obj;
-    lv_label_set_text(card->icon_label, icon ? icon : "");
+    ui_i18n_label_set_text(card->icon_label, icon ? icon : "");
+}
+
+void ha_tile_card_set_icon_badge(lv_obj_t *obj,
+                                 const char *icon,
+                                 lv_color_t background_color)
+{
+    LV_ASSERT_OBJ(obj, MY_CLASS);
+    ha_tile_card_t *card = (ha_tile_card_t *)obj;
+
+    if (icon) {
+        ui_i18n_label_set_text(card->icon_badge_label, icon);
+        lv_obj_center(card->icon_badge_label);
+        lv_obj_set_style_bg_color(card->icon_badge, background_color, 0);
+        lv_obj_remove_flag(card->icon_badge, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(card->icon_badge, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void ha_tile_card_set_unavailable(lv_obj_t *obj, bool unavailable)
@@ -195,7 +265,7 @@ void ha_tile_card_set_state_icon(lv_obj_t *obj, const char *icon)
 {
     LV_ASSERT_OBJ(obj, MY_CLASS);
     ha_tile_card_t *card = (ha_tile_card_t *)obj;
-    lv_label_set_text(card->state_icon_label, icon ? icon : "");
+    ui_i18n_label_set_text(card->state_icon_label, icon ? icon : "");
 }
 
 void ha_tile_card_set_state_icon_visible(lv_obj_t *obj, bool visible)
@@ -280,6 +350,24 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
     lv_obj_set_style_text_color(card->icon_label, lv_color_hex(0x4B5058), 0);
     lv_obj_set_style_text_font(card->icon_label, &ha_font_mdi_26, 0);
 
+    card->icon_badge = lv_obj_create(card->icon_circle);
+    lv_obj_remove_flag(card->icon_badge, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(card->icon_badge, 16, 16);
+    lv_obj_align(card->icon_badge, LV_ALIGN_TOP_RIGHT, -2, 2);
+    lv_obj_set_style_radius(card->icon_badge, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(card->icon_badge, 0, 0);
+    lv_obj_set_style_bg_opa(card->icon_badge, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(card->icon_badge, 0, 0);
+    card->icon_badge_label = lv_label_create(card->icon_badge);
+    lv_obj_set_style_text_font(card->icon_badge_label, &ha_font_mdi_20, 0);
+    lv_obj_set_style_text_color(card->icon_badge_label, lv_color_white(), 0);
+    lv_obj_set_style_transform_scale_x(card->icon_badge_label, 154, 0);
+    lv_obj_set_style_transform_scale_y(card->icon_badge_label, 154, 0);
+    lv_obj_set_style_transform_pivot_x(card->icon_badge_label, LV_PCT(50), 0);
+    lv_obj_set_style_transform_pivot_y(card->icon_badge_label, LV_PCT(50), 0);
+    lv_obj_center(card->icon_badge_label);
+    lv_obj_add_flag(card->icon_badge, LV_OBJ_FLAG_HIDDEN);
+
     card->unavailable_icon = lv_image_create(card->icon_circle);
     lv_image_set_src(card->unavailable_icon, &warning_yellow);
     lv_obj_align(card->unavailable_icon, LV_ALIGN_TOP_RIGHT, 0, 0);
@@ -304,7 +392,7 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
     lv_label_set_long_mode(card->title_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(card->title_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(card->title_label, &ha_font_misan_medium_20, 0);
-    lv_label_set_text(card->title_label, "");
+    ui_i18n_label_set_text(card->title_label, "");
 
     lv_obj_t *state_row = lv_obj_create(content);
     apply_clear_style(state_row);
@@ -321,9 +409,9 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
 
     card->state_icon_label = lv_label_create(state_row);
     lv_obj_set_style_text_color(card->state_icon_label, lv_color_hex(0xA8A8A8), 0);
-    lv_obj_set_style_text_font(card->state_icon_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_height(card->state_icon_label, lv_font_get_line_height(&lv_font_montserrat_14));
-    lv_label_set_text(card->state_icon_label, "");
+    lv_obj_set_style_text_font(card->state_icon_label, &ha_font_misan_regular_14, 0);
+    lv_obj_set_height(card->state_icon_label, lv_font_get_line_height(&ha_font_misan_regular_14));
+    ui_i18n_label_set_text(card->state_icon_label, "");
     lv_obj_add_flag(card->state_icon_label, LV_OBJ_FLAG_HIDDEN);
 
     card->state_split_line = lv_obj_create(state_row);
@@ -340,7 +428,7 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
     lv_obj_set_style_text_color(card->state_label, lv_color_hex(0xA8A8A8), 0);
     lv_obj_set_style_text_font(card->state_label, &ha_font_misan_regular_16, 0);
     lv_obj_set_height(card->state_label, lv_font_get_line_height(&ha_font_misan_regular_16));
-    lv_label_set_text(card->state_label, "");
+    ui_i18n_label_set_text(card->state_label, "");
 
     LV_TRACE_OBJ_CREATE("finished");
 }

@@ -18,6 +18,10 @@ extern "C" {
  */
 esp_err_t ha_relative_time_label_bind(lv_obj_t *label, time_t event_epoch);
 
+/** Keep a label updated with elapsed time without "ago" or "in". */
+esp_err_t ha_relative_time_label_bind_elapsed(lv_obj_t *label,
+                                              time_t event_epoch);
+
 /** Stop updating a label previously bound to a relative event time. */
 void ha_relative_time_label_unbind(lv_obj_t *label);
 

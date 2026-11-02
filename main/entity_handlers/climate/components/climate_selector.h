@@ -13,6 +13,7 @@ bool climate_selector_set_options(lv_obj_t *obj, const char *const *options,
 void climate_selector_set_selected(lv_obj_t *obj, size_t index);
 void climate_selector_set_disabled(lv_obj_t *obj, bool disabled);
 void climate_selector_set_change_cb(lv_obj_t *obj, climate_selector_change_cb_t callback, void *user_data);
+void climate_selector_set_translation_scope(lv_obj_t *obj, unsigned scope);
 void climate_selector_set_title(lv_obj_t *obj, const char *title);
 void climate_selector_set_icon(lv_obj_t *obj, const char *icon);
 void climate_selector_set_accent(lv_obj_t *obj, lv_color_t color);

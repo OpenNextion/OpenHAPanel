@@ -5,7 +5,7 @@
     import Modal from '@/component/Modal/Modal.svelte';
     import { addEntityToScreen, searchScreenEntities, type TEntityPickerMode } from '@/hooks/useScreenConfiguration';
     import { getHassEntityPresentation } from '@/hooks/useHassEntity';
-    import { haRegistryStore } from '@/stores/haRegistry';
+    import { haRegistryStore, haRegistryTreeStore } from '@/stores/haRegistry';
     import { homeAssistantStore } from '@/stores/homeassistant';
     import { isHomeAssistantAvailable } from '@/hooks/useHomeAssistant.svelte';
     import type { IHassRegistryTreeArea, IHassRegistryTreeDevice, IHassRegistryTreeDomain, IHassRegistryTreeEntity } from '@/types/haRegistry';
@@ -22,10 +22,10 @@
     let selectedEntity = $state<IHassRegistryTreeEntity | null>(null);
     let wasVisible = false;
     const results = $derived.by(() => {
-        void $haRegistryStore.tree;
+        void $haRegistryTreeStore;
         return searchScreenEntities(query);
     });
-    const selectedEntityPresentation = $derived(selectedEntity ? getHassEntityPresentation(selectedEntity.id, $haRegistryStore) : null);
+    const selectedEntityPresentation = $derived(selectedEntity ? getHassEntityPresentation(selectedEntity.id, $haRegistryStore, { variant: mode }) : null);
     const selectedEntitySupported = $derived(selectedEntityPresentation?.supported ?? false);
 
     $effect(() => {
@@ -129,7 +129,7 @@
                                 {/each}
                             </div>
                         {:else}
-                            {#each $haRegistryStore.tree.floors as floor (floor.id)}
+                            {#each $haRegistryTreeStore.floors as floor (floor.id)}
                                 <section>
                                     <span class="tree-section-title">{floor.name}</span>
                                     <div>
@@ -137,53 +137,53 @@
                                     </div>
                                 </section>
                             {/each}
-                            {#if $haRegistryStore.tree.otherAreas.length}<section>
+                            {#if $haRegistryTreeStore.otherAreas.length}<section>
                                     <span class="tree-section-title">{$_('page.screen.otherAreas')}</span>
                                     <div>
-                                        {#each $haRegistryStore.tree.otherAreas as area (area.id)}{@render areaRow(area)}{/each}
+                                        {#each $haRegistryTreeStore.otherAreas as area (area.id)}{@render areaRow(area)}{/each}
                                     </div>
                                 </section>{/if}
-                            {#if $haRegistryStore.tree.unassignedDevices.length || $haRegistryStore.tree.unassignedServices.length || $haRegistryStore.tree.unassignedEntityDomains.length || $haRegistryStore.tree.unassignedHelperDomains.length}
+                            {#if $haRegistryTreeStore.unassignedDevices.length || $haRegistryTreeStore.unassignedServices.length || $haRegistryTreeStore.unassignedEntityDomains.length || $haRegistryTreeStore.unassignedHelperDomains.length}
                                 <section>
                                     <span class="tree-section-title">{$_('page.screen.unassigned')}</span>
-                                    {#if $haRegistryStore.tree.unassignedEntityDomains.length}<details class="tree-node tree-unassigned-group">
+                                    {#if $haRegistryTreeStore.unassignedEntityDomains.length}<details class="tree-node tree-unassigned-group">
                                             <summary
                                                 ><span class="tree-chevron"><SvgIcon name="arrowRight.svg" /></span><span
                                                     >{$_('page.screen.entities')}</span
                                                 ></summary
                                             >
                                             <div class="tree-children">
-                                                {#each $haRegistryStore.tree.unassignedEntityDomains as domain (domain.domain)}{@render domainRow(domain)}{/each}
+                                                {#each $haRegistryTreeStore.unassignedEntityDomains as domain (domain.domain)}{@render domainRow(domain)}{/each}
                                             </div>
                                         </details>{/if}
-                                    {#if $haRegistryStore.tree.unassignedHelperDomains.length}<details class="tree-node tree-unassigned-group">
+                                    {#if $haRegistryTreeStore.unassignedHelperDomains.length}<details class="tree-node tree-unassigned-group">
                                             <summary
                                                 ><span class="tree-chevron"><SvgIcon name="arrowRight.svg" /></span><span
                                                     >{$_('page.screen.helpers')}</span
                                                 ></summary
                                             >
                                             <div class="tree-children">
-                                                {#each $haRegistryStore.tree.unassignedHelperDomains as domain (domain.domain)}{@render domainRow(domain)}{/each}
+                                                {#each $haRegistryTreeStore.unassignedHelperDomains as domain (domain.domain)}{@render domainRow(domain)}{/each}
                                             </div>
                                         </details>{/if}
-                                    {#if $haRegistryStore.tree.unassignedDevices.length}<details class="tree-node tree-unassigned-group">
+                                    {#if $haRegistryTreeStore.unassignedDevices.length}<details class="tree-node tree-unassigned-group">
                                             <summary
                                                 ><span class="tree-chevron"><SvgIcon name="arrowRight.svg" /></span><span
                                                     >{$_('page.screen.devices')}</span
                                                 ></summary
                                             >
                                             <div class="tree-children">
-                                                {#each $haRegistryStore.tree.unassignedDevices as device (device.id)}{@render deviceRow(device, 1)}{/each}
+                                                {#each $haRegistryTreeStore.unassignedDevices as device (device.id)}{@render deviceRow(device, 1)}{/each}
                                             </div>
                                         </details>{/if}
-                                    {#if $haRegistryStore.tree.unassignedServices.length}<details class="tree-node tree-unassigned-group">
+                                    {#if $haRegistryTreeStore.unassignedServices.length}<details class="tree-node tree-unassigned-group">
                                             <summary
                                                 ><span class="tree-chevron"><SvgIcon name="arrowRight.svg" /></span><span
                                                     >{$_('page.screen.services')}</span
                                                 ></summary
                                             >
                                             <div class="tree-children">
-                                                {#each $haRegistryStore.tree.unassignedServices as device (device.id)}{@render deviceRow(device, 1)}{/each}
+                                                {#each $haRegistryTreeStore.unassignedServices as device (device.id)}{@render deviceRow(device, 1)}{/each}
                                             </div>
                                         </details>{/if}
                                 </section>

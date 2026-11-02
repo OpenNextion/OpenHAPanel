@@ -1,9 +1,11 @@
+#include "ui_i18n.h"
 #include "notification.h"
 
 #include <stdbool.h>
 #include <string.h>
 
 #include "lvgl.h"
+#include "../../assets/mdi_symbol_def.h"
 #include "../../assets/ha_ui_assets.h"
 
 #define NOTIFICATION_DIALOG_WIDTH      LV_PCT(100)
@@ -90,6 +92,9 @@ notification_t *notification_show(const notification_config_t *config)
     lv_color_t dialog_background_color = config->dialog_background_color
                                              ? lv_color_hex(config->dialog_background_color)
                                              : lv_color_hex(0x303030);
+    lv_color_t title_color = config->title_color
+                                 ? lv_color_hex(config->title_color)
+                                 : lv_color_white();
     lv_color_t description_color = config->description_color
                                        ? lv_color_hex(config->description_color)
                                        : lv_color_hex(0xB8B8B8);
@@ -160,8 +165,8 @@ notification_t *notification_show(const notification_config_t *config)
     lv_obj_set_style_pad_column(header_title_ctn, 5, 0);
 
     lv_obj_t *header_title_label = lv_label_create(header_title_ctn);
-    lv_label_set_text(header_title_label, config->title);
-    lv_obj_set_style_text_color(header_title_label, lv_color_white(), 0);
+    ui_i18n_label_set_text(header_title_label, config->title);
+    lv_obj_set_style_text_color(header_title_label, title_color, 0);
     lv_obj_set_style_text_font(header_title_label, &ha_font_misan_medium_20, 0);
     lv_obj_set_size(header_title_label, LV_PCT(100), LV_SIZE_CONTENT);
     lv_label_set_long_mode(header_title_label, LV_LABEL_LONG_WRAP);
@@ -190,7 +195,7 @@ notification_t *notification_show(const notification_config_t *config)
         }
 
         lv_obj_t *status_label = lv_label_create(status_ctn);
-        lv_label_set_text(status_label, config->status_text);
+        ui_i18n_label_set_text(status_label, config->status_text);
         lv_obj_set_style_text_color(status_label, level_color, 0);
         lv_obj_set_style_text_font(status_label, &ha_font_misan_regular_14, 0);
         lv_obj_set_flex_grow(status_label, 1);
@@ -199,7 +204,7 @@ notification_t *notification_show(const notification_config_t *config)
 
     if (config->description && config->description[0] != '\0') {
         lv_obj_t *description_label = lv_label_create(dialog);
-        lv_label_set_text(description_label, config->description);
+        ui_i18n_label_set_text(description_label, config->description);
         lv_obj_set_style_text_color(description_label, description_color, 0);
         lv_obj_set_style_text_font(description_label, &ha_font_misan_regular_14, 0);
         lv_obj_set_size(description_label, LV_PCT(100), LV_SIZE_CONTENT);
@@ -225,11 +230,12 @@ notification_t *notification_show(const notification_config_t *config)
         lv_obj_t *tips_icon = lv_label_create(tips_ctn);
         notification_apply_clear_style(tips_icon);
         lv_obj_set_size(tips_icon, 20, 20);
-        lv_label_set_text(tips_icon, LV_SYMBOL_WARNING);
+        ui_i18n_label_set_text(tips_icon, MDI_SYMBOL_ALERT_CIRCLE);
+        lv_obj_set_style_text_font(tips_icon, &ha_font_mdi_20, 0);
         lv_obj_set_style_text_color(tips_icon, lv_color_white(), 0);
 
         lv_obj_t *tips_label = lv_label_create(tips_ctn);
-        lv_label_set_text(tips_label, config->tips);
+        ui_i18n_label_set_text(tips_label, config->tips);
         lv_obj_set_flex_grow(tips_label, 1);
         lv_obj_set_style_text_color(tips_label, lv_color_hex(0xB8B8B8), 0);
         lv_obj_set_style_text_font(tips_label, &ha_font_misan_regular_20, 0);

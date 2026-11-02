@@ -1,0 +1,75 @@
+#!/bin/sh
+set -eu
+
+# With no arguments, stage all changes in the current web-ui directory.
+if [ "$#" -eq 0 ]; then
+  set -- -A
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+caller_dir=$(pwd -P)
+web_ui_dir="$repo_root/web-ui"
+build_artifact="$web_ui_dir/dist/index.html.gz"
+webserver_artifact="$repo_root/components/webserver/index.html.gz"
+build_needed=0
+has_pathspec=0
+after_separator=0
+wide_add=0
+
+case "$caller_dir/" in
+  "$web_ui_dir/"*) caller_in_web_ui=1 ;;
+  *) caller_in_web_ui=0 ;;
+esac
+if [ "$caller_dir" = "$repo_root" ]; then
+  caller_at_repo_root=1
+else
+  caller_at_repo_root=0
+fi
+
+is_web_ui_path() {
+  case "$1" in
+    web-ui|web-ui/*|:/web-ui|:/web-ui/*|"$web_ui_dir"|"$web_ui_dir"/*) return 0 ;;
+    ./web-ui|./web-ui/*) [ "$caller_at_repo_root" -eq 1 ] ;;
+    .|./) [ "$caller_at_repo_root" -eq 1 ] || [ "$caller_in_web_ui" -eq 1 ] ;;
+    *) [ "$caller_in_web_ui" -eq 1 ] && [ "$1" != ".." ] && [ "${1#../}" = "$1" ] ;;
+  esac
+}
+
+for arg in "$@"; do
+  if [ "$after_separator" -eq 1 ]; then
+    has_pathspec=1
+    if is_web_ui_path "$arg"; then build_needed=1; fi
+    continue
+  fi
+
+  case "$arg" in
+    --) after_separator=1 ;;
+    -A|--all|-u|--update) wide_add=1 ;;
+    -*) ;;
+    *)
+      has_pathspec=1
+      if is_web_ui_path "$arg"; then build_needed=1; fi
+      ;;
+  esac
+done
+
+if [ "$wide_add" -eq 1 ] && [ "$has_pathspec" -eq 0 ]; then
+  build_needed=1
+fi
+
+if [ "$build_needed" -eq 1 ]; then
+  (cd "$web_ui_dir" && npm run build)
+
+  if [ ! -f "$build_artifact" ]; then
+    echo "Build did not produce $build_artifact" >&2
+    exit 1
+  fi
+
+  cp "$build_artifact" "$webserver_artifact"
+fi
+
+git -C "$caller_dir" add "$@"
+
+if [ "$build_needed" -eq 1 ]; then
+  git -C "$repo_root" add -- components/webserver/index.html.gz
+fi

@@ -77,7 +77,7 @@
         <SettingRowGroup>
             {#each filterTimeZone as item}
                 <div class="item d-flex align-items-center justify-content-center" role="none">
-                    <SettingRow title={item.tzName} onclick={() => (timeZone = item.tzName)}>
+                    <SettingRow title={item.tzName} onclick={() => (timeZone = item.tzName)} titleCol={10} contentCol={2}>
                         {#snippet contentSnippet()}
                             {#if item.tzName === timeZone}
                                 <span style="color: #498FFF">

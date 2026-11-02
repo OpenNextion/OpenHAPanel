@@ -32,6 +32,9 @@ esp_err_t bsp_lcd_br_set(uint8_t br);
 static esp_err_t bsp_lcd_touch_init(void);
 static esp_err_t bsp_lcd_lvgl_init(void);
 static esp_err_t bsp_lcd_lvgl_add_extra_memory_pool(void);
+static void bsp_lcd_lvgl_flush_cb(lv_display_t *display,
+                                  const lv_area_t *area,
+                                  uint8_t *color_map);
 
 static const char *TAG = "bsp_lcd";
 static volatile uint8_t s_applied_brightness;
@@ -50,6 +53,7 @@ static lv_display_t *s_lvgl_display = NULL;
 static lv_indev_t *s_lvgl_touch = NULL;
 
 static void *s_lvgl_extra_memory_pools[LVGL_EXTRA_MEMORY_POOL_COUNT];
+static bool s_lcd_flush_faulted;
 
 esp_err_t bsp_lcd_init(void)
 {
@@ -324,6 +328,17 @@ static esp_err_t bsp_lcd_lvgl_init(void)
         return ESP_FAIL;
     }
 
+    /* esp_lvgl_port 2.9.0 ignores esp_lcd_panel_draw_bitmap() failures. If a
+     * PSRAM-direct SPI DMA transaction underflows, its completion callback is
+     * not guaranteed to release the current LVGL flush and taskLVGL can remain
+     * in wait_for_flushing() until the watchdog fires. Keep the port's normal
+     * transfer-complete callback, but use a checked flush callback here. */
+    if (!lvgl_port_lock(0)) {
+        return ESP_ERR_TIMEOUT;
+    }
+    lv_display_set_flush_cb(s_lvgl_display, bsp_lcd_lvgl_flush_cb);
+    lvgl_port_unlock();
+
     const lvgl_port_touch_cfg_t touch_conf = {
         .disp = s_lvgl_display,
         .handle = s_lcd_touch_handle,
@@ -335,6 +350,42 @@ static esp_err_t bsp_lcd_lvgl_init(void)
     }
 
     return ESP_OK;
+}
+
+static void bsp_lcd_lvgl_flush_cb(lv_display_t *display,
+                                  const lv_area_t *area,
+                                  uint8_t *color_map)
+{
+    if (!display || !area || !color_map) {
+        if (display) {
+            lv_display_flush_ready(display);
+        }
+        return;
+    }
+
+    /* A DMA underflow leaves esp_lcd's queued-transaction accounting unsafe to
+     * reuse. Do not enter the blocking transaction recycler again. The screen
+     * keeps its last valid frame while the rest of the system (including OTA)
+     * remains alive and can complete or reboot normally. */
+    if (s_lcd_flush_faulted) {
+        lv_display_flush_ready(display);
+        return;
+    }
+
+    lv_draw_sw_rgb565_swap(color_map, lv_area_get_size(area));
+    esp_err_t err = esp_lcd_panel_draw_bitmap(s_lcd_panel_handle,
+                                               area->x1,
+                                               area->y1,
+                                               area->x2 + 1,
+                                               area->y2 + 1,
+                                               color_map);
+    if (err != ESP_OK) {
+        s_lcd_flush_faulted = true;
+        ESP_LOGE(TAG,
+                 "LCD flush failed: %s; further flushes disabled until reboot",
+                 esp_err_to_name(err));
+        lv_display_flush_ready(display);
+    }
 }
 
 static esp_err_t bsp_lcd_lvgl_add_extra_memory_pool(void)

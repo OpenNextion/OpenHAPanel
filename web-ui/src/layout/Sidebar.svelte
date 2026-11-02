@@ -3,8 +3,8 @@
     import { link } from 'svelte-spa-router';
     import active from 'svelte-spa-router/active';
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
+    import LanDeviceSwitcher from '@/component/LanDeviceSwitcher/LanDeviceSwitcher.svelte';
     import { ROUTES_PATH } from '@/constant/route';
-    import { currentLanDevice } from '@/stores/lanDevice';
 
     interface SidebarProps {
         open?: boolean;
@@ -24,8 +24,7 @@
 <aside class:open class="sidebar">
     <div class="device-brand">
         <span class="device-logo"><SvgIcon name="nextionLogo.svg" /></span>
-        <div class="device-copy"><strong>{$currentLanDevice?.name || '--'}</strong><span>{$currentLanDevice?.ip || '--'}</span></div>
-        <i class="bi bi-chevron-down ms-auto text-body-tertiary"></i>
+        <LanDeviceSwitcher />
     </div>
     <nav class="sidebar-nav" aria-label={$_('nav.main')}>
         {#each menu as item}

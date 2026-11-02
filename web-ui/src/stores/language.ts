@@ -14,10 +14,14 @@ interface ILanguage {
 
 function normalizeLanguage(value: unknown): ELanguage | null {
     if (typeof value !== 'string') return null;
-    const normalized = value.toLowerCase();
-    if (normalized === ELanguage.EN_US || normalized.startsWith('en-')) return ELanguage.EN_US;
-    if (normalized === ELanguage.ZH_CN || normalized.startsWith('zh-')) return ELanguage.ZH_CN;
-    return null;
+    const normalized = value.trim().toLowerCase();
+    return LANGUAGE_LIST.find(({ value: code }) =>
+        normalized === code.toLowerCase() || normalized.startsWith(`${code.toLowerCase()}-`),
+    )?.value ?? null;
+}
+
+export function getBrowserLanguage(): ELanguage {
+    return normalizeLanguage(navigator.language) ?? ELanguage.EN_US;
 }
 
 function resolveLanguage() {
@@ -38,7 +42,6 @@ function initEtc() {
 }
 
 languageStore.subscribe((etc) => {
-    locale.set(etc.language);
     switchLanguage(etc.language);
 });
 
@@ -69,7 +72,7 @@ export async function setLanguage(language: ELanguage) {
     let languageLoaderAvailable = false;
     try {
         const langConfig = get(languageStore).languageList.find((item) => item.value === language);
-        if (langConfig) {
+        if (langConfig?.loader) {
             await langConfig.loader();
             languageLoaderAvailable = true;
         }
@@ -87,10 +90,11 @@ export async function setLanguage(language: ELanguage) {
 
 async function switchLanguage(langTag: ELanguage) {
     const langConfig = get(languageStore).languageList.find((config) => config.value === langTag);
-    if (langConfig) {
+    const loader = langConfig?.loader;
+    if (loader) {
         register(langTag, async () => {
             try {
-                const response = await langConfig.loader();
+                const response = await loader();
                 return response;
             } catch (error) {
                 console.log('Get language fail !', error);

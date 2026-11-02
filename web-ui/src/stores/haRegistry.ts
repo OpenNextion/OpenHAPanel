@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { get, writable, type Readable } from 'svelte/store';
 import { isHassEntitySupported, isHassEntityVisibleInPicker } from '@/constant/hassEntity';
 import type {
     IHassAreaRegistryEntry,
@@ -17,6 +17,7 @@ interface IHassRegistryStore {
     loading: boolean;
     error: string | null;
     states: IHassStateEntry[];
+    statesById: ReadonlyMap<string, IHassStateEntry>;
     entities: IHassEntityRegistryDisplayEntry[];
     devices: IHassDeviceRegistryEntry[];
     areas: IHassAreaRegistryEntry[];
@@ -38,6 +39,7 @@ const INIT_VALUE: IHassRegistryStore = {
     loading: false,
     error: null,
     states: [],
+    statesById: new Map(),
     entities: [],
     devices: [],
     areas: [],
@@ -256,6 +258,25 @@ export function buildHassRegistryTree(
 }
 
 export const haRegistryStore = writable<IHassRegistryStore>(INIT_VALUE);
+export const haRegistryTreeStore = writable<IHassRegistryTree>(INIT_VALUE.tree);
+
+export const haRegistryMetadataStore = writable({
+    entities: INIT_VALUE.entities,
+    devices: INIT_VALUE.devices,
+    areas: INIT_VALUE.areas,
+});
+
+const entityStateStores = new Map<string, ReturnType<typeof writable<IHassStateEntry | undefined>>>();
+let currentStatesById: ReadonlyMap<string, IHassStateEntry> = INIT_VALUE.statesById;
+
+export function getHassEntityStateStore(entityId: string): Readable<IHassStateEntry | undefined> {
+    let store = entityStateStores.get(entityId);
+    if (!store) {
+        store = writable(currentStatesById.get(entityId));
+        entityStateStores.set(entityId, store);
+    }
+    return store;
+}
 
 export function setHassRegistryLoading(loading: boolean) {
     haRegistryStore.update((store) => ({ ...store, loading, error: loading ? null : store.error }));
@@ -268,10 +289,45 @@ export function setHassRegistryError(error: string) {
 export function setHassRegistryData(
     data: Pick<IHassRegistryStore, 'states' | 'entities' | 'devices' | 'areas' | 'floors' | 'domainTranslations'>,
 ) {
+    const statesById = new Map(data.states.map((state) => [state.entity_id, state]));
+    const tree = buildHassRegistryTree(data.states, data.entities, data.devices, data.areas, data.floors, data.domainTranslations);
+    currentStatesById = statesById;
+    haRegistryMetadataStore.set({ entities: data.entities, devices: data.devices, areas: data.areas });
+    entityStateStores.forEach((store, entityId) => store.set(statesById.get(entityId)));
     haRegistryStore.set({
         ...data,
+        statesById,
         loading: false,
         error: null,
-        tree: buildHassRegistryTree(data.states, data.entities, data.devices, data.areas, data.floors, data.domainTranslations),
+        tree,
     });
+    haRegistryTreeStore.set(tree);
+}
+
+export function updateHassEntityState(entityId: string, state: IHassStateEntry | null) {
+    const store = get(haRegistryStore);
+    const previousState = store.statesById.get(entityId);
+    if (!previousState && !state) return;
+    const statesById = store.statesById as Map<string, IHassStateEntry>;
+    if (state) statesById.set(entityId, state);
+    else statesById.delete(entityId);
+    currentStatesById = statesById;
+
+    const stateIndex = store.states.findIndex((item) => item.entity_id === entityId);
+    const states = [...store.states];
+    if (stateIndex >= 0) {
+        if (state) states[stateIndex] = state;
+        else states.splice(stateIndex, 1);
+    } else if (state) states.push(state);
+
+    const treeChanged = !previousState || !state
+        || previousState.attributes?.friendly_name !== state.attributes?.friendly_name
+        || previousState.attributes?.device_class !== state.attributes?.device_class
+        || (previousState.state === 'unavailable') !== (state.state === 'unavailable');
+    const tree = treeChanged
+        ? buildHassRegistryTree(states, store.entities, store.devices, store.areas, store.floors, store.domainTranslations)
+        : store.tree;
+    haRegistryStore.set({ ...store, states, statesById, tree });
+    entityStateStores.get(entityId)?.set(state ?? undefined);
+    if (treeChanged) haRegistryTreeStore.set(tree);
 }

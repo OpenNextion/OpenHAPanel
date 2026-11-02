@@ -1,4 +1,7 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "climate_more_info.h"
+#include "entity_handlers/entity_state_translation.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -17,6 +20,9 @@
 
 #define CLIMATE_SELECTOR_COUNT 5
 #define CLIMATE_OPTION_MAX 16
+#define CLIMATE_FEATURE_TARGET_TEMPERATURE       (1U << 0)
+#define CLIMATE_FEATURE_TARGET_TEMPERATURE_RANGE (1U << 1)
+#define CLIMATE_FEATURE_TARGET_HUMIDITY          (1U << 2)
 
 #define CLIMATE_LANDSCAPE_DIAL_WIDTH       226
 #define CLIMATE_LANDSCAPE_CONTROL_X        210
@@ -47,6 +53,7 @@ struct climate_page {
     bool available;
     bool humidity_mode;
     bool humidity_supported;
+    bool show_temperature_state;
     bool select_high;
     bool feedback_active;
     uint32_t feedback_deadline;
@@ -221,12 +228,12 @@ static void climate_refresh_dial(climate_page_t *page)
     char current_humidity[48] = "";
     if (page->has_current_temp) {
         snprintf(current_temp, sizeof(current_temp),
-                 page->landscape ? "Temperature\n%.1f°C" : "Temperature %.1f°C",
+                 page->landscape ? i18n_get(I18N_CLIMATE_TEMPERATURE_MULTILINE) : i18n_get(I18N_CLIMATE_TEMPERATURE),
                  page->current_temp);
     }
     if (page->has_current_humidity) {
         snprintf(current_humidity, sizeof(current_humidity),
-                 page->landscape ? "Humidity\n%.1f%%" : "Humidity %.1f%%",
+                 page->landscape ? i18n_get(I18N_CLIMATE_HUMIDITY_MULTILINE) : i18n_get(I18N_CLIMATE_HUMIDITY),
                  page->current_humidity);
     }
     if (page->humidity_mode) {
@@ -252,7 +259,12 @@ static void climate_refresh_dial(climate_page_t *page)
                                               : page->target_temp);
     }
     climate_dial_set_currents(page->dial, current_temp, current_humidity);
-    climate_dial_set_action(page->dial, page->hvac_action);
+    const char *status = page->humidity_mode
+        ? (page->target_humidity != 0
+            ? i18n_get(I18N_CLIMATE_HUMIDITY_TARGET)
+            : entity_state_translate_climate_option(0, page->hvac_mode))
+        : page->hvac_action;
+    climate_dial_set_action(page->dial, status);
     climate_dial_set_theme(page->dial, page->hvac_mode, page->humidity_mode);
     climate_dial_set_unavailable(page->dial, !page->available);
     bool controls_enabled = page->available;
@@ -399,7 +411,9 @@ static bool climate_set_selector_options(climate_page_t *page, size_t index,
             count >= CLIMATE_OPTION_MAX) continue;
         options[count] = item->valuestring;
         icons[count] = climate_option_icon(index, item->valuestring);
-        if (selected && strcmp(selected, item->valuestring) == 0) selected_index = count;
+        char display_value[48];
+        i18n_display_copy(display_value, sizeof(display_value), item->valuestring);
+        if (selected && strcmp(selected, display_value) == 0) selected_index = count;
         count++;
     }
     bool supported = count &&
@@ -527,6 +541,13 @@ static void climate_read_attributes(climate_page_t *page, const ha_entity_snapsh
     bool has_target = climate_attr_number(page, "temperature", &target);
     bool has_low = climate_attr_number(page, "target_temp_low", &low);
     bool has_high = climate_attr_number(page, "target_temp_high", &high);
+    double features = 0;
+    climate_attr_number(page, "supported_features", &features);
+    uint32_t supported_features = features >= 0 && features <= UINT32_MAX
+        ? (uint32_t)features : 0;
+    page->show_temperature_state =
+        ((supported_features & CLIMATE_FEATURE_TARGET_TEMPERATURE) && has_target) ||
+        ((supported_features & CLIMATE_FEATURE_TARGET_TEMPERATURE_RANGE) && has_low && has_high);
     page->dual_temperature = (!has_target || target <= 0) &&
                              has_low && low > 0 && has_high && high > 0;
     if (page->dual_temperature) {
@@ -546,26 +567,29 @@ static void climate_read_attributes(climate_page_t *page, const ha_entity_snapsh
     if (page->max_humidity <= page->min_humidity)
         page->max_humidity = page->min_humidity + page->humidity_step;
     double humidity;
-    page->humidity_supported = climate_attr_number(page, "humidity", &humidity);
+    bool has_target_humidity = climate_attr_number(page, "humidity", &humidity);
+    page->humidity_supported =
+        (supported_features & CLIMATE_FEATURE_TARGET_HUMIDITY) && has_target_humidity;
     page->target_humidity = page->humidity_supported ? (int)lround(humidity * 10) : 500;
     char raw_action[HA_ENTITY_STORE_STATE_MAX] = "";
     ha_entity_store_get_attr_string(page->store, page->entity_id, "hvac_action",
                                     raw_action, sizeof(raw_action));
     const char *display = NULL;
-    if (strcmp(raw_action, "heating") == 0) display = "Heating";
-    else if (strcmp(raw_action, "cooling") == 0) display = "Cooling";
-    else if (strcmp(raw_action, "drying") == 0) display = "Drying";
-    else if (strcmp(raw_action, "fan") == 0) display = "Fan";
-    else if (strcmp(raw_action, "off") == 0) display = "Off";
-    else if (strcmp(page->hvac_mode, "heat") == 0) display = "Heat";
-    else if (strcmp(page->hvac_mode, "cool") == 0) display = "Cool";
-    else if (strcmp(page->hvac_mode, "heat_cool") == 0) display = "Heat/Cool";
-    else if (strcmp(page->hvac_mode, "auto") == 0) display = "Auto";
-    else if (strcmp(page->hvac_mode, "dry") == 0) display = "Dry";
-    else if (strcmp(page->hvac_mode, "fan_only") == 0) display = "Fan Only";
-    else if (strcmp(page->hvac_mode, "off") == 0) display = "Off";
-    else display = raw_action[0] ? raw_action : "Idle";
-    snprintf(page->hvac_action, sizeof(page->hvac_action), "%s", display);
+    if (raw_action[0] && strcmp(raw_action, "off") != 0) {
+        if (strcmp(raw_action, "heating") == 0) display = i18n_get(I18N_CLIMATE_HEATING);
+        else if (strcmp(raw_action, "cooling") == 0) display = i18n_get(I18N_CLIMATE_COOLING);
+        else if (strcmp(raw_action, "drying") == 0) display = i18n_get(I18N_CLIMATE_DRYING);
+        else if (strcmp(raw_action, "fan") == 0) display = i18n_get(I18N_CLIMATE_FAN);
+        else if (strcmp(raw_action, "idle") == 0) display = i18n_get(I18N_CLIMATE_IDLE);
+        else if (strcmp(raw_action, "defrosting") == 0) display = i18n_get(I18N_CLIMATE_DEFROSTING);
+        else if (strcmp(raw_action, "preheating") == 0) display = i18n_get(I18N_CLIMATE_PREHEATING);
+        else display = raw_action;
+    } else if (page->show_temperature_state) {
+        display = entity_state_translate_climate_option(0, page->hvac_mode);
+    } else {
+        display = "";
+    }
+    i18n_display_copy(page->hvac_action, sizeof(page->hvac_action), display);
 }
 
 esp_err_t climate_more_info_update(const entity_more_info_context_t *context)
@@ -603,7 +627,7 @@ esp_err_t climate_more_info_update(const entity_more_info_context_t *context)
     }
 
     if (page->title)
-        lv_label_set_text(page->title, context->snapshot.friendly_name[0]
+        ui_i18n_label_set_text(page->title, context->snapshot.friendly_name[0]
                                       ? context->snapshot.friendly_name : page->entity_id);
     climate_refresh_toggle(page);
     if (!dragging) {
@@ -662,10 +686,11 @@ esp_err_t climate_more_info_render(const entity_more_info_context_t *context)
     lv_obj_set_pos(title, 72, 22);
     lv_obj_set_width(title, page->landscape ? 388 : 228);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_label_set_text(title, context->snapshot.friendly_name[0] ?
+    ui_i18n_label_set_text(title, context->snapshot.friendly_name[0] ?
                             context->snapshot.friendly_name : page->entity_id);
     lv_obj_set_style_text_font(title, &ha_font_misan_medium_20, 0);
     lv_obj_set_style_text_color(title, lv_color_white(), 0);
+    lv_obj_set_height(title, lv_font_get_line_height(&ha_font_misan_medium_20));
 
     lv_obj_t *close_hitbox = lv_obj_create(context->overlay);
     lv_obj_remove_style_all(close_hitbox);
@@ -697,8 +722,8 @@ esp_err_t climate_more_info_render(const entity_more_info_context_t *context)
     climate_refresh_toggle(page);
     climate_refresh_dial(page);
 
-    static const char *titles[] = {
-        "Mode", "Preset", "Fan mode", "Swing mode", "Horizontal swing"
+    static const i18n_key_t titles[] = {
+        I18N_CLIMATE_MODE, I18N_CLIMATE_PRESET, I18N_CLIMATE_FAN_MODE, I18N_CLIMATE_SWING_MODE, I18N_CLIMATE_HORIZONTAL_SWING
     };
     static const char *icons[] = {
         MDI_SYMBOL_POWER, MDI_SYMBOL_CREATION, MDI_SYMBOL_WEATHER_WINDY,
@@ -708,8 +733,9 @@ esp_err_t climate_more_info_render(const entity_more_info_context_t *context)
         lv_obj_t *selector = climate_selector_create(root);
         if (!selector) return ESP_ERR_NO_MEM;
         page->selectors[i] = selector;
+        climate_selector_set_translation_scope(selector, (unsigned)i);
         lv_obj_add_flag(selector, LV_OBJ_FLAG_HIDDEN);
-        climate_selector_set_title(selector, titles[i]);
+        climate_selector_set_title(selector, i18n_get(titles[i]));
         climate_selector_set_icon(selector, icons[i]);
         page->bindings[i] = (climate_selector_binding_t){ .page = page, .index = i };
         climate_selector_set_change_cb(selector, climate_selector_changed, &page->bindings[i]);

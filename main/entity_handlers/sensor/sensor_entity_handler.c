@@ -1,3 +1,6 @@
+#include "../entity_state_translation.h"
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "sensor_entity_handler.h"
 
 #include <ctype.h>
@@ -19,6 +22,7 @@
 #include "screen/components/ha_relative_time_label.h"
 #include "screen/components/more_info_screen.h"
 #include "bsp_lcd.h"
+#include "sys_time_api.h"
 
 #define SCREEN_DEFAULT_CONTENT_WIDTH_PORTAIT 280
 #define SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE 440
@@ -260,6 +264,9 @@ static void sensor_history_result_cb(int request_id,
 static void sensor_history_screen_delete_cb(lv_event_t *event);
 static void sensor_history_reset(void);
 static void sensor_history_render(lv_obj_t *parent);
+static bool sensor_format_timestamp_state(const char *state,
+                                          char *output,
+                                          size_t output_size);
 
 static bool sensor_parse_numeric_state(const char *state, double *value_out)
 {
@@ -315,12 +322,12 @@ static void sensor_history_insert_record(time_t epoch, const char *state)
            s_sensor_history.records[position].epoch > epoch) {
         position++;
     }
+    /* Keep different state changes within the same second. Only skip an
+     * adjacent duplicate, which can occur when live data overlaps the
+     * history response. */
     if (position < s_sensor_history.record_count &&
-        s_sensor_history.records[position].epoch == epoch) {
-        snprintf(s_sensor_history.records[position].state,
-                 sizeof(s_sensor_history.records[position].state),
-                 "%s",
-                 state);
+        s_sensor_history.records[position].epoch == epoch &&
+        strcmp(s_sensor_history.records[position].state, state) == 0) {
         return;
     }
     if (position >= SENSOR_HISTORY_LIST_MAX_RECORDS) {
@@ -351,6 +358,10 @@ static bool sensor_history_parse_list_result(const cJSON *result)
     const cJSON *states = cJSON_GetObjectItemCaseSensitive(
         result,
         s_sensor_history.entity_id);
+    /* HA omits the entity key when the requested period has no history. */
+    if (!states && !result->child) {
+        return true;
+    }
     if (!cJSON_IsArray(states)) {
         return false;
     }
@@ -420,6 +431,10 @@ static bool sensor_history_parse_result(const cJSON *result)
     const cJSON *states = cJSON_GetObjectItemCaseSensitive(
         result,
         s_sensor_history.entity_id);
+    /* HA omits the entity key when the requested period has no history. */
+    if (!states && !result->child) {
+        return true;
+    }
     if (!cJSON_IsArray(states)) {
         return false;
     }
@@ -747,24 +762,35 @@ static void sensor_history_render(lv_obj_t *parent)
     if (s_sensor_history.is_list_history) {
         const char *message = NULL;
         if (s_sensor_history.loading && s_sensor_history.record_count == 0) {
-            message = "Loading history...";
+            message = i18n_get(I18N_HISTORY_LOADING);
         }
         else if (s_sensor_history.failed &&
                  s_sensor_history.record_count == 0) {
-            message = "History unavailable";
+            message = i18n_get(I18N_HISTORY_UNAVAILABLE);
         }
         else if (s_sensor_history.record_count == 0) {
-            message = "No history";
+            message = i18n_get(I18N_HISTORY_EMPTY);
         }
 
+        const bool format_timestamp =
+            strcmp(s_sensor_history.device_class, "timestamp") == 0 ||
+            strcmp(s_sensor_history.device_class, "uptime") == 0;
         ha_history_list_item_t items[SENSOR_HISTORY_LIST_MAX_RECORDS] = {0};
+        char formatted_states[SENSOR_HISTORY_LIST_MAX_RECORDS]
+                             [ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
         for (size_t i = 0; i < s_sensor_history.record_count; i++) {
             items[i].epoch = s_sensor_history.records[i].epoch;
-            items[i].text = s_sensor_history.records[i].state;
+            items[i].text = entity_state_translate(s_sensor_history.records[i].state);
+            if (format_timestamp &&
+                sensor_format_timestamp_state(items[i].text,
+                                              formatted_states[i],
+                                              sizeof(formatted_states[i]))) {
+                items[i].text = formatted_states[i];
+            }
         }
 
         const ha_history_list_config_t config = {
-            .title = "History",
+            .title = i18n_get(I18N_HISTORY_TITLE),
             .items = items,
             .item_count = s_sensor_history.record_count,
             .message = message,
@@ -777,17 +803,17 @@ static void sensor_history_render(lv_obj_t *parent)
 
     const char *message = NULL;
     if (s_sensor_history.loading) {
-        message = "Loading history...";
+        message = i18n_get(I18N_HISTORY_LOADING);
     }
     else if (s_sensor_history.failed) {
-        message = "History unavailable";
+        message = i18n_get(I18N_HISTORY_UNAVAILABLE);
     }
     else if (s_sensor_history.point_count == 0) {
-        message = "No history";
+        message = i18n_get(I18N_HISTORY_EMPTY);
     }
 
     const ha_history_chart_config_t config = {
-        .title = "History",
+        .title = i18n_get(I18N_HISTORY_TITLE),
         .unit = s_sensor_history.unit,
         .points = s_sensor_history.points,
         .point_count = s_sensor_history.point_count,
@@ -857,6 +883,89 @@ static uint32_t sensor_icon_color(const ha_entity_snapshot_t *snapshot)
     return 0x44739E;
 }
 
+static const char *sensor_display_numeric_state(const ha_entity_snapshot_t *snapshot,
+                                                char *buffer, size_t buffer_size)
+{
+    double value = 0;
+    if (!sensor_parse_numeric_state(snapshot->state, &value)) {
+        return snapshot->state;
+    }
+    if (snapshot->has_display_precision) {
+        int length = snprintf(buffer, buffer_size, "%.*f",
+                              snapshot->display_precision, value);
+        return length >= 0 && (size_t)length < buffer_size
+                   ? buffer : snapshot->state;
+    }
+
+    /* Preserve the digits sent by HA when its state uses scientific notation. */
+    const char *exponent = strchr(snapshot->state, 'e');
+    if (!exponent) {
+        exponent = strchr(snapshot->state, 'E');
+    }
+    if (!exponent) {
+        return snapshot->state;
+    }
+    char *end = NULL;
+    long power = strtol(exponent + 1, &end, 10);
+    if (!end || *end != '\0' || power < -1000 || power > 1000) {
+        return snapshot->state;
+    }
+    const char *mantissa = snapshot->state;
+    const bool negative = *mantissa == '-';
+    if (*mantissa == '-' || *mantissa == '+') {
+        mantissa++;
+    }
+    char digits[HA_ENTITY_STORE_STATE_MAX];
+    size_t digit_count = 0;
+    int decimal_at = -1;
+    for (const char *p = mantissa; p < exponent; p++) {
+        if (*p == '.') {
+            decimal_at = (int)digit_count;
+        } else if (digit_count + 1 < sizeof(digits)) {
+            digits[digit_count++] = *p;
+        } else {
+            return snapshot->state;
+        }
+    }
+    if (decimal_at < 0) {
+        decimal_at = (int)digit_count;
+    }
+    long point = decimal_at + power;
+    size_t length = (negative ? 1 : 0) +
+                    (point <= 0 ? 2 + (size_t)-point + digit_count :
+                     point >= (long)digit_count ? (size_t)point : digit_count + 1);
+    if (length >= buffer_size) {
+        return snapshot->state;
+    }
+    char *out = buffer;
+    if (negative) {
+        *out++ = '-';
+    }
+    if (point <= 0) {
+        *out++ = '0';
+        *out++ = '.';
+        for (long i = 0; i < -point; i++) {
+            *out++ = '0';
+        }
+        memcpy(out, digits, digit_count);
+        out += digit_count;
+    } else if (point >= (long)digit_count) {
+        memcpy(out, digits, digit_count);
+        out += digit_count;
+        for (long i = (long)digit_count; i < point; i++) {
+            *out++ = '0';
+        }
+    } else {
+        memcpy(out, digits, (size_t)point);
+        out += point;
+        *out++ = '.';
+        memcpy(out, digits + point, digit_count - (size_t)point);
+        out += digit_count - (size_t)point;
+    }
+    *out = '\0';
+    return buffer;
+}
+
 static void sensor_format_state(const ha_entity_snapshot_t *snapshot,
                                 char *output,
                                 size_t output_size)
@@ -870,16 +979,102 @@ static void sensor_format_state(const ha_entity_snapshot_t *snapshot,
         return;
     }
 
+    char numeric_state[HA_ENTITY_STORE_STATE_MAX + 64];
+    const char *display_state = sensor_display_numeric_state(
+        snapshot, numeric_state, sizeof(numeric_state));
     if (snapshot->unit_of_measurement[0]) {
+        const char *separator =
+            strcmp(snapshot->unit_of_measurement, "%") == 0 ||
+            strcmp(snapshot->unit_of_measurement, "°") == 0
+                ? ""
+                : " ";
         snprintf(output,
                  output_size,
-                 "%s%s",
-                 snapshot->state,
+                 "%s%s%s",
+                 display_state,
+                 separator,
                  snapshot->unit_of_measurement);
         return;
     }
 
-    entity_handler_copy_snapshot_state(output, output_size, snapshot);
+    if (display_state == snapshot->state) {
+        entity_handler_copy_snapshot_state(output, output_size, snapshot);
+    } else {
+        snprintf(output, output_size, "%s", display_state);
+    }
+}
+
+static bool sensor_has_timestamp_state(const ha_entity_snapshot_t *snapshot)
+{
+    return snapshot &&
+           (strcmp(snapshot->device_class, "timestamp") == 0 ||
+            strcmp(snapshot->device_class, "uptime") == 0);
+}
+
+static bool sensor_format_timestamp_state(const char *state,
+                                          char *output,
+                                          size_t output_size)
+{
+    time_t state_epoch = 0;
+    if (!state || !output || output_size == 0 ||
+        ha_datetime_parse_epoch(state, &state_epoch) != ESP_OK ||
+        state_epoch < 0) {
+        return false;
+    }
+
+    char local_iso[40] = {0};
+    if (sys_time_format_iso8601_time_by_utc_ms(
+            (uint64_t)state_epoch * 1000,
+            local_iso,
+            sizeof(local_iso)) != 0) {
+        return false;
+    }
+
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int hour = 0;
+    int minute = 0;
+    if (sscanf(local_iso, "%4d-%2d-%2dT%2d:%2d",
+               &year, &month, &day, &hour, &minute) != 5 ||
+        month < 1 || month > 12) {
+        return false;
+    }
+
+    return i18n_format_datetime(output, output_size, (unsigned)year,
+                                 (unsigned)month, (unsigned)day,
+                                 (unsigned)hour, (unsigned)minute);
+}
+
+static time_t sensor_format_more_info_state(const ha_entity_snapshot_t *snapshot,
+                                            char *output,
+                                            size_t output_size)
+{
+    if (!snapshot || !output || output_size == 0) {
+        return 0;
+    }
+
+    if (!entity_handler_snapshot_is_unavailable(snapshot) &&
+        strcmp(snapshot->device_class, "uptime") == 0) {
+        time_t state_epoch = 0;
+        if (ha_datetime_parse_epoch(snapshot->state, &state_epoch) == ESP_OK &&
+            state_epoch > 0 &&
+            ha_datetime_format_elapsed_epoch(state_epoch,
+                                             time(NULL),
+                                             output,
+                                             output_size) == ESP_OK) {
+            return state_epoch;
+        }
+    }
+
+    if (!entity_handler_snapshot_is_unavailable(snapshot) &&
+        sensor_has_timestamp_state(snapshot) &&
+        sensor_format_timestamp_state(snapshot->state, output, output_size)) {
+        return 0;
+    }
+
+    sensor_format_state(snapshot, output, output_size);
+    return 0;
 }
 
 static bool sensor_handle_action(const entity_action_context_t *context)
@@ -941,7 +1136,7 @@ static lv_obj_t *sensor_more_info_build_page(
     lv_obj_t *title = lv_label_create(header);
     lv_obj_set_flex_grow(title, 1);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_label_set_text(title,
+    ui_i18n_label_set_text(title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -1009,9 +1204,31 @@ static esp_err_t sensor_render_tile(ha_entity_store_t *store,
                                            snapshot);
         model->icon_circle_background_color = lv_color_hex(0x2c2c2c);
     } else {
-        sensor_format_state(snapshot,
+        time_t state_epoch = 0;
+        if (sensor_has_timestamp_state(snapshot) &&
+            ha_datetime_parse_epoch(snapshot->state, &state_epoch) == ESP_OK) {
+            const bool uptime =
+                strcmp(snapshot->device_class, "uptime") == 0;
+            if (uptime) {
+                ha_datetime_format_elapsed_epoch(state_epoch,
+                                                 time(NULL),
+                                                 model->state_text,
+                                                 sizeof(model->state_text));
+            }
+            else {
+                ha_datetime_format_relative_now(snapshot->state,
+                                                model->state_text,
+                                                sizeof(model->state_text));
+            }
+            model->state_text_type = uptime
+                                         ? ENTITY_STATE_TEXT_ELAPSED_TIME
+                                         : ENTITY_STATE_TEXT_RELATIVE_TIME;
+            model->state_time = state_epoch;
+        } else {
+            sensor_format_state(snapshot,
                                 model->state_text,
                                 sizeof(model->state_text));
+        }
     }
     return ESP_OK;
 }
@@ -1059,7 +1276,7 @@ static esp_err_t sensor_render_more_info(
 
 
     lv_obj_t *tile_icon = lv_label_create(tile_box);
-    lv_label_set_text(tile_icon, sensor_get_icon(&context->snapshot));
+    ui_i18n_label_set_text(tile_icon, sensor_get_icon(&context->snapshot));
     lv_obj_set_style_text_font(tile_icon, &ha_font_mdi_20, 0);
     lv_obj_set_style_text_color(
         tile_icon,
@@ -1108,7 +1325,7 @@ static esp_err_t sensor_render_more_info(
     lv_label_set_long_mode(tile_content_title, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_height(tile_content_title, lv_font_get_line_height(&ha_font_misan_medium_24));
-    lv_label_set_text(tile_content_title,
+    ui_i18n_label_set_text(tile_content_title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -1117,10 +1334,15 @@ static esp_err_t sensor_render_more_info(
     lv_obj_set_style_text_font(tile_content_cur_state, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(tile_content_cur_state, lv_color_white(), 0);
     char cur_state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
-    sensor_format_state(&context->snapshot,
-                    cur_state_text,
-                    sizeof(cur_state_text));
-    lv_label_set_text(tile_content_cur_state, cur_state_text);
+    const time_t relative_state_epoch =
+        sensor_format_more_info_state(&context->snapshot,
+                                      cur_state_text,
+                                      sizeof(cur_state_text));
+    ui_i18n_label_set_text(tile_content_cur_state, cur_state_text);
+    if (relative_state_epoch > 0) {
+        ha_relative_time_label_bind_elapsed(tile_content_cur_state,
+                                            relative_state_epoch);
+    }
     if (bsp_lcd_is_landscape()) {
         lv_obj_set_size(tile_content_cur_state,
                         0,
@@ -1139,9 +1361,9 @@ static esp_err_t sensor_render_more_info(
                                           sizeof(state_text));
     }
     if (!state_text[0]) {
-        snprintf(state_text, sizeof(state_text), "Unknown");
+        i18n_copy(state_text, sizeof(state_text), i18n_get(I18N_STATE_UNKNOWN));
     }
-    lv_label_set_text(tile_content_state, state_text);
+    ui_i18n_label_set_text(tile_content_state, state_text);
     if (last_updated_epoch > 0) {
         ha_relative_time_label_bind(tile_content_state,
                                     last_updated_epoch);

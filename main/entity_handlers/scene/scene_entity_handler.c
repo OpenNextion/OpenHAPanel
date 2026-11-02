@@ -1,4 +1,7 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "scene_entity_handler.h"
+#include "scene_feature_handler.h"
 
 #include <time.h>
 
@@ -12,7 +15,8 @@
 
 #define SCREEN_DEFAULT_CONTENT_WIDTH_PORTRAIT 280
 #define SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE 440
-#define SCENE_ACTION_WIDTH_LANDSCAPE 100
+#define SCENE_ACTION_MIN_WIDTH_LANDSCAPE 100
+#define SCENE_TILE_MIN_WIDTH_LANDSCAPE 158
 #define SCENE_ACTION_COLOR 0x039BE5
 #define SCENE_ACTION_DISABLED_COLOR 0x0f4c92
 #define SCENE_ACTION_PRESSED_BG_COLOR 0x193E63
@@ -117,7 +121,7 @@ static lv_obj_t *scene_more_info_build_page(
     lv_obj_t *title = lv_label_create(header);
     lv_obj_set_flex_grow(title, 1);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_label_set_text(title,
+    ui_i18n_label_set_text(title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -232,7 +236,7 @@ static esp_err_t scene_render_more_info(
 
 
     lv_obj_t *tile_icon = lv_label_create(tile_box);
-    lv_label_set_text(tile_icon, MDI_SYMBOL_PALETTE);
+    ui_i18n_label_set_text(tile_icon, MDI_SYMBOL_PALETTE);
     lv_obj_set_style_text_font(tile_icon, &ha_font_mdi_26, 0);
     lv_obj_set_style_text_color(tile_icon, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_color(tile_icon, unavailable ? lv_color_hex(0x6f6f6f) : lv_color_hex(0x44739e), 0);
@@ -255,7 +259,7 @@ static esp_err_t scene_render_more_info(
     lv_label_set_long_mode(tile_content_title, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_title, lv_color_hex(0xFFFFFF), 0);
     // 展示实体的friendly_name
-    lv_label_set_text(tile_content_title,
+    ui_i18n_label_set_text(tile_content_title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -273,7 +277,7 @@ static esp_err_t scene_render_more_info(
                                         state_text,
                                         sizeof(state_text));
     }
-    lv_label_set_text(tile_content_state, state_text);
+    ui_i18n_label_set_text(tile_content_state, state_text);
     if (!unavailable) {
         time_t state_time = 0;
         if (ha_datetime_parse_epoch(context->snapshot.state,
@@ -289,13 +293,23 @@ static esp_err_t scene_render_more_info(
     lv_obj_t *press_button = lv_button_create(content);
     lv_obj_remove_style_all(press_button);
     lv_obj_add_flag(press_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(press_button,
-                    landscape ? SCENE_ACTION_WIDTH_LANDSCAPE
-                              : LV_PCT(100),
-                    48);
+    const char *action_text = i18n_get(I18N_ACTION_ACTIVATE);
+    int32_t action_width = LV_PCT(100);
+    if (landscape) {
+        lv_point_t text_size;
+        lv_text_get_size(&text_size, action_text, &ha_font_misan_medium_20,
+                         0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        lv_obj_update_layout(content);
+        const int32_t max_width = LV_MAX(SCENE_ACTION_MIN_WIDTH_LANDSCAPE,
+            lv_obj_get_content_width(content) - SCENE_TILE_MIN_WIDTH_LANDSCAPE - 10);
+        action_width = LV_CLAMP(SCENE_ACTION_MIN_WIDTH_LANDSCAPE,
+                                text_size.x + 24, max_width);
+    }
+    lv_obj_set_size(press_button, action_width, 48);
     lv_obj_set_style_radius(press_button, 12, 0);
     lv_obj_set_style_border_width(press_button, 0, 0);
     lv_obj_set_style_shadow_width(press_button, 0, 0);
+    lv_obj_set_style_pad_hor(press_button, 12, 0);
     /* The idle action blends into the card. Only the pressed state exposes
      * the blue rounded surface shown by Home Assistant. */
     lv_obj_set_style_bg_color(press_button, lv_color_hex(0x1E2228), 0);
@@ -321,14 +335,23 @@ static esp_err_t scene_render_more_info(
     }
 
     lv_obj_t *button_label = lv_label_create(press_button);
-    lv_label_set_text(button_label, "Active");
+    ui_i18n_label_set_text(button_label, action_text);
     lv_obj_set_style_text_font(button_label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_width(button_label, LV_PCT(100));
+    lv_obj_set_style_text_align(button_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(button_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(
         button_label,
         lv_color_hex(unavailable ? SCENE_ACTION_DISABLED_COLOR
                                  : SCENE_ACTION_COLOR),
         0);
     lv_obj_center(button_label);
+    if (landscape) {
+        lv_obj_update_layout(content);
+        const int32_t left_width = lv_obj_get_content_width(tile_content_ctx);
+        lv_obj_set_width(tile_content_title, left_width);
+        lv_obj_set_width(tile_content_state, left_width);
+    }
     return ESP_OK;
 }
 
@@ -348,4 +371,5 @@ const entity_handler_t scene_entity_handler = {
     .handle_action = scene_handle_action,
     .render_tile = scene_render_tile,
     .render_more_info = scene_render_more_info,
+    .feature_handler = &scene_feature_handler,
 };

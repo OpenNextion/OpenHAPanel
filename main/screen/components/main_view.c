@@ -1,3 +1,4 @@
+#include "ui_i18n.h"
 #include "main_view.h"
 
 #include <string.h>
@@ -36,6 +37,7 @@ typedef struct {
     bool has_action_config;
     const screen_tile_card_data_t *tile_config;
     screen_action_config_t action_config;
+    entity_feature_instance_t *feature_instances;
 } main_view_entity_ref_t;
 
 struct main_view {
@@ -78,6 +80,9 @@ static void main_view_dispatch_badge_action(main_view_entity_ref_t *ref,
                                             entity_action_trigger_t trigger);
 static void main_view_apply_display_model(main_view_entity_ref_t *ref,
                                           const entity_display_model_t *model);
+static void main_view_sync_features(main_view_entity_ref_t *ref,
+                                    ha_entity_store_t *store,
+                                    const ha_entity_snapshot_t *snapshot);
 static void main_view_tile_icon_click_cb(lv_obj_t *tile_card, void *user_data);
 static void main_view_badge_body_click_cb(lv_obj_t *badge_pill, void *user_data);
 static void main_view_tile_body_click_cb(lv_obj_t *tile_card, void *user_data);
@@ -261,6 +266,7 @@ size_t main_view_set_entity_store(main_view_t *main_view,
             main_view_apply_badge_model(ref, &display_model, NULL);
         } else {
             main_view_apply_display_model(ref, &display_model);
+            main_view_sync_features(ref, NULL, NULL);
         }
 
         if (!store || !ref->entity_id || !ref->entity_id[0]) {
@@ -333,16 +339,9 @@ static void main_view_indev_pressed_cb(lv_event_t *event)
 
 static bool main_view_action_suppressed(const main_view_entity_ref_t *ref)
 {
-    if (!ref || !ref->owner) {
-        return false;
-    }
-    if (ref->owner->suppress_actions_for_press) {
-        return true;
-    }
-
-    lv_indev_t *indev = lv_indev_active();
-    return indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER &&
-           lv_indev_get_press_moved(indev);
+    /* LVGL can still send CLICKED after a small pointer movement. Gesture and
+     * scroll clicks are handled by LVGL and screen_page_gesture_cb. */
+    return ref && ref->owner && ref->owner->suppress_actions_for_press;
 }
 
 static void main_view_clear_refs(main_view_t *main_view)
@@ -359,6 +358,8 @@ static void main_view_clear_refs(main_view_t *main_view)
     for (size_t i = 0; i < main_view->entity_count; i++) {
         ha_entity_store_release(main_view->entities[i].entity_handle);
         main_view->entities[i].entity_handle = NULL;
+        lv_free(main_view->entities[i].feature_instances);
+        main_view->entities[i].feature_instances = NULL;
         main_view->entities[i].tile_card = NULL;
     }
 
@@ -483,9 +484,18 @@ static void main_view_render_cards(main_view_t *main_view, const screen_view_t *
                          ref->entity_id ? ref->entity_id : "");
                 continue;
             }
+            if (ref->tile_config->feature_count > 0) {
+                ref->feature_instances = lv_calloc(
+                    ref->tile_config->feature_count,
+                    sizeof(*ref->feature_instances));
+                if (!ref->feature_instances) {
+                    ESP_LOGE(TAG, "Failed to allocate features for %s", ref->entity_id);
+                }
+            }
             entity_display_model_t display_model;
             entity_display_model_init(ref->entity_id, &display_model);
             main_view_apply_display_model(ref, &display_model);
+            main_view_sync_features(ref, NULL, NULL);
 
             continue;
         }
@@ -502,12 +512,12 @@ static void main_view_render_cards(main_view_t *main_view, const screen_view_t *
         lv_obj_set_style_pad_ver(card, 8, 0);
 
         lv_obj_t *name_label = lv_label_create(card);
-        lv_label_set_text(name_label, main_view_card_name(card_config));
+        ui_i18n_label_set_text(name_label, main_view_card_name(card_config));
         lv_label_set_long_mode(name_label, LV_LABEL_LONG_DOT);
         lv_obj_set_width(name_label, LV_PCT(100));
         lv_obj_align(name_label, LV_ALIGN_LEFT_MID, 0, 0);
         lv_obj_set_style_text_color(name_label, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(name_label, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(name_label, &ha_font_misan_regular_14, 0);
 
     }
 
@@ -577,6 +587,11 @@ static bool main_view_apply_cached_entity(main_view_entity_ref_t *ref,
         main_view_apply_badge_model(ref, &display_model, store);
     } else {
         main_view_apply_display_model(ref, &display_model);
+        ha_entity_snapshot_t snapshot = {0};
+        const ha_entity_snapshot_t *snapshot_ptr =
+            ha_entity_store_get(store, ref->entity_id, &snapshot) == ESP_OK
+                ? &snapshot : NULL;
+        main_view_sync_features(ref, store, snapshot_ptr);
     }
     return true;
 }
@@ -661,10 +676,16 @@ static void main_view_apply_display_model(main_view_entity_ref_t *ref,
         model->state_time > 0) {
         ha_tile_card_set_relative_state_time(tile_card, model->state_time);
     }
+    else if (model->state_text_type == ENTITY_STATE_TEXT_ELAPSED_TIME &&
+             model->state_time > 0) {
+        ha_tile_card_set_elapsed_state_time(tile_card, model->state_time);
+    }
     else {
         ha_tile_card_set_state_text(tile_card, model->state_text);
     }
     ha_tile_card_set_icon(tile_card, model->icon);
+    ha_tile_card_set_icon_badge(tile_card, model->icon_badge,
+                                model->icon_badge_background_color);
     ha_tile_card_set_unavailable(tile_card, model->unavailable);
     ha_tile_card_set_state_icon(tile_card, model->state_icon);
     ha_tile_card_set_state_icon_visible(tile_card, model->show_state_icon);
@@ -691,6 +712,56 @@ static void main_view_apply_display_model(main_view_entity_ref_t *ref,
                                       : NULL,
                                   ref);
     ha_tile_card_set_body_clickable(tile_card, ref->body_clickable);
+}
+
+static void main_view_sync_features(main_view_entity_ref_t *ref,
+                                    ha_entity_store_t *store,
+                                    const ha_entity_snapshot_t *snapshot)
+{
+    if (!ref || !ref->tile_card || !ref->tile_config ||
+        !ref->feature_instances || ref->tile_config->feature_count == 0) {
+        return;
+    }
+    const char *position = ref->tile_config->features_position
+                               ? ref->tile_config->features_position : "bottom";
+    if (strcmp(position, "bottom") != 0) {
+        return;
+    }
+    const entity_handler_t *handler = entity_handler_registry_find(ref->entity_id);
+    const entity_feature_handler_t *features = handler ? handler->feature_handler : NULL;
+    if (!features || !features->supports || !features->create || !features->update) {
+        return;
+    }
+    int32_t visible_index = 0;
+    for (size_t i = 0; i < ref->tile_config->feature_count; i++) {
+        entity_feature_instance_t *instance = &ref->feature_instances[i];
+        const screen_feature_config_t *config = &ref->tile_config->features[i];
+        const bool supported = features->supports(store, ref->entity_id, config->type);
+        if (!supported) {
+            if (instance->host) {
+                ha_tile_card_remove_feature_host(ref->tile_card, instance->host);
+                instance->host = NULL;
+                instance->control = NULL;
+            }
+            continue;
+        }
+        if (!instance->host) {
+            instance->host = ha_tile_card_add_feature_host(ref->tile_card);
+            if (!instance->host) {
+                continue;
+            }
+            instance->entity_id = ref->entity_id;
+            instance->config = config;
+            if (features->create(instance) != ESP_OK) {
+                ha_tile_card_remove_feature_host(ref->tile_card, instance->host);
+                instance->host = NULL;
+                instance->control = NULL;
+                continue;
+            }
+        }
+        lv_obj_move_to_index(instance->host, visible_index++);
+        features->update(instance, store, snapshot);
+    }
 }
 
 static void main_view_tile_icon_click_cb(lv_obj_t *tile_card, void *user_data)
@@ -758,10 +829,10 @@ static bool main_view_update_ref(main_view_entity_ref_t *ref, const char *name, 
     }
 
     if (name && ref->name_label) {
-        lv_label_set_text(ref->name_label, name);
+        ui_i18n_label_set_text(ref->name_label, name);
     }
     if (state && ref->state_label) {
-        lv_label_set_text(ref->state_label, state);
+        ui_i18n_label_set_text(ref->state_label, state);
     }
 
     return true;
@@ -936,10 +1007,25 @@ static void main_view_open_more_info_cb(const char *entity_id,
 {
     main_view_entity_ref_t *ref = user_data;
     ha_entity_store_t *store = app_get_ha_entity_store();
-    if (ref && store) {
-        if (ref->badge_pill) {
-            ha_badge_stop_ripple(ref->badge_pill);
-        }
-        more_info_screen_open(store, entity_id, ref->tile_config);
+    if (!ref || !store) {
+        ESP_LOGW(TAG, "Cannot open more-info for %s: entity store unavailable",
+                 entity_id ? entity_id : "");
+        return;
     }
+    if (!more_info_screen_open(store, entity_id, ref->tile_config)) {
+        ESP_LOGW(TAG, "Failed to open more-info for %s", entity_id);
+        return;
+    }
+    if (ref->badge_pill) {
+        ha_badge_stop_ripple(ref->badge_pill);
+    }
+}
+
+void main_view_refresh_language(main_view_t *view, ha_entity_store_t *store)
+{
+    if (!view || !store) return;
+    for (size_t i = 0; i < view->badge_count; ++i)
+        main_view_apply_cached_entity(&view->badges[i], store);
+    for (size_t i = 0; i < view->entity_count; ++i)
+        main_view_apply_cached_entity(&view->entities[i], store);
 }

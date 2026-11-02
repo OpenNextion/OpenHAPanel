@@ -28,7 +28,6 @@ export const ROUTES_PATH = {
     SETTINGS_SCREEN_ROTATION: '/settings/screen-rotation',
     SETTINGS_NIGHT_MODE: '/settings/night-mode',
     SETTINGS_DARK_MODE: '/settings/dark-mode',
-    SETTINGS_DEBUG: '/settings/debug',
     SETTINGS_FEEDBACK: '/settings/feedback',
     NOT_FOUND: '*',
 } as const;

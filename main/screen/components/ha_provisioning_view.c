@@ -1,8 +1,11 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "ha_provisioning_view.h"
 
 #include <string.h>
 
 #include "../../assets/ha_ui_assets.h"
+#include "screen_theme.h"
 #include "system_status_bar.h"
 
 #define HA_OVERLAY_DELAY_MS 3000
@@ -15,6 +18,7 @@ typedef struct {
     lv_obj_t *overlay;
     lv_obj_t *overlay_image;
     lv_obj_t *overlay_message;
+    system_status_bar_t *status_bar;
     lv_timer_t *timer;
     ha_provisioning_hint_dismissed_cb_t hint_dismissed_cb;
     void *hint_dismissed_user_data;
@@ -23,6 +27,7 @@ typedef struct {
 
 static void ha_view_apply_clear_style(lv_obj_t *obj);
 static void ha_view_apply_layout(ha_provisioning_view_ctx_t *ctx);
+static void ha_view_apply_theme(ha_provisioning_view_ctx_t *ctx);
 static void ha_view_dismiss_hint(ha_provisioning_view_ctx_t *ctx);
 static void ha_view_timer_cb(lv_timer_t *timer);
 static void ha_view_overlay_click_cb(lv_event_t *event);
@@ -53,7 +58,7 @@ lv_obj_t *ha_provisioning_view_create(
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
     lv_obj_align(root, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(0x010101), 0);
+    lv_obj_set_style_bg_color(root, lv_color_hex(0x010203), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_set_user_data(root, ctx);
     lv_obj_add_event_cb(root,
@@ -62,7 +67,7 @@ lv_obj_t *ha_provisioning_view_create(
                         ctx);
     lv_obj_add_event_cb(root, ha_view_root_delete_cb, LV_EVENT_DELETE, ctx);
 
-    system_status_bar_create(root);
+    ctx->status_bar = system_status_bar_create(root);
 
     lv_obj_t *ha_icon = lv_image_create(root);
     ctx->ha_icon = ha_icon;
@@ -71,18 +76,16 @@ lv_obj_t *ha_provisioning_view_create(
 
     lv_obj_t *title = lv_label_create(root);
     ctx->title = title;
-    lv_label_set_text(title, "Connect to Home Assistant");
+    ui_i18n_label_set_text(title, i18n_get(I18N_PROVISION_HA_TITLE));
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(title, &ha_font_misan_medium_20, 0);
 
     lv_obj_t *instructions = lv_label_create(root);
     ctx->instructions = instructions;
     lv_label_set_long_mode(instructions, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(instructions,
-                      "Set up HA in the Web Console");
+    ui_i18n_label_set_text(instructions,
+                      i18n_get(I18N_PROVISION_HA_HELP));
     lv_obj_set_style_text_align(instructions, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(instructions, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(instructions, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_line_space(instructions, 2, 0);
 
@@ -102,6 +105,7 @@ lv_obj_t *ha_provisioning_view_create(
         ctx->hint_dismissed = true;
     }
 
+    ha_view_apply_theme(ctx);
     lv_obj_update_layout(root);
     ha_view_apply_layout(ctx);
 
@@ -120,6 +124,23 @@ void ha_provisioning_view_dismiss_hint(lv_obj_t *root)
     }
 
     ha_view_dismiss_hint(ctx);
+}
+
+void ha_provisioning_view_apply_orientation(lv_obj_t *root)
+{
+    ha_provisioning_view_ctx_t *ctx = root ? lv_obj_get_user_data(root) : NULL;
+    if (ctx && ctx->root == root) {
+        lv_obj_update_layout(root);
+        ha_view_apply_layout(ctx);
+    }
+}
+
+void ha_provisioning_view_apply_theme(lv_obj_t *root)
+{
+    ha_provisioning_view_ctx_t *ctx = root ? lv_obj_get_user_data(root) : NULL;
+    if (ctx && ctx->root == root) {
+        ha_view_apply_theme(ctx);
+    }
 }
 
 static void ha_view_timer_cb(lv_timer_t *timer)
@@ -146,7 +167,6 @@ static void ha_view_timer_cb(lv_timer_t *timer)
     lv_obj_set_style_radius(overlay, 0, 0);
     lv_obj_set_style_border_width(overlay, 0, 0);
     lv_obj_set_style_pad_all(overlay, 0, 0);
-    lv_obj_set_style_bg_color(overlay, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(overlay, LV_OPA_70, 0);
     lv_obj_add_event_cb(overlay, ha_view_overlay_click_cb, LV_EVENT_CLICKED, ctx);
 
@@ -158,13 +178,53 @@ static void ha_view_timer_cb(lv_timer_t *timer)
 
     lv_obj_t *message = lv_label_create(overlay);
     ctx->overlay_message = message;
-    lv_label_set_text(message, "Swipe down for device info");
+    ui_i18n_label_set_text(message, i18n_get(I18N_PROVISION_SWIPE_HINT));
     lv_obj_add_flag(message, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_set_style_text_color(message, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(message, &ha_font_misan_regular_20, 0);
+    lv_obj_set_style_text_font(message, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_line_space(message, 2, 0);
+    lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
 
+    ha_view_apply_theme(ctx);
     ha_view_apply_layout(ctx);
     lv_obj_move_foreground(overlay);
+}
+
+static void ha_view_apply_theme(ha_provisioning_view_ctx_t *ctx)
+{
+    if (!ctx || !ctx->root) {
+        return;
+    }
+
+    const screen_theme_palette_t *palette = screen_theme_get_palette();
+
+    lv_obj_set_style_bg_color(ctx->root, lv_color_hex(palette->page_bg), 0);
+
+    if (ctx->title) {
+        lv_obj_set_style_text_color(ctx->title,
+                                    lv_color_hex(palette->text_primary),
+                                    0);
+    }
+    if (ctx->instructions) {
+        lv_obj_set_style_text_color(ctx->instructions,
+                                    lv_color_hex(palette->text_secondary),
+                                    0);
+    }
+    if (ctx->status_bar) {
+        system_status_bar_apply_theme(ctx->status_bar);
+    }
+    if (ctx->overlay) {
+        lv_obj_set_style_bg_color(ctx->overlay,
+                                  lv_color_hex(palette->overlay),
+                                  0);
+    }
+    if (ctx->overlay_message) {
+        lv_obj_set_style_text_color(ctx->overlay_message,
+                                    lv_color_hex(palette->text_on_overlay),
+                                    0);
+    }
+
+    lv_obj_invalidate(ctx->root);
 }
 
 static void ha_view_apply_layout(ha_provisioning_view_ctx_t *ctx)
@@ -174,42 +234,38 @@ static void ha_view_apply_layout(ha_provisioning_view_ctx_t *ctx)
         return;
     }
 
-    const bool landscape = lv_obj_get_width(ctx->root) > lv_obj_get_height(ctx->root);
+    lv_display_t *display = lv_obj_get_display(ctx->root);
+    const bool landscape = lv_display_get_horizontal_resolution(display) >
+                           lv_display_get_vertical_resolution(display);
     if (landscape) {
         lv_obj_align(ctx->ha_icon, LV_ALIGN_TOP_MID, 0, 70);
 
-        lv_obj_set_size(ctx->title, 440, 34);
-        lv_obj_set_pos(ctx->title, 20, 150);
-        lv_obj_set_size(ctx->instructions, 440, 28);
-        lv_obj_set_pos(ctx->instructions, 20, 187);
+        lv_obj_set_size(ctx->title, 440, LV_SIZE_CONTENT);
+        lv_obj_align(ctx->title, LV_ALIGN_TOP_MID, 0, 150);
+        lv_obj_set_size(ctx->instructions, 320, LV_SIZE_CONTENT);
     }
     else {
-        lv_obj_align(ctx->ha_icon, LV_ALIGN_TOP_LEFT, 130, 130);
+        lv_obj_align(ctx->ha_icon, LV_ALIGN_TOP_MID, 0, 130);
 
-        lv_obj_set_size(ctx->title, 300, 34);
-        lv_obj_set_pos(ctx->title, 10, 210);
-        lv_obj_set_size(ctx->instructions, 280, 28);
-        lv_obj_set_pos(ctx->instructions, 20, 247);
+        lv_obj_set_size(ctx->title, 300, LV_SIZE_CONTENT);
+        lv_obj_align(ctx->title, LV_ALIGN_TOP_MID, 0, 210);
+        lv_obj_set_size(ctx->instructions, 280, LV_SIZE_CONTENT);
     }
+    lv_obj_update_layout(ctx->title);
+    lv_obj_align_to(ctx->instructions, ctx->title, LV_ALIGN_OUT_BOTTOM_MID,
+                    0, 10);
 
     if (ctx->overlay) {
         lv_obj_set_size(ctx->overlay, LV_PCT(100), LV_PCT(100));
+        lv_obj_update_layout(ctx->overlay);
     }
     if (ctx->overlay_image) {
-        if (landscape) {
-            lv_obj_align(ctx->overlay_image, LV_ALIGN_TOP_MID, 0, 0);
-        }
-        else {
-            lv_obj_align(ctx->overlay_image, LV_ALIGN_TOP_LEFT, 118, 0);
-        }
+        lv_obj_align(ctx->overlay_image, LV_ALIGN_TOP_MID, 0, 0);
     }
     if (ctx->overlay_message) {
-        if (landscape) {
-            lv_obj_align(ctx->overlay_message, LV_ALIGN_TOP_MID, 0, 176);
-        }
-        else {
-            lv_obj_align(ctx->overlay_message, LV_ALIGN_TOP_LEFT, 30, 176);
-        }
+        lv_obj_set_size(ctx->overlay_message, landscape ? 440 : 280,
+                        LV_SIZE_CONTENT);
+        lv_obj_align(ctx->overlay_message, LV_ALIGN_TOP_MID, 0, 176);
     }
 
     lv_obj_invalidate(ctx->root);
@@ -274,6 +330,7 @@ static void ha_view_root_delete_cb(lv_event_t *event)
     ctx->overlay = NULL;
     ctx->overlay_image = NULL;
     ctx->overlay_message = NULL;
+    ctx->status_bar = NULL;
     lv_obj_set_user_data(lv_event_get_target_obj(event), NULL);
     lv_free(ctx);
 }

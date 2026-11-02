@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 /**
- * Format a Home Assistant ISO 8601 datetime as English relative time.
+ * Format a Home Assistant ISO 8601 datetime as relative time in the selected device language.
  *
  * Missing HA values produce "Never". Invalid datetimes produce
  * "Invalid date" and return an error while still leaving useful text in the
@@ -28,6 +28,12 @@ esp_err_t ha_datetime_format_relative_epoch(time_t event_epoch,
                                             time_t now_epoch,
                                             char *output,
                                             size_t output_size);
+
+/** Format elapsed time without tense, such as "13 minutes". */
+esp_err_t ha_datetime_format_elapsed_epoch(time_t event_epoch,
+                                           time_t now_epoch,
+                                           char *output,
+                                           size_t output_size);
 
 /** Format relative to the current synchronized system time. */
 esp_err_t ha_datetime_format_relative_now(const char *raw_value,

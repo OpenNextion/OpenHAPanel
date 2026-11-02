@@ -68,6 +68,22 @@ typedef esp_err_t (*entity_more_info_render_cb_t)(
 typedef esp_err_t (*entity_more_info_update_cb_t)(
     const entity_more_info_context_t *context);
 
+typedef struct entity_feature_instance {
+    lv_obj_t *host;
+    lv_obj_t *control;
+    const char *entity_id;
+    const screen_feature_config_t *config;
+} entity_feature_instance_t;
+
+typedef struct {
+    bool (*supports)(ha_entity_store_t *store, const char *entity_id,
+                     screen_feature_type_t type);
+    esp_err_t (*create)(entity_feature_instance_t *instance);
+    void (*update)(entity_feature_instance_t *instance,
+                   ha_entity_store_t *store,
+                   const ha_entity_snapshot_t *snapshot);
+} entity_feature_handler_t;
+
 /** Strategy implemented by one Home Assistant entity domain. */
 typedef struct {
     const char *domain;
@@ -79,6 +95,7 @@ typedef struct {
     entity_tile_render_cb_t render_tile;
     entity_more_info_render_cb_t render_more_info;
     entity_more_info_update_cb_t update_more_info;
+    const entity_feature_handler_t *feature_handler;
 } entity_handler_t;
 
 /** Shared helpers keep state normalization consistent across domain handlers. */

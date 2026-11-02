@@ -1,3 +1,4 @@
+#include "i18n.h"
 #include <stdio.h>
 #include <string.h>
 #include "esp_log.h"
@@ -163,6 +164,7 @@ int webserver_config_save_device_info_to_file(device_info_t *info)
     cJSON_AddBoolToObject(theme_mode, "followSystem", info->theme_mode.follow_system);
     cJSON_AddItemToObject(root, "theme_mode", theme_mode);
     cJSON_AddStringToObject(root, "product_name", info->product_name);
+    strlcpy(info->language, i18n_normalize_locale(info->language), sizeof(info->language));
     cJSON_AddStringToObject(root, "language", info->language);
     cJSON_AddStringToObject(root, "product_id", product_id);
     cJSON_AddNumberToObject(root, "brightness", info->brightness);
@@ -172,6 +174,7 @@ int webserver_config_save_device_info_to_file(device_info_t *info)
         return ESP_FAIL;
     }
     memcpy(&device_info, info, sizeof(device_info_t));
+    i18n_set_locale(info->language);
     return ESP_OK;
 }
 
@@ -212,8 +215,9 @@ int webserver_config_load_device_info_from_file(device_info_t *info)
         }
         cjson_parse_bool_field(theme_mode, "followSystem", &info->theme_mode.follow_system);
     }
+    strlcpy(info->language, "en", sizeof(info->language));
     if (cjson_parse_string_field(root, "language", &string)) {
-        strlcpy(info->language, string, sizeof(info->language));
+        strlcpy(info->language, i18n_normalize_locale(string), sizeof(info->language));
     }
     cJSON *json_brightness = cJSON_GetObjectItem(root, "brightness");
     if (json_brightness && cJSON_IsNumber(json_brightness)) {
@@ -595,7 +599,7 @@ void webserver_config_get_default_product_name(char *out, size_t len)
 static void webserver_config_init_product_info(void)
 {
     webserver_config_get_default_product_name(device_info.product_name, sizeof(device_info.product_name));
-    COPY_FIELD(device_info.language, "en");
+    COPY_FIELD(device_info.language, "");
     device_info.brightness = 50;
     device_info.idle_time = 300;
 
@@ -619,6 +623,7 @@ static void webserver_config_device_info_init(void)
         }
         ESP_LOGI(TAG, "Device information initialization");
     }
+    i18n_set_locale(device_info.language);
     // read_product_id(product_id, sizeof(product_id));
     if (product_id[0] == '\0') {
         ESP_LOGE(TAG, "Product ID is empty");

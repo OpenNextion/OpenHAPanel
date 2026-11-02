@@ -1,4 +1,7 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "button_entity_handler.h"
+#include "button_feature_handler.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -17,7 +20,8 @@
 
 #define SCREEN_DEFAULT_CONTENT_WIDTH_PORTRAIT 280
 #define SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE 440
-#define BUTTON_ACTION_WIDTH_LANDSCAPE 100
+#define BUTTON_ACTION_MIN_WIDTH_LANDSCAPE 100
+#define BUTTON_TILE_MIN_WIDTH_LANDSCAPE 158
 #define BUTTON_HISTORY_DAYS 3
 #define BUTTON_HISTORY_MAX_RECORDS 14
 #define BUTTON_HISTORY_PRESSED_STATE "pressed"
@@ -26,6 +30,23 @@
 #define BUTTON_ACTION_PRESSED_BG_COLOR 0x193E63
 
 static const char *TAG = "button_entity_handler";
+
+/* Matches the button domain defaults in Home Assistant's icons.json. */
+static const char *button_resolve_icon(const ha_entity_snapshot_t *snapshot)
+{
+    if (snapshot) {
+        if (strcmp(snapshot->device_class, "restart") == 0) {
+            return MDI_SYMBOL_RESTART;
+        }
+        if (strcmp(snapshot->device_class, "identify") == 0) {
+            return MDI_SYMBOL_CROSSHAIRS_QUESTION;
+        }
+        if (strcmp(snapshot->device_class, "update") == 0) {
+            return MDI_SYMBOL_PACKAGE_UP;
+        }
+    }
+    return MDI_SYMBOL_BUTTON_POINTER;
+}
 
 typedef struct {
     time_t epoch;
@@ -245,11 +266,8 @@ static void button_history_insert(time_t epoch, const char *state)
         position++;
     }
     if (position < s_button_history.record_count &&
-        s_button_history.records[position].epoch == epoch) {
-        snprintf(s_button_history.records[position].state,
-                 sizeof(s_button_history.records[position].state),
-                 "%s",
-                 state);
+        s_button_history.records[position].epoch == epoch &&
+        strcmp(s_button_history.records[position].state, state) == 0) {
         return;
     }
     if (position >= BUTTON_HISTORY_MAX_RECORDS) {
@@ -317,13 +335,13 @@ static void button_history_render(lv_obj_t *parent)
 {
     const char *message = NULL;
     if (s_button_history.loading && s_button_history.record_count == 0) {
-        message = "Loading history...";
+        message = i18n_get(I18N_HISTORY_LOADING);
     }
     else if (s_button_history.failed && s_button_history.record_count == 0) {
-        message = "History unavailable";
+        message = i18n_get(I18N_HISTORY_UNAVAILABLE);
     }
     else if (s_button_history.record_count == 0) {
-        message = "No history";
+        message = i18n_get(I18N_HISTORY_EMPTY);
     }
 
     ha_history_list_item_t items[BUTTON_HISTORY_MAX_RECORDS] = {0};
@@ -331,20 +349,20 @@ static void button_history_render(lv_obj_t *parent)
         const char *state = s_button_history.records[i].state;
         const char *text = state;
         if (strcmp(state, BUTTON_HISTORY_PRESSED_STATE) == 0) {
-            text = "Pressed";
+            text = i18n_get(I18N_ACTION_PRESSED);
         }
         else if (strcmp(state, "unavailable") == 0) {
-            text = "Unavailable";
+            text = i18n_get(I18N_STATE_UNAVAILABLE);
         }
         else if (strcmp(state, "unknown") == 0) {
-            text = "Unknown";
+            text = i18n_get(I18N_STATE_UNKNOWN);
         }
         items[i].epoch = s_button_history.records[i].epoch;
         items[i].text = text;
     }
 
     const ha_history_list_config_t config = {
-        .title = "History",
+        .title = i18n_get(I18N_HISTORY_TITLE),
         .items = items,
         .item_count = s_button_history.record_count,
         .message = message,
@@ -451,7 +469,7 @@ static lv_obj_t *button_more_info_build_page(
     lv_obj_t *title = lv_label_create(header);
     lv_obj_set_flex_grow(title, 1);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_label_set_text(title,
+    ui_i18n_label_set_text(title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -502,7 +520,7 @@ static esp_err_t button_render_tile(ha_entity_store_t *store,
     }
 
     entity_handler_apply_friendly_name(snapshot, model);
-    model->icon = MDI_SYMBOL_GESTURE_TAP_BUTTON;
+    model->icon = button_resolve_icon(snapshot);
     model->background_color = lv_color_hex(0x1E2228);
     model->icon_color = lv_color_hex(0x44739e);
     model->icon_circle_background_color = lv_color_hex(0x242d36);
@@ -585,7 +603,7 @@ static esp_err_t button_render_more_info(
 
 
     lv_obj_t *tile_icon = lv_label_create(tile_box);
-    lv_label_set_text(tile_icon, MDI_SYMBOL_GESTURE_TAP_BUTTON);
+    ui_i18n_label_set_text(tile_icon, button_resolve_icon(&context->snapshot));
     lv_obj_set_style_text_font(tile_icon, &ha_font_mdi_26, 0);
     lv_obj_set_style_text_color(tile_icon, unavailable ? lv_color_hex(0x6f6f6f) : lv_color_hex(0x44739e), 0);
 
@@ -608,7 +626,7 @@ static esp_err_t button_render_more_info(
     lv_label_set_long_mode(tile_content_title, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_title, lv_color_hex(0xFFFFFF), 0);
     // 展示实体的friendly_name
-    lv_label_set_text(tile_content_title,
+    ui_i18n_label_set_text(tile_content_title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -626,7 +644,7 @@ static esp_err_t button_render_more_info(
                                         state_text,
                                         sizeof(state_text));
     }
-    lv_label_set_text(tile_content_state, state_text);
+    ui_i18n_label_set_text(tile_content_state, state_text);
     if (!unavailable) {
         time_t state_time = 0;
         if (ha_datetime_parse_epoch(context->snapshot.state,
@@ -642,13 +660,23 @@ static esp_err_t button_render_more_info(
     lv_obj_t *press_button = lv_button_create(content);
     lv_obj_remove_style_all(press_button);
     lv_obj_add_flag(press_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(press_button,
-                    landscape ? BUTTON_ACTION_WIDTH_LANDSCAPE
-                              : LV_PCT(100),
-                    48);
+    const char *action_text = i18n_get(I18N_ACTION_PRESS);
+    int32_t action_width = LV_PCT(100);
+    if (landscape) {
+        lv_point_t text_size;
+        lv_text_get_size(&text_size, action_text, &ha_font_misan_medium_20,
+                         0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        lv_obj_update_layout(content);
+        const int32_t max_width = LV_MAX(BUTTON_ACTION_MIN_WIDTH_LANDSCAPE,
+            lv_obj_get_content_width(content) - BUTTON_TILE_MIN_WIDTH_LANDSCAPE - 10);
+        action_width = LV_CLAMP(BUTTON_ACTION_MIN_WIDTH_LANDSCAPE,
+                                text_size.x + 24, max_width);
+    }
+    lv_obj_set_size(press_button, action_width, 48);
     lv_obj_set_style_radius(press_button, 12, 0);
     lv_obj_set_style_border_width(press_button, 0, 0);
     lv_obj_set_style_shadow_width(press_button, 0, 0);
+    lv_obj_set_style_pad_hor(press_button, 12, 0);
     /* Match the scene action: idle and disabled blend into the card, while
      * pressing reveals the blue rounded surface. */
     lv_obj_set_style_bg_color(press_button, lv_color_hex(0x1E2228), 0);
@@ -674,14 +702,23 @@ static esp_err_t button_render_more_info(
     }
 
     lv_obj_t *button_label = lv_label_create(press_button);
-    lv_label_set_text(button_label, "Press");
+    ui_i18n_label_set_text(button_label, action_text);
     lv_obj_set_style_text_font(button_label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_width(button_label, LV_PCT(100));
+    lv_obj_set_style_text_align(button_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(button_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(
         button_label,
         lv_color_hex(unavailable ? BUTTON_ACTION_DISABLED_COLOR
                                  : BUTTON_ACTION_COLOR),
         0);
     lv_obj_center(button_label);
+    if (landscape) {
+        lv_obj_update_layout(content);
+        const int32_t left_width = lv_obj_get_content_width(tile_content_ctx);
+        lv_obj_set_width(tile_content_title, left_width);
+        lv_obj_set_width(tile_content_state, left_width);
+    }
 
     button_history_prepare(context);
     button_history_render(main_ctn);
@@ -693,7 +730,7 @@ const entity_handler_t button_entity_handler = {
     .domain = "button",
     .required_fields = HA_ENTITY_FIELD_ALL,
     .refresh_changes = ENTITY_HANDLER_REFRESH_CHANGES,
-    .initial_icon = MDI_SYMBOL_GESTURE_TAP_BUTTON,
+    .initial_icon = MDI_SYMBOL_BUTTON_POINTER,
     .default_action_config = {
         .has_tap_action = true,
         .tap_action = { .action = SCREEN_ACTION_MORE_INFO },
@@ -705,4 +742,5 @@ const entity_handler_t button_entity_handler = {
     .handle_action = button_handle_action,
     .render_tile = button_render_tile,
     .render_more_info = button_render_more_info,
+    .feature_handler = &button_feature_handler,
 };

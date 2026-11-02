@@ -20,6 +20,10 @@ export interface IDeviceInfoNotify {
     //IEEEAddress: IEEEAddress;
 }
 
+export interface ILanguageNotify {
+    language: string;
+}
+
 export interface INightModeSettings {
     enable: boolean;
     brightness: number;

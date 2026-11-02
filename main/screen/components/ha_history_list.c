@@ -1,3 +1,5 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "ha_history_list.h"
 
 #include <stdint.h>
@@ -40,8 +42,10 @@ static lv_obj_t *history_list_create_root(lv_obj_t *parent,
     lv_obj_set_size(header, LV_PCT(100), LV_SIZE_CONTENT);
 
     lv_obj_t *title_label = lv_label_create(header);
+    lv_obj_set_width(title_label, LV_PCT(100));
+    lv_label_set_long_mode(title_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_font(title_label, &ha_font_misan_medium_20, 0);
-    lv_label_set_text(title_label, title && title[0] ? title : "History");
+    ui_i18n_label_set_text(title_label, title && title[0] ? title : i18n_get(I18N_HISTORY_TITLE));
     lv_obj_set_style_text_color(title_label, lv_color_white(), 0);
     return root;
 }
@@ -66,7 +70,9 @@ static lv_obj_t *history_list_create_content(lv_obj_t *root)
 static void history_list_render_message(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *label = lv_label_create(parent);
-    lv_label_set_text(label, text ? text : "");
+    lv_obj_set_width(label, LV_PCT(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    ui_i18n_label_set_text(label, text ? text : "");
     lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(0x666666), 0);
 }
@@ -86,7 +92,9 @@ static lv_obj_t *history_list_create_day_group(lv_obj_t *parent,
     lv_obj_set_style_pad_gap(group, 16, 0);
 
     lv_obj_t *date = lv_label_create(group);
-    lv_label_set_text(date, date_text);
+    lv_obj_set_width(date, LV_PCT(100));
+    lv_label_set_long_mode(date, LV_LABEL_LONG_WRAP);
+    ui_i18n_label_set_text(date, date_text);
     lv_obj_set_style_text_font(date, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(date, lv_color_white(), 0);
 
@@ -121,13 +129,13 @@ static void history_list_create_record(lv_obj_t *parent,
     lv_obj_set_style_pad_column(row, 8, 0);
 
     lv_obj_t *event = lv_label_create(row);
-    lv_label_set_text(event, text ? text : "");
+    ui_i18n_label_set_text(event, text ? text : "");
     lv_obj_set_flex_grow(event, 1);
     lv_obj_set_style_text_font(event, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(event, lv_color_hex(0x666666), 0);
 
     lv_obj_t *time_label = lv_label_create(row);
-    lv_label_set_text(time_label, time_text);
+    ui_i18n_label_set_text(time_label, time_text);
     lv_obj_set_style_text_font(time_label, &ha_font_misan_regular_16_tnum, 0);
     lv_obj_set_style_text_color(time_label, lv_color_hex(0x666666), 0);
     lv_obj_set_style_text_align(time_label, LV_TEXT_ALIGN_RIGHT, 0);
@@ -156,14 +164,10 @@ lv_obj_t *ha_history_list_create(
         return root;
     }
     if (!config->items || config->item_count == 0) {
-        history_list_render_message(content, "No history");
+        history_list_render_message(content, i18n_get(I18N_HISTORY_EMPTY));
         return root;
     }
 
-    static const char *const months[] = {
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
-    };
     char today_iso[40] = {0};
     const time_t now = time(NULL);
     if (now > 0) {
@@ -198,14 +202,9 @@ lv_obj_t *ha_history_list_create(
                 continue;
             }
 
-            char date_text[48] = {0};
-            snprintf(date_text,
-                     sizeof(date_text),
-                     "%.10s%s %u, %u",
-                     strncmp(today_iso, date_key, 10) == 0 ? "Today · " : "",
-                     months[month - 1],
-                     day,
-                     year);
+            char date_text[160] = {0};
+            i18n_format_date(date_text, sizeof(date_text), year, month, day,
+                             strncmp(today_iso, date_key, 10) == 0);
             record_box = history_list_create_day_group(content, date_text);
             snprintf(previous_date, sizeof(previous_date), "%s", date_key);
         }

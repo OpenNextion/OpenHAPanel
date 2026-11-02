@@ -12,6 +12,7 @@ export interface IHassEntityRegistryDisplayEntry {
     name?: string | null;
     original_name?: string | null;
     icon?: string | null;
+    dp?: number;
     [key: string]: unknown;
 }
 

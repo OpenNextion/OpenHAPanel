@@ -17,7 +17,10 @@
 #define LCD_SPI_HOST            SPI2_HOST
 #define LCD_H_RES               320
 #define LCD_V_RES               480
-#define LCD_PCLK_HZ             (80 * 1000 * 1000)
+/* ESP32-S3 GPSPI uses the 80 MHz APB clock with an integer divider. There is
+ * no effective 60 MHz step: requesting 60 MHz resolves to 40 MHz in ESP-IDF.
+ * Use the explicit safe value for PSRAM-direct LCD DMA. */
+#define LCD_PCLK_HZ             (40 * 1000 * 1000)
 #define LCD_FLUSH_LINES         80
 
 #define LVGL_BUF_LINES          80

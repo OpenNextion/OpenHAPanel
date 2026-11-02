@@ -4,7 +4,7 @@ import { EWsMethods } from '@/types/websocket';
 import Env from '@/types/Env';
 import { handleAuthRequiredNotify } from '@/ws/handler/authHandler';
 import { handleConnectionStatusNotify, handleNetworkInfoNotify, handleWifiScanResult } from '@/ws/handler/network';
-import { handleDeviceInfoNotify, handleScreenRotationNotify } from '@/ws/handler/device';
+import { handleDeviceInfoNotify, handleLanguageNotify, handleScreenRotationNotify } from '@/ws/handler/device';
 import { handleHassAuthorizationResultNotify, handleHassConnectionStatusNotify, handleScanHassInstanceNotify } from '@/ws/handler/homeassistant';
 import { handleScreenConfigNotify } from '@/ws/handler/screenConfig';
 import { handleForgotPwdNotify } from '@/ws/handler/forgotPwd';
@@ -26,6 +26,7 @@ export const METHOD2FUNC: IMethod2Func = {
     [EWsMethods.AUTH_REQUIRED_NOTIFY]: handleAuthRequiredNotify,
     [EWsMethods.FORGOT_PASSWORD_NOTIFY]: handleForgotPwdNotify,
     [EWsMethods.DEVICE_INFO_NOTIFY]: handleDeviceInfoNotify,
+    [EWsMethods.LANGUAGE_NOTIFY]: handleLanguageNotify,
     [EWsMethods.SCREEN_ROTATION_NOTIFY]: handleScreenRotationNotify,
     [EWsMethods.FIRMWARE_UPDATE_STATUS_NOTIFY]: handleFirmwareUpdateStatusNotify,
     [EWsMethods.LAN_DEVICE_NOTIFY]: handleLanDeviceNotify,

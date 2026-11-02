@@ -1,3 +1,5 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "ha_history_chart.h"
 
 #include <limits.h>
@@ -180,7 +182,7 @@ static int32_t history_chart_create_y_axis_labels(lv_obj_t *root,
                                    sizeof(value_text));
 
         lv_obj_t *label = lv_label_create(root);
-        lv_label_set_text(label, value_text);
+        ui_i18n_label_set_text(label, value_text);
         lv_obj_set_style_text_font(label, &ha_font_misan_regular_12, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(0x666666), 0);
         lv_obj_update_layout(label);
@@ -202,7 +204,13 @@ static int32_t history_chart_create_y_axis_labels(lv_obj_t *root,
 static void history_chart_render_message(lv_obj_t *root, const char *text)
 {
     lv_obj_t *label = lv_label_create(root);
-    lv_label_set_text(label, text ? text : "");
+    /* The root has not been laid out yet, so its measured width is stale. */
+    const int32_t chart_width = bsp_lcd_is_landscape()
+                                    ? HA_HISTORY_CHART_DEFAULT_WIDTH_LANDSCAPE
+                                    : HA_HISTORY_CHART_DEFAULT_WIDTH_PORTAIT;
+    lv_obj_set_width(label, chart_width - 24);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    ui_i18n_label_set_text(label, text ? text : "");
     lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(0x666666), 0);
     lv_obj_set_pos(label, 12, 72);
@@ -235,7 +243,7 @@ static void history_chart_create_time_labels(
         }
 
         lv_obj_t *label = lv_label_create(root);
-        lv_label_set_text(label, time_text);
+        ui_i18n_label_set_text(label, time_text);
         lv_obj_set_style_text_font(label, &ha_font_misan_regular_12, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(0x666666), 0);
         lv_obj_update_layout(label);
@@ -319,7 +327,7 @@ static void history_chart_event_cb(lv_event_t *event)
              "%s%s",
              value_text,
              history->unit);
-    lv_label_set_text(history->tooltip, tooltip_text);
+    ui_i18n_label_set_text(history->tooltip, tooltip_text);
     lv_obj_remove_flag(history->tooltip, LV_OBJ_FLAG_HIDDEN);
     lv_obj_update_layout(history->tooltip);
 
@@ -412,8 +420,10 @@ static lv_obj_t *history_chart_create_root(lv_obj_t *parent,
     lv_obj_set_style_radius(root, 12, 0);
 
     lv_obj_t *title_label = lv_label_create(root);
+    lv_obj_set_width(title_label, chart_default_width - 24);
+    lv_label_set_long_mode(title_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_font(title_label, &ha_font_misan_medium_20, 0);
-    lv_label_set_text(title_label, title ? title : "History");
+    ui_i18n_label_set_text(title_label, title ? title : i18n_get(I18N_HISTORY_TITLE));
     lv_obj_set_style_text_color(title_label, lv_color_white(), 0);
     lv_obj_set_pos(title_label, 12, 16);
     return root;
@@ -439,18 +449,18 @@ lv_obj_t *ha_history_chart_create(
         config->point_count > SIZE_MAX / sizeof(double) ||
         config->end_time <= config->start_time ||
         (uint64_t)(config->end_time - config->start_time) > INT32_MAX) {
-        history_chart_render_message(root, "No history");
+        history_chart_render_message(root, i18n_get(I18N_HISTORY_EMPTY));
         return root;
     }
 #if SIZE_MAX > UINT32_MAX
     if (config->point_count > UINT32_MAX) {
-        history_chart_render_message(root, "No history");
+        history_chart_render_message(root, i18n_get(I18N_HISTORY_EMPTY));
         return root;
     }
 #endif
     for (size_t i = 0; i < config->point_count; i++) {
         if (!isfinite(config->points[i].value)) {
-            history_chart_render_message(root, "No history");
+            history_chart_render_message(root, i18n_get(I18N_HISTORY_EMPTY));
             return root;
         }
     }
@@ -496,11 +506,11 @@ lv_obj_t *ha_history_chart_create(
         axis_max,
         y_axis_tick_count);
     int32_t chart_default_width = bsp_lcd_is_landscape() ? HA_HISTORY_CHART_DEFAULT_WIDTH_LANDSCAPE : HA_HISTORY_CHART_DEFAULT_WIDTH_PORTAIT;
-    
+
     history->chart_width = chart_default_width -HA_HISTORY_CHART_RIGHT - history->chart_x;
 
     lv_obj_t *unit_label = lv_label_create(root);
-    lv_label_set_text(unit_label, history->unit);
+    ui_i18n_label_set_text(unit_label, history->unit);
     lv_obj_set_style_text_font(unit_label, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(unit_label, lv_color_hex(0x666666), 0);
     lv_obj_update_layout(unit_label);
@@ -583,7 +593,7 @@ lv_obj_t *ha_history_chart_create(
     }
 
     history->tooltip = lv_label_create(root);
-    lv_label_set_text(history->tooltip, "");
+    ui_i18n_label_set_text(history->tooltip, "");
     lv_obj_set_size(history->tooltip, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_style_text_font(history->tooltip,
                                &ha_font_misan_regular_16,

@@ -7,7 +7,6 @@ import { ERROR_CODE } from '@/constant';
 import { EWsMethods } from '@/types/websocket';
 
 interface IDevice extends IDeviceInfoNotify, IThemeModeNotify {
-    debugLogEnabled: boolean;
     nightMode: INightModeSettings;
     screenRotation: IScreenRotationNotify;
 }
@@ -50,7 +49,6 @@ const INIT_VALUE: IDevice = {
     language: 'en',
     currentMode: initialBootstrapTheme === 'dark' ? EThemeMode.DARK : EThemeMode.NORMAL,
     followSystem: cachedFollowSystem,
-    debugLogEnabled: false,
     brightness: 50,
     idleTime: 300,
     nightMode: {
@@ -130,15 +128,6 @@ export async function updateDeviceLanguage(language: string) {
         data: { language },
     });
     if (result.error === ERROR_CODE.SUCCESS) updateDeviceField('language', language);
-    return result;
-}
-
-export async function updateDebugLog(enable: boolean) {
-    const result = await sendForReply<{ enable: boolean }>({
-        method: EWsMethods.SET_DEBUG_LOG,
-        data: { enable },
-    });
-    if (result.error === ERROR_CODE.SUCCESS) updateDeviceField('debugLogEnabled', enable);
     return result;
 }
 

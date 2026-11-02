@@ -22,6 +22,12 @@ esp_err_t ui_preferences_get_screen_rotation(uint8_t *quarter_turns);
 /** Persist the display rotation as a number of clockwise quarter turns. */
 esp_err_t ui_preferences_set_screen_rotation(uint8_t quarter_turns);
 
+/** Read the persisted screen theme value. */
+esp_err_t ui_preferences_get_screen_theme(uint8_t *theme);
+
+/** Persist the screen theme value. */
+esp_err_t ui_preferences_set_screen_theme(uint8_t theme);
+
 /** Clear all persisted UI preferences during a factory reset. */
 esp_err_t ui_preferences_prepare_factory_reset(void);
 

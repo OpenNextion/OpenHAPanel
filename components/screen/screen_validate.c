@@ -152,7 +152,7 @@ static esp_err_t validate_badges(const cJSON *screen)
 
 static esp_err_t validate_feature(const cJSON *feature)
 {
-    const char *allowed[] = {"light-brightness", "light-color-temp", "cover-open-close", "cover-position"};
+    const char *allowed[] = {"light-brightness", "light-color-temp", "cover-open-close", "cover-position", "switch-toggle", "siren-toggle", "scene-press", "button-press"};
     if (!cJSON_IsObject(feature)) {
         ESP_LOGE(TAG, "Invalid feature");
         return ESP_FAIL;
@@ -211,6 +211,13 @@ static esp_err_t validate_tile_card_data(const cJSON *data)
     const cJSON *entity = cJSON_GetObjectItemCaseSensitive(data, "entity");
     if (!is_string_value(entity)) {
         ESP_LOGE(TAG, "Missing or invalid tile entity");
+        return ESP_FAIL;
+    }
+
+    const cJSON *position = cJSON_GetObjectItemCaseSensitive(data, "features_position");
+    if (!is_optional_null(position) &&
+        (!is_string_value(position) || strcmp(position->valuestring, "bottom") != 0)) {
+        ESP_LOGE(TAG, "Invalid features_position");
         return ESP_FAIL;
     }
 

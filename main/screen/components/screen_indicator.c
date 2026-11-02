@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "screen_theme.h"
+
 #define SCREEN_INDICATOR_DOT_SIZE       8
 #define SCREEN_INDICATOR_DOT_GAP        8
 #define SCREEN_INDICATOR_BOTTOM_OFFSET  8
@@ -12,14 +14,30 @@ struct screen_indicator {
     lv_obj_t *root;
     size_t page_count;
     size_t active_index;
+    lv_color_t active_color;
+    lv_color_t inactive_color;
 };
 
-static void screen_indicator_apply_dot_style(lv_obj_t *dot, bool active)
+static void screen_indicator_update_theme_colors(screen_indicator_t *indicator)
+{
+    const screen_theme_mode_t mode = screen_theme_get();
+    const screen_theme_palette_t *palette =
+        screen_theme_get_palette_for_mode(mode);
+    const bool light = mode == SCREEN_THEME_LIGHT;
+
+    indicator->active_color = lv_color_hex(
+        light ? palette->text_primary : SCREEN_INDICATOR_ACTIVE_COLOR);
+    indicator->inactive_color = lv_color_hex(
+        light ? palette->text_disabled : SCREEN_INDICATOR_INACTIVE_COLOR);
+}
+
+static void screen_indicator_apply_dot_style(screen_indicator_t *indicator,
+                                              lv_obj_t *dot,
+                                              bool active)
 {
     lv_obj_set_style_bg_color(
         dot,
-        lv_color_hex(active ? SCREEN_INDICATOR_ACTIVE_COLOR
-                            : SCREEN_INDICATOR_INACTIVE_COLOR),
+        active ? indicator->active_color : indicator->inactive_color,
         0);
 }
 
@@ -37,6 +55,7 @@ screen_indicator_t *screen_indicator_create(lv_obj_t *parent,
     memset(indicator, 0, sizeof(*indicator));
     indicator->page_count = page_count;
     indicator->active_index = page_count;
+    screen_indicator_update_theme_colors(indicator);
 
     indicator->root = lv_obj_create(parent);
     if (!indicator->root) {
@@ -76,7 +95,7 @@ screen_indicator_t *screen_indicator_create(lv_obj_t *parent,
                         SCREEN_INDICATOR_DOT_SIZE);
         lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-        screen_indicator_apply_dot_style(dot, false);
+        screen_indicator_apply_dot_style(indicator, dot, false);
     }
 
     screen_indicator_set_active(indicator, 0);
@@ -104,8 +123,28 @@ void screen_indicator_set_active(screen_indicator_t *indicator,
     for (size_t i = 0; i < indicator->page_count; i++) {
         lv_obj_t *dot = lv_obj_get_child(indicator->root, (int32_t)i);
         if (dot) {
-            screen_indicator_apply_dot_style(dot, i == active_index);
+            screen_indicator_apply_dot_style(indicator,
+                                              dot,
+                                              i == active_index);
         }
     }
     indicator->active_index = active_index;
+}
+
+void screen_indicator_apply_theme(screen_indicator_t *indicator)
+{
+    if (!indicator || !indicator->root) {
+        return;
+    }
+
+    screen_indicator_update_theme_colors(indicator);
+    for (size_t i = 0; i < indicator->page_count; i++) {
+        lv_obj_t *dot = lv_obj_get_child(indicator->root, (int32_t)i);
+        if (dot) {
+            screen_indicator_apply_dot_style(indicator,
+                                              dot,
+                                              i == indicator->active_index);
+        }
+    }
+    lv_obj_invalidate(indicator->root);
 }

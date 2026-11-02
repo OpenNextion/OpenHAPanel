@@ -55,13 +55,13 @@ lv_obj_t *screen_device_info_get_obj(screen_device_info_t *view);
 void screen_device_info_set_data(screen_device_info_t *view,
                                  const screen_device_info_data_t *data);
 
-/** Configure the action invoked when the Check Update button is pressed. */
+/** Configure the action invoked when the Check for Updates button is pressed. */
 void screen_device_info_set_check_update_cb(
     screen_device_info_t *view,
     screen_device_info_check_update_cb_t callback,
     void *user_data);
 
-/** Configure the action invoked when the available-version Upgrade link is pressed. */
+/** Configure the action invoked when the available-version Update link is pressed. */
 void screen_device_info_set_upgrade_cb(screen_device_info_t *view,
                                        screen_device_info_upgrade_cb_t callback,
                                        void *user_data);
@@ -89,6 +89,9 @@ bool screen_device_info_is_visible(const screen_device_info_t *view);
 
 /** Reapply the portrait or landscape layout after the display rotates. */
 void screen_device_info_apply_orientation(screen_device_info_t *view);
+
+/** Reapply colors from the currently selected screen theme. */
+void screen_device_info_apply_theme(screen_device_info_t *view);
 
 #ifdef __cplusplus
 }

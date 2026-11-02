@@ -19,6 +19,12 @@ system_status_bar_t *system_status_bar_create(lv_obj_t *parent);
 /** Return the root LVGL object of the status bar. */
 lv_obj_t *system_status_bar_get_obj(system_status_bar_t *bar);
 
+/** Reapply colors from the currently selected screen theme. */
+void system_status_bar_apply_theme(system_status_bar_t *bar);
+
+/** Reapply the selected theme to every live status bar. */
+void system_status_bar_apply_theme_all(void);
+
 /** Set the optional title displayed on the left side of the status bar. */
 void system_status_bar_set_title(system_status_bar_t *bar, const char *title);
 

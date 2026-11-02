@@ -10,6 +10,7 @@
 typedef struct ha_relative_time_binding {
     lv_obj_t *label;
     time_t event_epoch;
+    bool elapsed;
     struct ha_relative_time_binding *next;
 } ha_relative_time_binding_t;
 
@@ -23,8 +24,24 @@ static void ha_relative_time_update(ha_relative_time_binding_t *binding,
 static void ha_relative_time_remove_binding(
     ha_relative_time_binding_t *binding,
     bool remove_event_callback);
+static esp_err_t ha_relative_time_label_bind_internal(lv_obj_t *label,
+                                                       time_t event_epoch,
+                                                       bool elapsed);
 
 esp_err_t ha_relative_time_label_bind(lv_obj_t *label, time_t event_epoch)
+{
+    return ha_relative_time_label_bind_internal(label, event_epoch, false);
+}
+
+esp_err_t ha_relative_time_label_bind_elapsed(lv_obj_t *label,
+                                              time_t event_epoch)
+{
+    return ha_relative_time_label_bind_internal(label, event_epoch, true);
+}
+
+static esp_err_t ha_relative_time_label_bind_internal(lv_obj_t *label,
+                                                       time_t event_epoch,
+                                                       bool elapsed)
 {
     if (!label || event_epoch <= 0) {
         return ESP_ERR_INVALID_ARG;
@@ -33,6 +50,7 @@ esp_err_t ha_relative_time_label_bind(lv_obj_t *label, time_t event_epoch)
     ha_relative_time_binding_t immediate = {
         .label = label,
         .event_epoch = event_epoch,
+        .elapsed = elapsed,
     };
     ha_relative_time_update(&immediate, time(NULL));
 
@@ -41,6 +59,7 @@ esp_err_t ha_relative_time_label_bind(lv_obj_t *label, time_t event_epoch)
          binding = binding->next) {
         if (binding->label == label) {
             binding->event_epoch = event_epoch;
+            binding->elapsed = elapsed;
             return ESP_OK;
         }
     }
@@ -52,6 +71,7 @@ esp_err_t ha_relative_time_label_bind(lv_obj_t *label, time_t event_epoch)
     memset(binding, 0, sizeof(*binding));
     binding->label = label;
     binding->event_epoch = event_epoch;
+    binding->elapsed = elapsed;
 
     if (!s_refresh_timer) {
         s_refresh_timer = lv_timer_create(ha_relative_time_timer_cb,
@@ -116,10 +136,18 @@ static void ha_relative_time_update(ha_relative_time_binding_t *binding,
     }
 
     char text[HA_RELATIVE_TIME_TEXT_MAX] = {0};
-    if (ha_datetime_format_relative_epoch(binding->event_epoch,
-                                          now_epoch,
-                                          text,
-                                          sizeof(text)) != ESP_OK &&
+    const esp_err_t err = binding->elapsed
+                              ? ha_datetime_format_elapsed_epoch(
+                                    binding->event_epoch,
+                                    now_epoch,
+                                    text,
+                                    sizeof(text))
+                              : ha_datetime_format_relative_epoch(
+                                    binding->event_epoch,
+                                    now_epoch,
+                                    text,
+                                    sizeof(text));
+    if (err != ESP_OK &&
         !text[0]) {
         return;
     }

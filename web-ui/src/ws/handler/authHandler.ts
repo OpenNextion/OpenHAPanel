@@ -13,18 +13,27 @@ import type { IResponse } from '@/types/websocket';
 import { replace } from 'svelte-spa-router';
 import { wsReconnectManager } from '@/ws/wsReconnect';
 import { get } from 'svelte/store';
+import { getBrowserLanguage, setLanguage } from '@/stores/language';
 
 export async function handleAuthRequiredNotify(params: IResponse<IAuthNotify>) {
     console.log('auth required notify coming message', params);
     const { data } = params;
     // needs init password
     if ('passwordInitRequired' in data) {
+        const browserLanguage = getBrowserLanguage();
         clearLoginSession();
         updateAuthField('sessionReady', false);
         updateAuthField('loggedIn', false);
         updateAuthField('passwordInitRequired', true);
         updateAuthField('authParams', { nonce: data.nonce });
         void replace(ROUTES_PATH.LOGIN);
+        void setLanguage(browserLanguage)
+            .then(({ wsResponse }) => {
+                if (wsResponse.error !== 0) console.warn('Failed to set browser language during password setup:', wsResponse.error);
+            })
+            .catch((error) => {
+                console.error('Failed to set browser language during password setup:', error);
+            });
         return;
     } else {
         updateAuthField('passwordInitRequired', false);

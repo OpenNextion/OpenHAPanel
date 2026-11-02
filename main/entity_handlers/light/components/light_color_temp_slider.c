@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include "../../../assets/ha_ui_assets.h"
+
 #define COLOR_TEMP_SLIDER_WIDTH         88
 #define COLOR_TEMP_SLIDER_HEIGHT        230
 #define COLOR_TEMP_SLIDER_RADIUS        20
@@ -536,6 +538,7 @@ lv_obj_t *light_color_temp_slider_create(lv_obj_t *parent)
         lv_obj_set_style_bg_opa(context->tip, LV_OPA_COVER, 0);
         context->tip_label = lv_label_create(context->tip);
         if (context->tip_label) {
+            lv_obj_set_style_text_font(context->tip_label, &ha_font_misan_regular_14, 0);
             lv_obj_set_style_text_color(context->tip_label,
                                         lv_color_white(),
                                         0);

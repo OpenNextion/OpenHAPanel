@@ -1,12 +1,14 @@
+#include "ui_i18n.h"
 #include "system_status_bar.h"
 
 #include <string.h>
 #include <time.h>
 
 #include "../../assets/ha_ui_assets.h"
+#include "screen_theme.h"
 #include "sys_time_api.h"
 
-#define SYSTEM_STATUS_BAR_PRIMARY_COLOR 0xFFFFFF
+#define SYSTEM_STATUS_BAR_DEFAULT_COLOR 0xFFFFFF
 #define SYSTEM_STATUS_BAR_REFRESH_MS     1000
 #define SYSTEM_STATUS_BAR_TITLE_WIDTH    168
 
@@ -76,9 +78,10 @@ system_status_bar_t *system_status_bar_create(lv_obj_t *parent)
                     SYSTEM_STATUS_BAR_TITLE_WIDTH,
                     lv_font_get_line_height(&ha_font_misan_regular_16));
     lv_label_set_long_mode(bar->title_label, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_style_text_color(bar->title_label,
-                                lv_color_hex(SYSTEM_STATUS_BAR_PRIMARY_COLOR),
-                                0);
+    lv_obj_set_style_text_color(
+        bar->title_label,
+        lv_color_hex(SYSTEM_STATUS_BAR_DEFAULT_COLOR),
+        0);
     lv_obj_set_style_text_font(bar->title_label, &ha_font_misan_regular_16, 0);
     system_status_bar_set_title(bar, "");
 
@@ -95,7 +98,7 @@ system_status_bar_t *system_status_bar_create(lv_obj_t *parent)
     lv_obj_set_style_pad_column(right, 8, 0);
 
     bar->ota_update_icon = lv_image_create(right);
-    lv_image_set_src(bar->ota_update_icon, &cloud_update_22);
+    lv_image_set_src(bar->ota_update_icon, &cloud_update_24x24);
     lv_obj_remove_flag(bar->ota_update_icon, LV_OBJ_FLAG_CLICKABLE);
     system_status_bar_refresh_ota_update_icon(bar);
 
@@ -115,9 +118,9 @@ system_status_bar_t *system_status_bar_create(lv_obj_t *parent)
 
     bar->time_label = lv_label_create(right);
     lv_obj_set_style_text_color(bar->time_label,
-                                lv_color_hex(SYSTEM_STATUS_BAR_PRIMARY_COLOR),
+                                lv_color_hex(SYSTEM_STATUS_BAR_DEFAULT_COLOR),
                                 0);
-    lv_obj_set_style_text_font(bar->time_label, &ha_font_misan_medium_24, 0);
+    lv_obj_set_style_text_font(bar->time_label, &ha_font_misan_medium_20, 0);
     system_status_bar_refresh_time(bar);
     bar->refresh_timer = lv_timer_create(system_status_bar_timer_cb,
                                          SYSTEM_STATUS_BAR_REFRESH_MS,
@@ -125,6 +128,8 @@ system_status_bar_t *system_status_bar_create(lv_obj_t *parent)
 
     bar->next = s_status_bars;
     s_status_bars = bar;
+
+    system_status_bar_apply_theme(bar);
 
     return bar;
 }
@@ -134,13 +139,53 @@ lv_obj_t *system_status_bar_get_obj(system_status_bar_t *bar)
     return bar ? bar->container : NULL;
 }
 
+void system_status_bar_apply_theme(system_status_bar_t *bar)
+{
+    if (!bar) {
+        return;
+    }
+
+    const screen_theme_mode_t mode = screen_theme_get();
+    const screen_theme_palette_t *palette =
+        screen_theme_get_palette_for_mode(mode);
+    const bool light = mode == SCREEN_THEME_LIGHT;
+    const lv_color_t primary = lv_color_hex(palette->text_primary);
+
+    if (bar->title_label) {
+        lv_obj_set_style_text_color(bar->title_label, primary, 0);
+    }
+    if (bar->time_label) {
+        lv_obj_set_style_text_color(bar->time_label, primary, 0);
+    }
+    if (bar->ota_update_icon) {
+        lv_image_set_src(bar->ota_update_icon,
+                         light ? &cloud_update_light_24x24
+                               : &cloud_update_24x24);
+    }
+    if (bar->hass_icon) {
+        lv_image_set_src(bar->hass_icon,
+                         light ? &hass_light_24x24 : &hass_24x24);
+    }
+    if (bar->wifi_icon) {
+        lv_image_set_src(bar->wifi_icon,
+                         light ? &wifi_light_24x24 : &wifi_24x24);
+    }
+}
+
+void system_status_bar_apply_theme_all(void)
+{
+    for (system_status_bar_t *bar = s_status_bars; bar; bar = bar->next) {
+        system_status_bar_apply_theme(bar);
+    }
+}
+
 void system_status_bar_set_title(system_status_bar_t *bar, const char *title)
 {
     if (!bar || !bar->title_label) {
         return;
     }
 
-    lv_label_set_text(bar->title_label, title ? title : "");
+    ui_i18n_label_set_text(bar->title_label, title ? title : "");
 }
 
 void system_status_bar_set_time(system_status_bar_t *bar, const char *time_text)

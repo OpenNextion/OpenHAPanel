@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { _ } from 'svelte-i18n';
     import EButtonType from '@/types/components';
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
     import type { Snippet } from 'svelte';
@@ -21,7 +22,7 @@
 
     const defaultStyle: string = `width: 100%`;
     let {
-        title = 'Confirm',
+        title,
         style = defaultStyle,
         loading = false,
         type = EButtonType.DEFAULT,
@@ -57,7 +58,7 @@
         {#if children}
             {@render children()}
         {:else}
-            {title}
+            {title ?? $_('common.confirm')}
         {/if}
     </span>
 </button>

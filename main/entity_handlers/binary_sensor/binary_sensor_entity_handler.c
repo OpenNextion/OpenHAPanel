@@ -1,4 +1,7 @@
+#include "ui_i18n.h"
+#include "i18n.h"
 #include "binary_sensor_entity_handler.h"
+#include "entity_handlers/entity_state_translation.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -51,43 +54,6 @@ typedef struct {
 
 static binary_sensor_history_cache_t s_binary_sensor_history;
 
-typedef struct {
-    const char *device_class;
-    const char *on_text;
-    const char *off_text;
-} binary_sensor_state_text_t;
-
-static const binary_sensor_state_text_t s_binary_sensor_state_texts[] = {
-    {"battery", "Low", "Normal"},
-    {"battery_charging", "Charging", "Not charging"},
-    {"carbon_monoxide", "Detected", "Clear"},
-    {"cold", "Cold", "Normal"},
-    {"connectivity", "Connected", "Disconnected"},
-    {"door", "Open", "Closed"},
-    {"garage_door", "Open", "Closed"},
-    {"gas", "Detected", "Clear"},
-    {"glass_break", "Glass break Detected", "Clear"},
-    {"heat", "Hot", "Normal"},
-    {"light", "Light detected", "No light"},
-    {"lock", "Unlocked", "Locked"},
-    {"moisture", "Wet", "Dry"},
-    {"motion", "Detected", "Clear"},
-    {"moving", "Moving", "Not moving"},
-    {"occupancy", "Detected", "Clear"},
-    {"opening", "Open", "Closed"},
-    {"plug", "Plugged in", "Unplugged"},
-    {"power", "On", "Off"},
-    {"presence", "Home", "Away"},
-    {"problem", "Problem", "OK"},
-    {"running", "Running", "Not running"},
-    {"safety", "Unsafe", "Safe"},
-    {"smoke", "Detected", "Clear"},
-    {"sound", "Detected", "Clear"},
-    {"tamper", "Tampering detected", "Clear"},
-    {"update", "Update available", "Up-to-date"},
-    {"vibration", "Detected", "Clear"},
-    {"window", "Open", "Closed"},
-};
 
 typedef struct {
     const char *device_class;
@@ -226,38 +192,7 @@ static const char *binary_sensor_get_icon(
 static const char *binary_sensor_get_state_text(const char *state,
                                                 const char *device_class)
 {
-    if (!state) {
-        return "";
-    }
-
-    const bool is_on = strcmp(state, "on") == 0;
-    const bool is_off = strcmp(state, "off") == 0;
-    if (!is_on && !is_off) {
-        if (strcmp(state, "unavailable") == 0) {
-            return "Unavailable";
-        }
-        if (strcmp(state, "unknown") == 0) {
-            return "Unknown";
-        }
-        return state;
-    }
-
-    const char *state_text = is_on ? "On" : "Off";
-    if (device_class && device_class[0]) {
-        for (size_t i = 0;
-             i < sizeof(s_binary_sensor_state_texts) /
-                     sizeof(s_binary_sensor_state_texts[0]);
-             i++) {
-            const binary_sensor_state_text_t *mapping =
-                &s_binary_sensor_state_texts[i];
-            if (strcmp(device_class, mapping->device_class) == 0) {
-                state_text = is_on ? mapping->on_text : mapping->off_text;
-                break;
-            }
-        }
-    }
-
-    return state_text;
+    return entity_state_translate_binary(state, device_class);
 }
 
 static void binary_sensor_format_state_value(const char *state,
@@ -284,7 +219,7 @@ static void binary_sensor_format_state(const ha_entity_snapshot_t *snapshot,
     }
 
     if (snapshot->sync_status == HA_ENTITY_SYNC_REMOVED) {
-        snprintf(output, output_size, "Unavailable");
+        i18n_copy(output, output_size, i18n_get(I18N_STATE_UNAVAILABLE));
         return;
     }
 
@@ -301,7 +236,7 @@ static lv_obj_t *binary_sensor_create_more_info_state_label(
     lv_obj_t *label = lv_label_create(parent);
     char state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
     binary_sensor_format_state(snapshot, state_text, sizeof(state_text));
-    lv_label_set_text(label, state_text);
+    ui_i18n_label_set_text(label, state_text);
     lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
     lv_obj_set_style_text_color(label, lv_color_white(), 0);
     return label;
@@ -503,11 +438,8 @@ static void binary_sensor_history_insert(time_t epoch, const char *state)
         position++;
     }
     if (position < s_binary_sensor_history.record_count &&
-        s_binary_sensor_history.records[position].epoch == epoch) {
-        snprintf(s_binary_sensor_history.records[position].state,
-                 sizeof(s_binary_sensor_history.records[position].state),
-                 "%s",
-                 state);
+        s_binary_sensor_history.records[position].epoch == epoch &&
+        strcmp(s_binary_sensor_history.records[position].state, state) == 0) {
         return;
     }
     if (position >= BINARY_SENSOR_HISTORY_MAX_RECORDS) {
@@ -569,14 +501,14 @@ static void binary_sensor_history_render(lv_obj_t *parent)
 {
     const char *message = NULL;
     if (s_binary_sensor_history.loading && s_binary_sensor_history.record_count == 0) {
-        message = "Loading history...";
+        message = i18n_get(I18N_HISTORY_LOADING);
     }
     else if (s_binary_sensor_history.failed &&
              s_binary_sensor_history.record_count == 0) {
-        message = "History unavailable";
+        message = i18n_get(I18N_HISTORY_UNAVAILABLE);
     }
     else if (s_binary_sensor_history.record_count == 0) {
-        message = "No history";
+        message = i18n_get(I18N_HISTORY_EMPTY);
     }
 
     ha_history_list_item_t items[BINARY_SENSOR_HISTORY_MAX_RECORDS] = {0};
@@ -588,7 +520,7 @@ static void binary_sensor_history_render(lv_obj_t *parent)
     }
 
     const ha_history_list_config_t config = {
-        .title = "History",
+        .title = i18n_get(I18N_HISTORY_TITLE),
         .items = items,
         .item_count = s_binary_sensor_history.record_count,
         .message = message,
@@ -657,7 +589,7 @@ static lv_obj_t *binary_sensor_more_info_build_page(
     lv_obj_t *title = lv_label_create(header);
     lv_obj_set_flex_grow(title, 1);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_label_set_text(title,
+    ui_i18n_label_set_text(title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -777,7 +709,7 @@ static esp_err_t binary_sensor_render_more_info(
 
 
     lv_obj_t *tile_icon = lv_label_create(tile_box);
-    lv_label_set_text(tile_icon, binary_sensor_get_icon(&context->snapshot));
+    ui_i18n_label_set_text(tile_icon, binary_sensor_get_icon(&context->snapshot));
     lv_obj_set_style_text_font(tile_icon, &ha_font_mdi_26, 0);
     const uint32_t icon_color =
         binary_sensor_icon_color(&context->snapshot, true);
@@ -804,7 +736,7 @@ static esp_err_t binary_sensor_render_more_info(
     lv_label_set_long_mode(tile_content_title, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_title, lv_color_hex(0xFFFFFF), 0);
     // 展示实体的friendly_name
-    lv_label_set_text(tile_content_title,
+    ui_i18n_label_set_text(tile_content_title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
@@ -826,7 +758,7 @@ static esp_err_t binary_sensor_render_more_info(
                                         sizeof(state_text)) != ESP_OK) {
         state_text[0] = '\0';
     }
-    lv_label_set_text(tile_content_state, state_text);
+    ui_i18n_label_set_text(tile_content_state, state_text);
     if (state_text[0]) {
         time_t state_time = 0;
         if (ha_datetime_parse_epoch(changed_at,

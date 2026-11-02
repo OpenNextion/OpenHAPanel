@@ -87,3 +87,4 @@ Desktop.ini
 # OTA test
 /build-ota-*
 /ota-server
+/dist-ota-test

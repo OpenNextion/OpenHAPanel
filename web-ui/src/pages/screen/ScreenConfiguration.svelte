@@ -64,16 +64,23 @@
     type TDndScreenItem = DndItem & { id: string; value: TSortableScreenItem };
     type TDndScreenConfigItem = DndItem & { id: string; screen: IHassScreenConfigItem };
 
-    const DEFAULT_SCREEN: IHassScreenConfigItem = {
+    type TScreenTitleMessages = { page: { screen: { defaultSplit: string } } };
+    const defaultScreenTranslations = import.meta.glob<TScreenTitleMessages>('../../assets/i18n/*.json', { eager: true, import: 'default' });
+    const DEFAULT_SCREEN_TITLE_ALIASES = new Set([
+        'default',
+        ...Object.values(defaultScreenTranslations).map((messages) => messages.page.screen.defaultSplit),
+    ]);
+
+    const DEFAULT_SCREEN: IHassScreenConfigItem = $derived({
         index: 0,
-        title: 'default',
+        title: $_('page.screen.defaultSplit'),
         icon: '',
         type: 'sections',
         columns: 1,
         badges: [],
         cards: [],
         features: [],
-    };
+    });
 
     const currentTimeInMs = $derived(Number($timerStore.timers.currentTime?.value ?? ($deviceStore.currentTime || dayjs().valueOf())));
     const previewTime = $derived(dayjs.utc(currentTimeInMs).utcOffset($finialOffset).format('HH:mm'));
@@ -85,7 +92,7 @@
         return $screenConfigStore.screens.length ? $screenConfigStore.screens : [DEFAULT_SCREEN];
     });
     function getScreenTitle(screen: IHassScreenConfigItem) {
-        return screen.title === DEFAULT_SCREEN.title ? $_('page.screen.defaultSplit') : screen.title;
+        return screen.index === 0 && DEFAULT_SCREEN_TITLE_ALIASES.has(screen.title) ? $_('page.screen.defaultSplit') : screen.title;
     }
 
     function isConfigured(screen: IHassScreenConfigItem) {
@@ -136,7 +143,7 @@
         dndScreenItems = event.detail.items;
         if (event.detail.info.trigger === 'dragStarted') {
             draggedScreenId = event.detail.info.id;
-            if (window.matchMedia('(max-width: 43.75rem)').matches) {
+            if (window.matchMedia('(max-width: 52rem)').matches) {
                 window.scrollTo(0, 0);
             }
         }
@@ -210,7 +217,7 @@
     }
 
     function updateMobilePreviewScale(page: HTMLElement) {
-        if (!window.matchMedia('(max-width: 43.75rem)').matches) {
+        if (!window.matchMedia('(max-width: 52rem)').matches) {
             mobilePreviewScale = 1;
             return;
         }
@@ -480,7 +487,7 @@
                 data-is-dnd-shadow-item-hint={screenItem[SHADOW_ITEM_MARKER_PROPERTY_NAME]}
             >
                 <article class="screen-card">
-                <div class:editing class="screen-card-title" use:dragHandle aria-label={`Reorder ${getScreenTitle(screen)}`}>
+                <div class:editing class="screen-card-title" use:dragHandle aria-label={$_('page.screen.reorderScreen', { values: { name: getScreenTitle(screen) } })}>
                     <div class="screen-card-title-main">
                         <span>{getScreenTitle(screen)}</span>
                         {#if editing}
@@ -519,12 +526,12 @@
                         {#if editing || screen.badges?.length}
                             <div class="screen-badges">
                                 {#if editing && (screen.badges?.length ?? 0) < MAX_SCREEN_BADGE_COUNT}
-                                    <button class="add-badge-button" type="button" onclick={() => openEntityPicker('badge', screen.index)}><SvgIcon name="mdi:plus" /> <span>Add badge</span></button>
+                                    <button class="add-badge-button" type="button" onclick={() => openEntityPicker('badge', screen.index)}><SvgIcon name="mdi:plus" /> <span>{$_('page.screen.addBadge')}</span></button>
                                 {/if}
                                 <div
                                     class="screen-badge-items"
                                     role="list"
-                                    aria-label={`${getScreenTitle(screen)} badges`}
+                                    aria-label={$_('page.screen.badgeList', { values: { name: getScreenTitle(screen) } })}
                                     use:dndzone={{
                                         items: getDndItems(screen.index, 'badge', screen.badges ?? []),
                                         type: 'screen-badges',
@@ -558,7 +565,7 @@
                         {#if editing && !isLandscape}
                             <div class="edit-actions">
                                 <button class="add-entity-button" type="button" onclick={() => openEntityPicker('entity', screen.index)}>
-                                    <SvgIcon name="mdi:plus" /> <span>Add Entity</span>
+                                    <SvgIcon name="mdi:plus" /> <span>{$_('page.screen.addEntity')}</span>
                                 </button>
                             </div>
                         {/if}
@@ -566,14 +573,14 @@
                             <div class="screen-entities-layout" style={`--screen-columns: ${isLandscape ? 2 : 1}`}>
                                 {#if editing && isLandscape}
                                     <button class="add-entity-button landscape-add-entity" type="button" onclick={() => openEntityPicker('entity', screen.index)}>
-                                        <SvgIcon name="mdi:plus" /> <span>Add Entity</span>
+                                        <SvgIcon name="mdi:plus" /> <span>{$_('page.screen.addEntity')}</span>
                                     </button>
                                 {/if}
                                 {#if screen.cards?.length}
                                     <div
                                         class="screen-entities"
                                         role="list"
-                                        aria-label={`${getScreenTitle(screen)} entities`}
+                                        aria-label={$_('page.screen.entityList', { values: { name: getScreenTitle(screen) } })}
                                         style={`--screen-columns: ${isLandscape ? 2 : 1}`}
                                         use:dndzone={{
                                             items: getDndItems(screen.index, 'entity', screen.cards ?? []),
@@ -611,6 +618,13 @@
                                 <span>{$_('page.screen.noContent')}</span>
                             </div>
                         {/if}
+                        {/if}
+                        {#if displayedScreens.length > 1}
+                            <div class="screen-page-indicators" aria-hidden="true">
+                                {#each displayedScreens as indicatorScreen (indicatorScreen.index)}
+                                    <span class:active={indicatorScreen.index === screen.index} class="screen-page-indicator"></span>
+                                {/each}
+                            </div>
                         {/if}
                     </div>
                 </div>
@@ -1038,6 +1052,29 @@
         font-weight: 500;
         line-height: 1.75rem;
     }
+    .screen-page-indicators {
+        position: absolute;
+        z-index: 1;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        display: flex;
+        height: 1.5rem;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        pointer-events: none;
+    }
+    .screen-page-indicator {
+        width: 0.4rem;
+        height: 0.4rem;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.25);
+    }
+    .screen-page-indicator.active {
+        background: #fff;
+    }
     .screen-badges {
         display: flex;
 		justify-content: start;
@@ -1290,7 +1327,7 @@
         font-weight: 300;
         line-height: 1;
     }
-    @media (max-width: 43.75rem) {
+    @media (max-width: 52rem) {
         .screen-config-page {
             --screen-preview-scale: var(--mobile-preview-scale, 1);
             --screen-card-width: 100%;
@@ -1302,6 +1339,9 @@
             --screen-preview-height: 30.25rem;
         }
         .screen-config-page.landscape {
+            --screen-preview-scale: var(--mobile-preview-scale, 1);
+            --screen-card-width: 100%;
+            --screen-card-height: auto;
             --screen-grid-width: 100%;
             --screen-grid-height: auto;
             --screen-grid-columns: 1;
@@ -1435,7 +1475,7 @@
             font-size: 1.75rem;
         }
     }
-    @media (max-width: 43.75rem) {
+    @media (max-width: 52rem) {
         .screen-config-page .screen-card-shell,
         .screen-config-page .screen-card {
             width: 100%;

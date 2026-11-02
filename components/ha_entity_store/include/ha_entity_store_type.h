@@ -77,6 +77,8 @@ typedef struct {
     char device_class[HA_ENTITY_STORE_DEVICE_CLASS_MAX];
     bool has_unit_of_measurement;
     bool has_state_class;
+    bool has_display_precision;
+    uint8_t display_precision;
     /* Home Assistant last_updated: when the entity was last updated. */
     char last_updated[HA_ENTITY_STORE_DATETIME_MAX];
     /* Home Assistant last_changed: when the state itself last changed. */

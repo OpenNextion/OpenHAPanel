@@ -12,6 +12,7 @@
 typedef enum {
     ENTITY_STATE_TEXT_STATIC = 0,
     ENTITY_STATE_TEXT_RELATIVE_TIME,
+    ENTITY_STATE_TEXT_ELAPSED_TIME,
 } entity_state_text_type_t;
 
 /** Presentation model consumed by ha_tile_card. */
@@ -21,6 +22,8 @@ typedef struct {
     entity_state_text_type_t state_text_type;
     time_t state_time;
     const char *icon;
+    const char *icon_badge;
+    lv_color_t icon_badge_background_color;
     const char *state_icon;
     bool show_state_icon;
     bool unavailable;

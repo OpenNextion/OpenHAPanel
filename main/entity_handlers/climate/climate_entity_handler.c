@@ -1,3 +1,5 @@
+#include "entity_handlers/entity_state_translation.h"
+#include "i18n.h"
 #include "climate_entity_handler.h"
 
 #include <math.h>
@@ -24,13 +26,44 @@ static uint32_t climate_mode_color(const char *mode)
 
 static const char *climate_hvac_mode_label(const char *state)
 {
-    if (strcmp(state, "heat_cool") == 0) {
-        return "Heat/Cool";
+    return entity_state_translate_climate_option(0, state);
+}
+
+static const char *climate_action_badge(const char *action,
+                                        uint32_t *color)
+{
+    /* Match Home Assistant's tile badge action-to-mode color mapping. */
+    if (strcmp(action, "cooling") == 0) {
+        *color = 0x2196F3;
+        return MDI_SYMBOL_SNOWFLAKE;
     }
-    if (strcmp(state, "fan_only") == 0) {
-        return "Fan only";
+    if (strcmp(action, "defrosting") == 0) {
+        *color = 0xFF6F22;
+        return MDI_SYMBOL_SNOWFLAKE_MELT;
     }
-    return NULL;
+    if (strcmp(action, "drying") == 0) {
+        *color = 0xFF9800;
+        return MDI_SYMBOL_WATER_PERCENT;
+    }
+    if (strcmp(action, "fan") == 0) {
+        *color = 0x00BCD4;
+        return MDI_SYMBOL_FAN;
+    }
+    if (strcmp(action, "heating") == 0) {
+        *color = 0xFF6F22;
+        return MDI_SYMBOL_FIRE;
+    }
+    if (strcmp(action, "idle") == 0) {
+        *color = 0x9E9E9E;
+        return MDI_SYMBOL_CLOCK_OUTLINE;
+    }
+    if (strcmp(action, "preheating") == 0) {
+        *color = 0xFF6F22;
+        return MDI_SYMBOL_HEAT_WAVE;
+    }
+
+    /* Home Assistant falls back to circle-medium and the entity state color. */
+    return MDI_SYMBOL_CIRCLE_MEDIUM;
 }
 
 static bool climate_handle_action(const entity_action_context_t *context)
@@ -96,6 +129,18 @@ static esp_err_t climate_render_tile(ha_entity_store_t *store,
         model->icon_color = lv_color_hex(climate_mode_color(snapshot->state));
         model->icon_circle_background_color =
             lv_color_mix(model->icon_color, model->background_color, LV_OPA_20);
+    }
+
+    char hvac_action[HA_ENTITY_STORE_STATE_MAX] = "";
+    if (ha_entity_store_get_attr_string(store, snapshot->entity_id,
+                                        "hvac_action", hvac_action,
+                                        sizeof(hvac_action)) == ESP_OK &&
+        hvac_action[0] != '\0' && strcmp(hvac_action, "off") != 0) {
+        uint32_t badge_color = strcmp(snapshot->state, "off") == 0
+                                   ? 0x9E9E9E
+                                   : climate_mode_color(snapshot->state);
+        model->icon_badge = climate_action_badge(hvac_action, &badge_color);
+        model->icon_badge_background_color = lv_color_hex(badge_color);
     }
 
     const char *mode = climate_hvac_mode_label(snapshot->state);

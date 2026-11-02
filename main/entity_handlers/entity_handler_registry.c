@@ -11,6 +11,7 @@
 #include "switch/switch_entity_handler.h"
 #include "sensor/sensor_entity_handler.h"
 #include "event/event_entity_handler.h"
+#include "fan/fan_entity_handler.h"
 #include "siren/siren_entity_handler.h"
 
 static const entity_handler_t *const s_entity_handlers[] = {
@@ -23,6 +24,7 @@ static const entity_handler_t *const s_entity_handlers[] = {
     &scene_entity_handler,
     &sensor_entity_handler,
     &event_entity_handler,
+    &fan_entity_handler,
     &siren_entity_handler,
 };
 

@@ -59,7 +59,7 @@ typedef struct
 {
     theme_mode_t theme_mode; /* UI theme configuration */
     char product_name[31];   /* Product name (max 30 characters) */
-    char language[5];        /* Language code (e.g., \"en\", \"zh\") */
+    char language[32];        /* Canonical device language code. */
     uint8_t brightness;       /* Current screen brightness (0-100) */
     uint32_t idle_time;     /* Screen lock idle time (seconds) */
 } device_info_t;

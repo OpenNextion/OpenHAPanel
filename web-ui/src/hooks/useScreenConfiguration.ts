@@ -4,7 +4,7 @@ import {
     type THassActionSelection,
 } from '@/hooks/useHassEntity';
 import type { IHassEntityInteractionConfig } from '@/constant/hassEntity';
-import { haRegistryStore } from '@/stores/haRegistry';
+import { haRegistryStore, haRegistryTreeStore } from '@/stores/haRegistry';
 import { deviceStore } from '@/stores/device';
 import {
     addScreenBadge,
@@ -28,20 +28,23 @@ export interface IEntitySearchResult {
     displayName: string;
 }
 
-export const SCREEN_ACTION_OPTIONS: { value: THassScreenAction; label: string }[] = [
-    { value: 'more-info', label: 'More info' },
-    { value: 'toggle', label: 'Toggle' },
-    { value: 'nothing', label: 'Nothing' },
+export const SCREEN_ACTION_OPTIONS: { value: THassScreenAction; labelKey: string }[] = [
+    { value: 'more-info', labelKey: 'page.screen.actionMoreInfo' },
+    { value: 'toggle', labelKey: 'page.screen.actionToggle' },
+    { value: 'nothing', labelKey: 'page.screen.actionNothing' },
 ];
 
 export function createDefaultScreenActionConfig(): IHassScreenActionConfig {
     return {};
 }
 
-export function getScreenActionOptions(interaction: IHassEntityInteractionConfig) {
-    const defaultLabel = SCREEN_ACTION_OPTIONS.find((option) => option.value === interaction.default)?.label ?? String(interaction.default);
-    const supportedOptions = SCREEN_ACTION_OPTIONS.filter((option) => interaction.options.includes(option.value));
-    return [{ value: 'default' as const, label: `Default (${defaultLabel})` }, ...supportedOptions];
+export function getScreenActionOptions(interaction: IHassEntityInteractionConfig, translate: (key: string) => string) {
+    const defaultKey = SCREEN_ACTION_OPTIONS.find((option) => option.value === interaction.default)?.labelKey;
+    const defaultLabel = defaultKey ? translate(defaultKey) : String(interaction.default);
+    const supportedOptions = SCREEN_ACTION_OPTIONS
+        .filter((option) => interaction.options.includes(option.value))
+        .map((option) => ({ value: option.value, label: translate(option.labelKey) }));
+    return [{ value: 'default' as const, label: `${translate('page.screen.actionDefault')} (${defaultLabel})` }, ...supportedOptions];
 }
 
 export function toScreenActionSelection(action: THassScreenAction | undefined): TActionSelection {
@@ -126,6 +129,7 @@ function normalizeSearchValue(value: unknown) {
 export function searchScreenEntities(queryValue: string): IEntitySearchResult[] {
     const query = normalizeSearchValue(queryValue).trim();
     const registry = get(haRegistryStore);
+    const tree = get(haRegistryTreeStore);
     const entities = new Map<string, { entity: IHassRegistryTreeEntity; searchText: string; name: string; displayName: string; id: string }>();
     const addEntity = (entity: IHassRegistryTreeEntity, context: string[] = []) => {
         if (entities.has(entity.id)) return;
@@ -151,11 +155,11 @@ export function searchScreenEntities(queryValue: string): IEntitySearchResult[] 
         area.entities.forEach((entity) => addEntity(entity, nextContext));
         area.devices.forEach((device) => addDevice(device, nextContext));
     };
-    registry.tree.floors.forEach((floor) => floor.areas.forEach((area) => addArea(area, [floor.name])));
-    registry.tree.otherAreas.forEach((area) => addArea(area, []));
-    registry.tree.unassignedDevices.forEach((device) => addDevice(device, []));
-    registry.tree.unassignedServices.forEach((device) => addDevice(device, []));
-    [...registry.tree.unassignedEntityDomains, ...registry.tree.unassignedHelperDomains].forEach((domain) => domain.entities.forEach((entity) => addEntity(entity, [domain.name])));
+    tree.floors.forEach((floor) => floor.areas.forEach((area) => addArea(area, [floor.name])));
+    tree.otherAreas.forEach((area) => addArea(area, []));
+    tree.unassignedDevices.forEach((device) => addDevice(device, []));
+    tree.unassignedServices.forEach((device) => addDevice(device, []));
+    [...tree.unassignedEntityDomains, ...tree.unassignedHelperDomains].forEach((domain) => domain.entities.forEach((entity) => addEntity(entity, [domain.name])));
     const terms = query ? query.split(/\s+/) : [];
     return [...entities.values()]
         .filter((item) => terms.every((term) => item.searchText.includes(term)))

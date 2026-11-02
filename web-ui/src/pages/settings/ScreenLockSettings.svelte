@@ -17,8 +17,8 @@
 
     function formatIdleTime(idleTime: number) {
         if (idleTime === 0) return $_('settingsDetail.never');
-        if (idleTime < 60) return `${idleTime} s`;
-        return `${idleTime / 60} min`;
+        if (idleTime < 60) return `${idleTime} ${$_('settingsDetail.secondsShort')}`;
+        return `${idleTime / 60} ${$_('settingsDetail.minutesShort')}`;
     }
 
     async function save() {

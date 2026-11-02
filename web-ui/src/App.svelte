@@ -131,7 +131,7 @@
     <div class:with-sidebar={($authStore.loggedIn && !showWifiSetup) || sidebarOpen} class="app-top-tips"><TopTips /></div>
 {/if}
 {#if showWifiSetup || !$authStore.loggedIn}
-    <GuestSidebar open={sidebarOpen} hasTopTips={hasTopTips} onClose={() => (sidebarOpen = false)} />
+    <GuestSidebar open={sidebarOpen} hasTopTips={hasTopTips} showLanguage={showWifiSetup || $authStore.passwordInitRequired} onClose={() => (sidebarOpen = false)} />
     <div class:has-top-tips={hasTopTips} class="auth-topbar" aria-hidden="true"></div>
     <div class:has-top-tips={hasTopTips} class="auth-topbar-controls">
         <div class="auth-brand-logo" aria-hidden="true"><SvgIcon name={nextionLogo} /></div>
@@ -156,7 +156,7 @@
         <Sidebar open={sidebarOpen} onClose={() => (sidebarOpen = false)} />
         <section class="workspace">
             <Header onMenuClick={() => (sidebarOpen = !sidebarOpen)} />
-            <main class="content-area">
+            <main class:screen-config-content={normalizeRoute(router.location) === ROUTES_PATH.ROOT} class="content-area">
                 {#if protectedAppStatusReady}
                     <Router routes={protectedRoutes} />
                 {/if}

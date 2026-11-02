@@ -1,7 +1,8 @@
 <script lang="ts">
+    import { locale } from 'svelte-i18n';
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
     import { getHassEntityPresentation } from '@/hooks/useHassEntity';
-    import { haRegistryStore } from '@/stores/haRegistry';
+    import { getHassEntityStateStore, haRegistryMetadataStore } from '@/stores/haRegistry';
 
     interface IHassEntityRowProps {
         entityId: string;
@@ -15,12 +16,18 @@
     }
 
     let { entityId, state, icon, variant = 'entity', fullWidth = false, showIconBackground, onclick, interactiveElement = 'button' }: IHassEntityRowProps = $props();
-    const entity = $derived(getHassEntityPresentation(entityId, $haRegistryStore, { state, icon }));
+    let entityStateStore = $derived(getHassEntityStateStore(entityId));
+    const entity = $derived.by(() => {
+        void $locale;
+        return getHassEntityPresentation(entityId, {
+            ...$haRegistryMetadataStore,
+            states: $entityStateStore ? [$entityStateStore] : [],
+        }, { state, icon, variant });
+    });
     const iconBackgroundVisible = $derived(variant !== 'badge' && (showIconBackground ?? entity.defaultActions.iconTap !== 'nothing'));
-    const badgeDisplaysFriendlyName = $derived(['button', 'scene', 'event'].includes(entityId.split('.', 1)[0] ?? ''));
     const badgeValue = $derived.by(() => {
-        const value = badgeDisplaysFriendlyName ? entity.displayName : entity.displayState;
-        if (!badgeDisplaysFriendlyName) return value;
+        const value = entity.displayState;
+        if (!entity.badgeUsesName || entity.isUnavailable) return value;
         const characters = Array.from(value);
         return characters.length > 10 ? `${characters.slice(0, 10).join('')}…` : value;
     });
@@ -40,10 +47,15 @@
         style={entity.iconStyle}
     >
         <SvgIcon name={entity.icon} />
-        {#if entity.isUnavailable}<span class="entity-warning" aria-hidden="true">!</span>{/if}
+        {#if entity.climateActionIndicator}
+            <span class="climate-action-indicator action-{entity.climateActionIndicator.tone}" aria-hidden="true">
+                <SvgIcon name={entity.climateActionIndicator.icon} />
+            </span>
+        {/if}
+        {#if entity.isUnavailable && variant !== 'badge'}<span class="entity-warning" aria-hidden="true">!</span>{/if}
     </span>
     {#if variant === 'badge'}
-        <strong class="badge-value">{badgeValue}</strong>
+        <strong class:unavailable={entity.isUnavailable} class="badge-value">{badgeValue}</strong>
     {:else}
         <span class="entity-copy"><strong>{entity.displayName}</strong><small>{entity.displayState}</small></span>
     {/if}
@@ -125,6 +137,9 @@
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+    .badge-value.unavailable {
+        color: #909090;
+    }
     .entity-icon {
         position: relative;
         display: grid;
@@ -147,27 +162,92 @@
         --entity-icon-background: rgba(76, 175, 80, 0.2);
     }
     .entity-icon.tone-danger {
-        --entity-icon-color: #ff4d46;
+        --entity-icon-color: #f44336;
         --entity-icon-background: rgba(241, 82, 75, 0.18);
     }
     .entity-icon.tone-blue {
-        --entity-icon-color: #448ccb;
+        --entity-icon-color: #2196f3;
         --entity-icon-background: rgba(68, 140, 203, 0.22);
     }
     .entity-icon.tone-cyan {
-        --entity-icon-color: #448ccb;
+        --entity-icon-color: #00bcd4;
         --entity-icon-background: rgba(68, 140, 203, 0.22);
+    }
+    .entity-icon.tone-ha-orange {
+        --entity-icon-color: #ff9800;
+        --entity-icon-background: rgba(255, 152, 0, 0.2);
+    }
+    .entity-icon.tone-ha-deep-orange {
+        --entity-icon-color: #ff6f22;
+        --entity-icon-background: rgba(255, 111, 34, 0.2);
     }
     .entity-icon.tone-neutral {
         --entity-icon-color: #a8abb0;
         --entity-icon-background: rgba(168, 171, 176, 0.18);
     }
+    .entity-icon.tone-ha-inactive {
+        --entity-icon-color: #9e9e9e;
+        --entity-icon-background: rgba(158, 158, 158, 0.18);
+    }
+    .entity-icon.tone-ha-cover {
+        --entity-icon-color: #926bc7;
+        --entity-icon-background: rgba(146, 107, 199, 0.2);
+    }
+    .entity-icon.tone-ha-fan {
+        --entity-icon-color: #00bcd4;
+        --entity-icon-background: rgba(0, 188, 212, 0.2);
+    }
+    .entity-icon.tone-ha-sensor {
+        --entity-icon-color: #44739e;
+        --entity-icon-background: rgba(68, 115, 158, 0.2);
+    }
+    .hass-entity-row.badge .entity-icon.tone-ha-sensor {
+        --entity-icon-color: #009ac7;
+    }
+    .entity-icon.tone-ha-battery-high {
+        --entity-icon-color: #4caf50;
+        --entity-icon-background: rgba(76, 175, 80, 0.2);
+    }
+    .entity-icon.tone-ha-battery-medium {
+        --entity-icon-color: #ff9800;
+        --entity-icon-background: rgba(255, 152, 0, 0.2);
+    }
+    .entity-icon.tone-ha-battery-low {
+        --entity-icon-color: #f44336;
+        --entity-icon-background: rgba(244, 67, 54, 0.2);
+    }
     .entity-icon.unavailable {
-        --entity-icon-color: #9a9a9e;
+        --entity-icon-color: #bdbdbd;
         --entity-icon-background: rgba(142, 142, 147, 0.2);
+    }
+    :global([data-bs-theme='dark']) .entity-icon.unavailable {
+        --entity-icon-color: #6f6f6f;
     }
     .entity-icon.no-icon-background {
         background-color: transparent;
+    }
+    .climate-action-indicator {
+        position: absolute;
+        top: 0.05rem;
+        right: 0.05rem;
+        display: grid;
+        width: 1.125rem;
+        height: 1.125rem;
+        place-items: center;
+        color: #fff;
+        border-radius: 50%;
+        background: var(--climate-action-color);
+        font-size: 0.75rem;
+    }
+    .climate-action-indicator.action-heating,
+    .climate-action-indicator.action-drying {
+        --climate-action-color: #ff9800;
+    }
+    .climate-action-indicator.action-cooling {
+        --climate-action-color: rgb(60, 135, 236);
+    }
+    .climate-action-indicator.action-fan {
+        --climate-action-color: #00bcd4;
     }
     .entity-warning {
         position: absolute;

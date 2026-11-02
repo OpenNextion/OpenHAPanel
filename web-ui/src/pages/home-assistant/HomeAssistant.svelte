@@ -53,7 +53,7 @@
         const days = Math.floor(totalMinutes / 1440);
         const hours = Math.floor((totalMinutes % 1440) / 60);
         const minutes = totalMinutes % 60;
-        return `${days} Days ${hours}h ${minutes}min`;
+        return $_('homeAssistant.connectedDurationValue', { values: { days, hours, minutes } });
     }
 
     onMount(() => {

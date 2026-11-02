@@ -42,6 +42,13 @@ void firmware_auto_check_notify_wifi_got_ip(void);
 /** Cancel a pending stability window after Wi-Fi STA disconnects. */
 void firmware_auto_check_notify_wifi_disconnected(void);
 
+/**
+ * Suspend or resume automatic update workflows while a screen-initiated OTA
+ * session owns the shared firmware update state machine. Pending Wi-Fi checks
+ * remain queued and may run after the manual session is dismissed.
+ */
+void firmware_auto_check_set_manual_ota_active(bool active);
+
 /** Read the persistent automatic-check schedule and most recent result. */
 esp_err_t firmware_auto_check_get_record(firmware_auto_check_record_t *record);
 

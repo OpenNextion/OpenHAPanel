@@ -26,7 +26,13 @@ void ha_tile_card_set_state_text(lv_obj_t *obj, const char *state_text);
 /** Keep the state label synchronized with an event epoch. */
 esp_err_t ha_tile_card_set_relative_state_time(lv_obj_t *obj,
                                                time_t event_epoch);
+esp_err_t ha_tile_card_set_elapsed_state_time(lv_obj_t *obj,
+                                              time_t event_epoch);
 void ha_tile_card_set_icon(lv_obj_t *obj, const char *icon);
+/** Show an optional colored badge at the upper right of the main icon. */
+void ha_tile_card_set_icon_badge(lv_obj_t *obj,
+                                 const char *icon,
+                                 lv_color_t background_color);
 /** Show or hide the unavailable warning badge over the icon circle. */
 void ha_tile_card_set_unavailable(lv_obj_t *obj, bool unavailable);
 /** Enable or disable pointer events on the icon circle. Disabled by default. */
@@ -54,6 +60,9 @@ void ha_tile_card_set_state_color(lv_obj_t *obj, lv_color_t color);
 void ha_tile_card_set_state_icon(lv_obj_t *obj, const char *icon);
 /** Show or hide the optional state icon without changing its configured text. */
 void ha_tile_card_set_state_icon_visible(lv_obj_t *obj, bool visible);
+/** Lazily create a 56px bottom Feature row. The returned object belongs to the card. */
+lv_obj_t *ha_tile_card_add_feature_host(lv_obj_t *obj);
+void ha_tile_card_remove_feature_host(lv_obj_t *obj, lv_obj_t *host);
 
 #ifdef __cplusplus
 }

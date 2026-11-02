@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include "../../../assets/ha_ui_assets.h"
+
 #define BRIGHTNESS_SLIDER_WIDTH          88
 #define BRIGHTNESS_SLIDER_HEIGHT         230
 #define BRIGHTNESS_SLIDER_RADIUS         20
@@ -517,7 +519,9 @@ lv_obj_t *light_brightness_slider_create(lv_obj_t *parent)
     if (!context) {
         return NULL;
     }
-    context->display_color = contrast_color(lv_color_hex(0xFFC107));
+    /* The caller supplies the light's resolved color. Until then, avoid a
+     * yellow flash when an off light is dragged before HA reports its color. */
+    context->display_color = contrast_color(lv_color_hex(0xE1E1E1));
 
     lv_obj_t *slider = lv_slider_create(parent);
     if (!slider) {
@@ -554,6 +558,7 @@ lv_obj_t *light_brightness_slider_create(lv_obj_t *parent)
         lv_obj_set_style_bg_opa(context->tip, LV_OPA_COVER, 0);
         context->tip_label = lv_label_create(context->tip);
         if (context->tip_label) {
+            lv_obj_set_style_text_font(context->tip_label, &ha_font_misan_regular_14, 0);
             lv_obj_set_style_text_color(context->tip_label,
                                         lv_color_white(),
                                         0);

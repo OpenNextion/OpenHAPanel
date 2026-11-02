@@ -1,5 +1,6 @@
-import type { Unsubscriber } from 'svelte/store';
-import { setHassRegistryData, setHassRegistryError, setHassRegistryLoading } from '@/stores/haRegistry';
+import { get, type Unsubscriber } from 'svelte/store';
+import { t } from 'svelte-i18n';
+import { setHassRegistryData, setHassRegistryError, setHassRegistryLoading, updateHassEntityState } from '@/stores/haRegistry';
 import { homeAssistantStore } from '@/stores/homeassistant';
 import type {
     IHassAreaRegistryEntry,
@@ -46,6 +47,13 @@ interface IPendingRequest {
 
 type THassEventListener = (message: IHassEventMessage) => void;
 
+interface IHassStateChangedEvent {
+    data?: {
+        entity_id?: string;
+        new_state?: IHassStateEntry | null;
+    };
+}
+
 const RECONNECT_DELAY = 5_000;
 const REGISTRY_RETRY_DELAY = 5_000;
 const AUTH_TIMEOUT = 10_000;
@@ -81,6 +89,9 @@ class HomeAssistantWebSocket {
     private eventListeners = new Map<number, Set<THassEventListener>>();
     private registryLoadGeneration = 0;
     private registryLoadPromise: Promise<void> | null = null;
+    private stateChangesDuringRegistryLoad = new Map<string, IHassStateEntry | null>();
+    private stateChangedSubscriptionId: number | null = null;
+    private entityRegistrySubscriptionId: number | null = null;
 
     start() {
         if (this.unsubscribe) return;
@@ -216,6 +227,8 @@ class HomeAssistantWebSocket {
             if (this.socket !== socket) return;
             this.socket = null;
             this.authenticated = false;
+            this.stateChangedSubscriptionId = null;
+            this.entityRegistrySubscriptionId = null;
             this.clearAuthTimer();
             this.clearMessageMatching(new Error('Home Assistant WebSocket disconnected'));
             if (this.rejectedConnectionKey !== connectionKey) this.scheduleReconnect();
@@ -254,6 +267,7 @@ class HomeAssistantWebSocket {
                 this.clearAuthTimer();
                 this.authenticated = true;
                 this.rejectedConnectionKey = '';
+                this.subscribeToHassEvents();
                 void this.refreshRegistryData();
                 break;
             case 'auth_invalid':
@@ -307,6 +321,9 @@ class HomeAssistantWebSocket {
     private disconnect() {
         this.registryLoadGeneration += 1;
         this.registryLoadPromise = null;
+        this.stateChangedSubscriptionId = null;
+        this.entityRegistrySubscriptionId = null;
+        this.stateChangesDuringRegistryLoad.clear();
         this.clearRegistryRetryTimer();
         this.clearAuthTimer();
         this.authenticated = false;
@@ -319,17 +336,17 @@ class HomeAssistantWebSocket {
 
     private async loadRegistryData(connectionKey: string) {
         const generation = ++this.registryLoadGeneration;
+        this.stateChangesDuringRegistryLoad.clear();
         setHassRegistryLoading(true);
         try {
             const language = document.documentElement.lang || navigator.language || 'en';
-            const hassLanguage = language.toLowerCase().startsWith('zh') ? 'zh-Hans' : language;
             const [stateResponse, entityResponse, deviceResponse, areaResponse, floorResponse, translationResponse] = await Promise.all([
                 this.sendForReply<IHassStateEntry[]>({ type: 'get_states' }),
                 this.sendForReply<THassEntityRegistryDisplayResult>({ type: 'config/entity_registry/list_for_display' }),
                 this.sendForReply<IHassDeviceRegistryEntry[]>({ type: 'config/device_registry/list' }),
                 this.sendForReply<IHassAreaRegistryEntry[]>({ type: 'config/area_registry/list' }),
                 this.sendForReply<IHassFloorRegistryEntry[]>({ type: 'config/floor_registry/list' }),
-                this.sendForReply<{ resources: Record<string, string> }>({ type: 'frontend/get_translations', language: hassLanguage, category: 'title' }),
+                this.sendForReply<{ resources: Record<string, string> }>({ type: 'frontend/get_translations', language, category: 'title' }),
             ]);
             if (generation !== this.registryLoadGeneration || connectionKey !== this.connectionKey || !this.authenticated) return;
 
@@ -337,8 +354,14 @@ class HomeAssistantWebSocket {
             const failedResponse = responses.find((response) => response.success === false);
             if (failedResponse) throw new Error(`Home Assistant registry request ${failedResponse.id} failed`);
 
+            const statesById = new Map((stateResponse.result ?? []).map((state) => [state.entity_id, state]));
+            this.stateChangesDuringRegistryLoad.forEach((state, entityId) => {
+                if (state) statesById.set(entityId, state);
+                else statesById.delete(entityId);
+            });
+
             setHassRegistryData({
-                states: stateResponse.result ?? [],
+                states: [...statesById.values()],
                 entities: Array.isArray(entityResponse.result) ? entityResponse.result : (entityResponse.result?.entities ?? []),
                 devices: deviceResponse.result ?? [],
                 areas: areaResponse.result ?? [],
@@ -348,8 +371,32 @@ class HomeAssistantWebSocket {
         } catch (error) {
             if (generation !== this.registryLoadGeneration || connectionKey !== this.connectionKey) return;
             console.error('Failed to load Home Assistant registries:', error);
-            setHassRegistryError(error instanceof Error ? error.message : 'Failed to load Home Assistant registries');
+            setHassRegistryError(get(t)('TIPS.HA_REGISTRY_LOAD_FAILED'));
             this.scheduleRegistryReload(connectionKey);
+        }
+    }
+
+    private subscribeToHassEvents() {
+        if (!this.authenticated) return;
+
+        if (this.stateChangedSubscriptionId === null) {
+            const id = this.sendMessage({ type: 'subscribe_events', event_type: 'state_changed' });
+            this.stateChangedSubscriptionId = id;
+            this.onEvent<IHassStateChangedEvent>(id, ({ event }) => {
+                const entityId = event?.data?.entity_id;
+                if (typeof entityId !== 'string') return;
+                const newState = event.data?.new_state ?? null;
+                if (this.registryLoadPromise) this.stateChangesDuringRegistryLoad.set(entityId, newState);
+                updateHassEntityState(entityId, newState);
+            });
+        }
+
+        if (this.entityRegistrySubscriptionId === null) {
+            const id = this.sendMessage({ type: 'subscribe_events', event_type: 'entity_registry_updated' });
+            this.entityRegistrySubscriptionId = id;
+            this.onEvent(id, () => {
+                void this.refreshRegistryData();
+            });
         }
     }
 

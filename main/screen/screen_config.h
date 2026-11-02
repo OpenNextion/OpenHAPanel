@@ -36,6 +36,10 @@ typedef enum {
     SCREEN_FEATURE_LIGHT_COLOR_TEMP,
     SCREEN_FEATURE_COVER_OPEN_CLOSE,
     SCREEN_FEATURE_COVER_POSITION,
+    SCREEN_FEATURE_SWITCH_TOGGLE,
+    SCREEN_FEATURE_SIREN_TOGGLE,
+    SCREEN_FEATURE_SCENE_PRESS,
+    SCREEN_FEATURE_BUTTON_PRESS,
 } screen_feature_type_t;
 
 typedef struct {
@@ -81,6 +85,7 @@ typedef struct {
     screen_action_config_t action_config;
     size_t feature_count;
     screen_feature_config_t *features;
+    char *features_position; /**< Parsed default is "bottom"; owned by this tile. */
 } screen_tile_card_data_t;
 
 typedef struct {

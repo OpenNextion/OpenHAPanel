@@ -1,0 +1,71 @@
+{
+  "default": "en",
+  "languages": [
+    {
+      "code": "en",
+      "name": "English",
+      "file": "en.json",
+      "plural_rule": "one_other"
+    },
+    {
+      "code": "de",
+      "name": "Deutsch",
+      "file": "de.json",
+      "plural_rule": "one_other"
+    },
+    {
+      "code": "fr",
+      "name": "Français",
+      "file": "fr.json",
+      "plural_rule": "one_other"
+    },
+    {
+      "code": "ru",
+      "name": "Русский",
+      "file": "ru.json",
+      "plural_rule": "one_other"
+    },
+    {
+      "code": "vi",
+      "name": "Tiếng Việt",
+      "file": "vi.json",
+      "plural_rule": "other"
+    },
+    {
+      "code": "da",
+      "name": "Dansk",
+      "file": "da.json",
+      "plural_rule": "one_other"
+    },
+    {
+      "code": "tr",
+      "name": "Türkçe",
+      "file": "tr.json",
+      "plural_rule": "other"
+    },
+    {
+      "code": "es",
+      "name": "Español",
+      "file": "es.json",
+      "plural_rule": "one_other"
+    },
+    {
+      "code": "it",
+      "name": "Italiano",
+      "file": "it.json",
+      "plural_rule": "one_other"
+    },
+    {
+      "code": "pt-BR",
+      "name": "Português (Brasil)",
+      "file": "pt-BR.json",
+      "plural_rule": "one_other"
+    },
+    {
+      "code": "ko",
+      "name": "한국어",
+      "file": "ko.json",
+      "plural_rule": "other"
+    }
+  ]
+}
