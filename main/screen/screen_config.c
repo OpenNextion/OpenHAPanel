@@ -40,14 +40,22 @@ static const char *feature_type_to_string(screen_feature_type_t type)
         return "cover-open-close";
     case SCREEN_FEATURE_COVER_POSITION:
         return "cover-position";
-    case SCREEN_FEATURE_SWITCH_TOGGLE:
-        return "switch-toggle";
-    case SCREEN_FEATURE_SIREN_TOGGLE:
-        return "siren-toggle";
-    case SCREEN_FEATURE_SCENE_PRESS:
-        return "scene-press";
-    case SCREEN_FEATURE_BUTTON_PRESS:
-        return "button-press";
+    case SCREEN_FEATURE_TOGGLE:
+        return "toggle";
+    case SCREEN_FEATURE_BUTTON:
+        return "button";
+    case SCREEN_FEATURE_TREND_GRAPH:
+        return "trend-graph";
+    case SCREEN_FEATURE_CLIMATE_HVAC_MODES:
+        return "climate-hvac-modes";
+    case SCREEN_FEATURE_CLIMATE_FAN_MODES:
+        return "climate-fan-modes";
+    case SCREEN_FEATURE_CLIMATE_PRESET_MODES:
+        return "climate-preset-modes";
+    case SCREEN_FEATURE_CLIMATE_SWING_MODES:
+        return "climate-swing-modes";
+    case SCREEN_FEATURE_CLIMATE_SWING_HORIZONTAL_MODES:
+        return "climate-swing-horizontal-modes";
     case SCREEN_FEATURE_LIGHT_BRIGHTNESS:
     default:
         return "light-brightness";
@@ -67,6 +75,9 @@ static screen_action_type_t parse_action_type(const char *action)
 
 static screen_feature_type_t parse_feature_type(const char *type)
 {
+    if (strcmp(type, "light-brightness") == 0) {
+        return SCREEN_FEATURE_LIGHT_BRIGHTNESS;
+    }
     if (strcmp(type, "light-color-temp") == 0) {
         return SCREEN_FEATURE_LIGHT_COLOR_TEMP;
     }
@@ -76,19 +87,31 @@ static screen_feature_type_t parse_feature_type(const char *type)
     if (strcmp(type, "cover-position") == 0) {
         return SCREEN_FEATURE_COVER_POSITION;
     }
-    if (strcmp(type, "switch-toggle") == 0) {
-        return SCREEN_FEATURE_SWITCH_TOGGLE;
+    if (strcmp(type, "toggle") == 0) {
+        return SCREEN_FEATURE_TOGGLE;
     }
-    if (strcmp(type, "siren-toggle") == 0) {
-        return SCREEN_FEATURE_SIREN_TOGGLE;
+    if (strcmp(type, "button") == 0) {
+        return SCREEN_FEATURE_BUTTON;
     }
-    if (strcmp(type, "scene-press") == 0) {
-        return SCREEN_FEATURE_SCENE_PRESS;
+    if (strcmp(type, "trend-graph") == 0) {
+        return SCREEN_FEATURE_TREND_GRAPH;
     }
-    if (strcmp(type, "button-press") == 0) {
-        return SCREEN_FEATURE_BUTTON_PRESS;
+    if (strcmp(type, "climate-hvac-modes") == 0) {
+        return SCREEN_FEATURE_CLIMATE_HVAC_MODES;
     }
-    return SCREEN_FEATURE_LIGHT_BRIGHTNESS;
+    if (strcmp(type, "climate-fan-modes") == 0) {
+        return SCREEN_FEATURE_CLIMATE_FAN_MODES;
+    }
+    if (strcmp(type, "climate-preset-modes") == 0) {
+        return SCREEN_FEATURE_CLIMATE_PRESET_MODES;
+    }
+    if (strcmp(type, "climate-swing-modes") == 0) {
+        return SCREEN_FEATURE_CLIMATE_SWING_MODES;
+    }
+    if (strcmp(type, "climate-swing-horizontal-modes") == 0) {
+        return SCREEN_FEATURE_CLIMATE_SWING_HORIZONTAL_MODES;
+    }
+    return SCREEN_FEATURE_INVALID;
 }
 
 static void parse_action_item(const cJSON *root, const char *key, bool *has_action, screen_action_t *out_action)
@@ -165,6 +188,9 @@ static esp_err_t parse_features(const cJSON *features_json, screen_tile_card_dat
         const cJSON *type = cJSON_GetObjectItemCaseSensitive(feature_json, "type");
         const cJSON *data = cJSON_GetObjectItemCaseSensitive(feature_json, "data");
         tile->features[i].type = parse_feature_type(type->valuestring);
+        if (tile->features[i].type == SCREEN_FEATURE_INVALID) {
+            return ESP_ERR_INVALID_ARG;
+        }
         tile->features[i].data = cJSON_IsObject(data) ? cJSON_Duplicate(data, true) : NULL;
         if (cJSON_IsObject(data) && !tile->features[i].data) {
             return ESP_ERR_NO_MEM;

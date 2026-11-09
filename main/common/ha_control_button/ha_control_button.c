@@ -1,17 +1,31 @@
 // main/common/ha_control_button/ha_control_button.c
 #include "ha_control_button.h"
+#include "ha_ui_font.h"
 #include "ui_i18n.h"
 #include "i18n.h"
+#include "screen_theme.h"
 #include <stddef.h>
-
-#include "assets/ha_ui_assets.h"
 
 #define BUTTON_HEIGHT              56
 #define BUTTON_RADIUS              12
-#define BUTTON_BG                  0x242424
-#define BUTTON_PRESSED_BG          0x373737
-#define BUTTON_TEXT_ENABLED        0xFFFFFF
-#define BUTTON_TEXT_DISABLED       0x909090
+
+#define BUTTON_TEXT_ENABLED_DARK   0xE1E1E1
+#define BUTTON_TEXT_DISABLED_DARK  0x909090
+
+/* RGB565 needs stronger separation from the white tile surface. */
+#if LV_COLOR_DEPTH < 24
+#define BUTTON_BG_DARK             0x333333
+#define BUTTON_PRESSED_BG_DARK     0x4F4F4F
+#define BUTTON_BG_LIGHT            0xE3E3E3
+#define BUTTON_PRESSED_BG_LIGHT    0xD1D1D1
+#else
+#define BUTTON_BG_DARK             0x242424
+#define BUTTON_PRESSED_BG_DARK     0x333333
+#define BUTTON_BG_LIGHT            0xF2F2F2
+#define BUTTON_PRESSED_BG_LIGHT    0xE0E0E0
+#endif
+#define BUTTON_TEXT_ENABLED_LIGHT  0x141414
+#define BUTTON_TEXT_DISABLED_LIGHT 0xBDBDBD
 
 typedef struct {
     lv_obj_t *label;
@@ -25,12 +39,19 @@ static ha_control_button_context_t *get_context(lv_obj_t *obj)
     return obj ? lv_obj_get_user_data(obj) : NULL;
 }
 
+static uint32_t button_text_color(bool disabled)
+{
+    const bool light = (screen_theme_get() == SCREEN_THEME_LIGHT);
+    if (disabled) {
+        return light ? BUTTON_TEXT_DISABLED_LIGHT : BUTTON_TEXT_DISABLED_DARK;
+    }
+    return light ? BUTTON_TEXT_ENABLED_LIGHT : BUTTON_TEXT_ENABLED_DARK;
+}
+
 static void apply_text_style(ha_control_button_context_t *ctx)
 {
     lv_obj_set_style_text_color(ctx->label,
-                                lv_color_hex(ctx->disabled
-                                             ? BUTTON_TEXT_DISABLED
-                                             : BUTTON_TEXT_ENABLED),
+                                lv_color_hex(button_text_color(ctx->disabled)),
                                 0);
 }
 
@@ -73,6 +94,11 @@ lv_obj_t *ha_control_button_create(lv_obj_t *parent)
         lv_free(ctx);
         return NULL;
     }
+    const bool light = (screen_theme_get() == SCREEN_THEME_LIGHT);
+    const uint32_t bg_color = light ? BUTTON_BG_LIGHT : BUTTON_BG_DARK;
+    const uint32_t pressed_bg = light ? BUTTON_PRESSED_BG_LIGHT
+                                      : BUTTON_PRESSED_BG_DARK;
+
     lv_obj_remove_style_all(btn);
     lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(btn, LV_PCT(100), BUTTON_HEIGHT);
@@ -80,12 +106,12 @@ lv_obj_t *ha_control_button_create(lv_obj_t *parent)
     lv_obj_set_style_border_width(btn, 0, 0);
     lv_obj_set_style_shadow_width(btn, 0, 0);
     lv_obj_set_style_pad_hor(btn, 12, 0);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(BUTTON_BG), 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(bg_color), 0);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(BUTTON_PRESSED_BG),
+    lv_obj_set_style_bg_color(btn, lv_color_hex(pressed_bg),
                               LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_PRESSED);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(BUTTON_BG),
+    lv_obj_set_style_bg_color(btn, lv_color_hex(bg_color),
                               LV_STATE_DISABLED);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_DISABLED);
     lv_obj_set_style_transform_width(btn, 0, LV_STATE_PRESSED);
@@ -98,7 +124,7 @@ lv_obj_t *ha_control_button_create(lv_obj_t *parent)
     lv_obj_t *label = lv_label_create(btn);
     ctx->label = label;
     ui_i18n_label_set_text(label, i18n_get(I18N_ACTION_PRESS));
-    lv_obj_set_style_text_font(label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(label, ha_ui_font_medium(20), 0);
     lv_obj_set_width(label, LV_PCT(100));
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
@@ -132,4 +158,23 @@ void ha_control_button_set_press_cb(lv_obj_t *obj,
         ctx->callback = callback;
         ctx->user_data = user_data;
     }
+}
+
+void ha_control_button_refresh_theme(lv_obj_t *obj)
+{
+    ha_control_button_context_t *ctx = get_context(obj);
+    if (!ctx) {
+        return;
+    }
+    const bool light = (screen_theme_get() == SCREEN_THEME_LIGHT);
+    const uint32_t bg_color = light ? BUTTON_BG_LIGHT : BUTTON_BG_DARK;
+    const uint32_t pressed_bg = light ? BUTTON_PRESSED_BG_LIGHT
+                                      : BUTTON_PRESSED_BG_DARK;
+
+    lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color), 0);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(pressed_bg),
+                              LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color),
+                              LV_STATE_DISABLED);
+    apply_text_style(ctx);
 }

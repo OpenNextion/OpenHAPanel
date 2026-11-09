@@ -21,6 +21,17 @@ CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=4096
 CONFIG_LV_MEM_SIZE_KILOBYTES=32
 CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=224
 
+# UI text uses FreeType bitmap glyphs from the bundled MiSans TTF.
+# ThorVG remains available for other vector drawing on this software display.
+CONFIG_LV_USE_FREETYPE=y
+CONFIG_LV_USE_FONT_PLACEHOLDER=y
+# Cache rendered UI glyphs across pages; the LVGL pools include PSRAM.
+CONFIG_LV_FREETYPE_CACHE_FT_GLYPH_CNT=256
+CONFIG_LV_USE_MATRIX=y
+CONFIG_LV_USE_VECTOR_GRAPHIC=y
+CONFIG_LV_USE_THORVG=y
+CONFIG_LV_USE_THORVG_INTERNAL=y
+
 #
 # Partition Table
 #

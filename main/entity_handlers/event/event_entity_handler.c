@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "event_entity_handler.h"
 
@@ -9,6 +10,7 @@
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
 #include "entity_handlers/ha_datetime_format.h"
+#include "entity_handlers/light/components/light_detail_theme.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 #include "screen/components/ha_history_list.h"
@@ -484,7 +486,8 @@ static esp_err_t event_render_tile(ha_entity_store_t *store,
     model->icon = event_get_icon(snapshot);
     model->background_color = lv_color_hex(EVENT_TILE_BG);
     model->icon_color = lv_color_hex(EVENT_TILE_ICON);
-    // model->icon_circle_background_color = lv_color_hex(0x242d36);
+    model->icon_circle_background_color = lv_color_hex(0x273039);
+    model->icon_circle_background_color_light = lv_color_hex(0xBFCBD9);
     model->title_color = lv_color_hex(EVENT_TILE_TITLE);
     model->state_color = lv_color_hex(EVENT_TILE_STATE);
 
@@ -493,7 +496,8 @@ static esp_err_t event_render_tile(ha_entity_store_t *store,
                                            sizeof(model->state_text),
                                            snapshot);
         model->icon_color = lv_color_hex(0x6f6f6f);
-        // model->icon_circle_background_color = lv_color_hex(0x2c2c2c);
+        model->icon_circle_background_color = lv_color_hex(0x353536);
+        model->icon_circle_background_color_light = lv_color_hex(0xCDD0D6);
     } else {
         ha_datetime_format_relative_now(snapshot->state,
                                         model->state_text,
@@ -507,77 +511,10 @@ static esp_err_t event_render_tile(ha_entity_store_t *store,
     return ESP_OK;
 }
 
-static void event_more_info_close_event_cb(lv_event_t *event)
-{
-    const entity_more_info_context_t *context = lv_event_get_user_data(event);
-    if (context && context->close) {
-        context->close(context->close_user_data);
-    }
-}
-
 static lv_obj_t *event_more_info_build_page(
     const entity_more_info_context_t *context)
 {
-    lv_obj_t *screen = context->screen;
-    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x010203), 0);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(screen, 0, 0);
-    lv_obj_set_style_pad_all(screen, 0, 0);
-    lv_obj_set_layout(screen, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(screen,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(screen, 0, 0);
-    lv_obj_set_size(screen, LV_PCT(100), LV_PCT(100));
-
-    lv_obj_t *header = lv_obj_create(screen);
-    lv_obj_remove_style_all(header);
-    lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(header, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(header, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(header,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(header, 20, 0);
-    lv_obj_set_style_pad_ver(header, 12, 0);
-    lv_obj_set_style_pad_gap(header, 10, 0);
-
-    lv_obj_t *close_button = lv_image_create(header);
-    lv_img_set_src(close_button, &close_50);
-    lv_obj_add_flag(close_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(close_button,
-                        event_more_info_close_event_cb,
-                        LV_EVENT_CLICKED,
-                        (void *)context);
-    
-    lv_obj_t *title = lv_label_create(header);
-    lv_obj_set_flex_grow(title, 1);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    ui_i18n_label_set_text(title,
-                      context->snapshot.friendly_name[0]
-                          ? context->snapshot.friendly_name
-                          : context->snapshot.entity_id);
-    lv_obj_set_style_text_font(title, &ha_font_misan_medium_24, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_height(title, lv_font_get_line_height(&ha_font_misan_medium_24));
-
-    lv_obj_t *close_hitbox = lv_obj_create(context->overlay);
-    lv_obj_remove_style_all(close_hitbox);
-    lv_obj_remove_flag(close_hitbox, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(close_hitbox, 50, 50);
-    lv_obj_align(close_hitbox, LV_ALIGN_TOP_LEFT, 20, 12);
-    lv_obj_add_event_cb(close_hitbox,
-                        event_more_info_close_event_cb,
-                        LV_EVENT_CLICKED,
-                        (void *)context);
-    
-    lv_obj_t *main_ctn = lv_obj_create(screen);
+    lv_obj_t *main_ctn = lv_obj_create(context->body);
     lv_obj_remove_style_all(main_ctn);
     lv_obj_set_scroll_dir(main_ctn, LV_DIR_VER);
     lv_obj_set_size(main_ctn, LV_PCT(100), 0);
@@ -631,7 +568,7 @@ static esp_err_t event_render_more_info(
     lv_obj_set_style_pad_hor(content, 12, 0);
     lv_obj_set_style_pad_ver(content, 8, 0);
     lv_obj_set_style_pad_gap(content, 10, 0);
-    lv_obj_set_style_bg_color(content, lv_color_hex(0x1E2228), 0);
+    lv_obj_set_style_bg_color(content, lv_color_hex(light_detail_theme_color(0x1E2228, LIGHT_DETAIL_LIGHT_SURFACE)), 0);
     lv_obj_set_style_bg_opa(content, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(content, 12, 0);
 
@@ -664,30 +601,56 @@ static esp_err_t event_render_more_info(
     lv_obj_set_flex_grow(tile_content_ctx, 1);
     lv_obj_set_height(tile_content_ctx, LV_SIZE_CONTENT);
     lv_obj_set_layout(tile_content_ctx, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(tile_content_ctx, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(tile_content_ctx,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(tile_content_ctx, 0, 0);
 
-    lv_obj_t *tile_content_title = lv_label_create(tile_content_ctx);
-    lv_obj_set_style_text_font(tile_content_title, &ha_font_misan_medium_24, 0);
-    lv_obj_set_size(tile_content_title, LV_PCT(100), lv_font_get_line_height(&ha_font_misan_medium_24));
+    lv_obj_t *title_parent = tile_content_ctx;
+    if (bsp_lcd_is_landscape()) {
+        lv_obj_set_flex_flow(tile_content_ctx, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(tile_content_ctx,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_gap(tile_content_ctx, 12, 0);
+
+        lv_obj_t *tile_content_left = lv_obj_create(tile_content_ctx);
+        lv_obj_remove_style_all(tile_content_left);
+        lv_obj_set_flex_grow(tile_content_left, 1);
+        lv_obj_set_height(tile_content_left, LV_SIZE_CONTENT);
+        lv_obj_set_layout(tile_content_left, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(tile_content_left, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(tile_content_left,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_all(tile_content_left, 0, 0);
+
+        title_parent = tile_content_left;
+    } else {
+        lv_obj_set_flex_flow(tile_content_ctx, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(tile_content_ctx,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER);
+    }
+
+    lv_obj_t *tile_content_title = lv_label_create(title_parent);
+    lv_obj_set_style_text_font(tile_content_title, ha_ui_font_medium(24), 0);
+    lv_obj_set_size(tile_content_title, LV_PCT(100), lv_font_get_line_height(ha_ui_font_medium(24)));
     lv_label_set_long_mode(tile_content_title, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_color(tile_content_title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_height(tile_content_title, lv_font_get_line_height(&ha_font_misan_medium_24));
+    lv_obj_set_style_text_color(tile_content_title, lv_color_hex(light_detail_theme_color(0xFFFFFF, LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)), 0);
+    lv_obj_set_height(tile_content_title, lv_font_get_line_height(ha_ui_font_medium(24)));
     ui_i18n_label_set_text(tile_content_title,
                       context->snapshot.friendly_name[0]
                           ? context->snapshot.friendly_name
                           : context->snapshot.entity_id);
 
     lv_obj_t *tile_content_cur_state = lv_label_create(tile_content_ctx);
-    lv_obj_set_style_text_font(tile_content_cur_state, &ha_font_misan_regular_16, 0);
-    lv_obj_set_style_text_color(tile_content_cur_state, lv_color_white(), 0);
-    lv_obj_set_size(tile_content_cur_state, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_text_font(tile_content_cur_state, ha_ui_font_regular(16), 0);
+    lv_obj_set_style_text_color(tile_content_cur_state, lv_color_hex(light_detail_theme_color(0xFFFFFF, LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)), 0);
     if (bsp_lcd_is_landscape()) {
-        lv_obj_set_style_text_align(tile_content_cur_state, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_size(tile_content_cur_state, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    } else {
+        lv_obj_set_size(tile_content_cur_state, LV_PCT(100), LV_SIZE_CONTENT);
     }
     char cur_state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
     event_format_state(&context->snapshot,
@@ -695,7 +658,7 @@ static esp_err_t event_render_more_info(
                     sizeof(cur_state_text));
     lv_label_set_text(tile_content_cur_state, cur_state_text);
 
-    lv_obj_t *tile_content_state = lv_label_create(tile_content_ctx);
+    lv_obj_t *tile_content_state = lv_label_create(title_parent);
     char state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
     time_t last_updated_epoch = 0;
     if (ha_datetime_parse_epoch(context->snapshot.last_updated,
@@ -713,8 +676,8 @@ static esp_err_t event_render_more_info(
         ha_relative_time_label_bind(tile_content_state,
                                     last_updated_epoch);
     }
-    lv_obj_set_style_text_font(tile_content_state, &ha_font_misan_regular_16, 0);
-    lv_obj_set_size(tile_content_state, LV_PCT(100), lv_font_get_line_height(&ha_font_misan_regular_16));
+    lv_obj_set_style_text_font(tile_content_state, ha_ui_font_regular(16), 0);
+    lv_obj_set_size(tile_content_state, LV_PCT(100), lv_font_get_line_height(ha_ui_font_regular(16)));
     lv_label_set_long_mode(tile_content_state, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_state, lv_color_hex(0x666666), 0);
     

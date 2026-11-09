@@ -15,7 +15,7 @@ static bool siren_feature_supports(ha_entity_store_t *store,
 {
     (void)store;
     (void)entity_id;
-    return type == SCREEN_FEATURE_SIREN_TOGGLE;
+    return type == SCREEN_FEATURE_TOGGLE;
 }
 
 static void toggle_changed(bool on, void *user_data)
@@ -44,7 +44,7 @@ static esp_err_t siren_feature_create(entity_feature_instance_t *instance)
 {
     if (!instance || !instance->host || !instance->entity_id ||
         !instance->config ||
-        instance->config->type != SCREEN_FEATURE_SIREN_TOGGLE) {
+        instance->config->type != SCREEN_FEATURE_TOGGLE) {
         return ESP_ERR_INVALID_ARG;
     }
     instance->control = ha_control_toggle_create(instance->host);
@@ -55,6 +55,17 @@ static esp_err_t siren_feature_create(entity_feature_instance_t *instance)
     ha_control_toggle_set_change_cb(instance->control, toggle_changed,
                                     instance);
     ha_control_toggle_set_icon_text(instance->control, MDI_SYMBOL_VOLUME_OFF);
+    ha_control_toggle_set_light_colors(instance->control,
+#if LV_COLOR_DEPTH < 24
+                                       lv_color_hex(0xE3E3E3),
+#else
+                                       lv_color_hex(0xECECEC),
+#endif
+                                       lv_color_hex(0xFDD9D7),
+                                       lv_color_hex(0x999999),
+                                       lv_color_hex(0xF44336),
+                                       lv_color_hex(0xE2E4E8),
+                                       lv_color_hex(0xCECECE));
     return ESP_OK;
 }
 
@@ -77,8 +88,16 @@ static void siren_feature_update(entity_feature_instance_t *instance,
                                        : MDI_SYMBOL_VOLUME_OFF);
 }
 
+static void siren_feature_apply_theme(entity_feature_instance_t *instance)
+{
+    if (instance && instance->control) {
+        ha_control_toggle_refresh_theme(instance->control);
+    }
+}
+
 const entity_feature_handler_t siren_feature_handler = {
     .supports = siren_feature_supports,
     .create = siren_feature_create,
     .update = siren_feature_update,
+    .apply_theme = siren_feature_apply_theme,
 };

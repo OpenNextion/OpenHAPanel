@@ -20,8 +20,10 @@ EXT_RAM_BSS_ATTR char mdns_current_ip[MDNS_IP_LEN] = {0};
 EXT_RAM_BSS_ATTR char mdns_custom_hostname[HOSTNAME_MAX_LEN] = {0};
 EXT_RAM_BSS_ATTR mdns_scan_result *mdns_current_scan_results = NULL;
 EXT_RAM_BSS_ATTR int16_t mdns_current_count = 0;
-EXT_RAM_BSS_ATTR mdns_scan_result *mdns_prev_scan_results = NULL;
-EXT_RAM_BSS_ATTR int16_t mdns_prev_count = 0;
+EXT_RAM_BSS_ATTR mdns_scan_result *mdns_prev_sta_results = NULL;
+EXT_RAM_BSS_ATTR int16_t mdns_prev_sta_count = 0;
+EXT_RAM_BSS_ATTR mdns_scan_result *mdns_prev_ap_results = NULL;
+EXT_RAM_BSS_ATTR int16_t mdns_prev_ap_count = 0;
 
 /**
  * @brief Retrieves the last two bytes of the device's Wi-Fi MAC address.
@@ -306,6 +308,54 @@ static int mdns_result_cmp_by_username(const void *a, const void *b)
     return strcmp(r1->txt_username, r2->txt_username);
 }
 
+static bool mdns_is_ap_subnet(const char *ip_str, uint32_t ap_gateway, uint32_t ap_netmask)
+{
+    unsigned int a, b, c, d;
+    if (sscanf(ip_str, "%u.%u.%u.%u", &a, &b, &c, &d) != 4) {
+        return false;
+    }
+    uint32_t ip = ((uint32_t)a << 24) | ((uint32_t)b << 16) | ((uint32_t)c << 8) | (uint32_t)d;
+    return (ip & ap_netmask) == (ap_gateway & ap_netmask);
+}
+
+static void mdns_split_results_by_network(mdns_scan_result *all_results, uint8_t total,
+                                           mdns_scan_result **sta_out, uint8_t *sta_cnt,
+                                           mdns_scan_result **ap_out, uint8_t *ap_cnt)
+{
+    NetworkState *net = network_get_state();
+    uint32_t ap_gw = 0, ap_nm = 0;
+    bool has_ap = (net && net->ap_config.active);
+
+    if (has_ap) {
+        ap_gw = net->current_ap_ip.gateway;
+        ap_nm = net->current_ap_ip.netmask;
+    }
+
+    uint8_t s = 0, a = 0;
+    for (int i = 0; i < total; i++) {
+        if (has_ap && mdns_is_ap_subnet(all_results[i].ip_addr, ap_gw, ap_nm)) {
+            a++;
+        } else {
+            s++;
+        }
+    }
+
+    *sta_out = s ? (mdns_scan_result *)calloc(s, sizeof(mdns_scan_result)) : NULL;
+    *ap_out = a ? (mdns_scan_result *)calloc(a, sizeof(mdns_scan_result)) : NULL;
+    *sta_cnt = 0;
+    *ap_cnt = 0;
+
+    for (int i = 0; i < total; i++) {
+        if (has_ap && mdns_is_ap_subnet(all_results[i].ip_addr, ap_gw, ap_nm)) {
+            if (*ap_out) memcpy(&(*ap_out)[*ap_cnt], &all_results[i], sizeof(mdns_scan_result));
+            (*ap_cnt)++;
+        } else {
+            if (*sta_out) memcpy(&(*sta_out)[*sta_cnt], &all_results[i], sizeof(mdns_scan_result));
+            (*sta_cnt)++;
+        }
+    }
+}
+
 /**
  * @brief Performs an mDNS scan to discover devices advertising the HTTP service.
  *
@@ -434,7 +484,7 @@ static void mdns_scan_task(void *param)
         /* wait for the network to connect */
         while (true) {
             net = network_get_state();
-            if (net && (net->eth_connected || net->sta_connected_flag)) {
+            if (net && (net->eth_connected || net->sta_connected_flag || net->ap_config.active)) {
                 break;
             }
 
@@ -451,23 +501,40 @@ static void mdns_scan_task(void *param)
         /* scan and compare the results */
         mdns_current_count = mdns_open_nextion_scan(&mdns_current_scan_results);
 
-        bool changed =
-            (mdns_current_count != mdns_prev_count) ||
-            !mdns_compare_scan_results(mdns_prev_scan_results, mdns_current_scan_results, mdns_current_count);
+        mdns_scan_result *sta_results = NULL;
+        uint8_t sta_count = 0;
+        mdns_scan_result *ap_results = NULL;
+        uint8_t ap_count = 0;
+        mdns_split_results_by_network(mdns_current_scan_results, mdns_current_count,
+                                       &sta_results, &sta_count,
+                                       &ap_results, &ap_count);
+        free(mdns_current_scan_results);
+        mdns_current_scan_results = NULL;
 
-        if (changed) {
-            ESP_LOGI(TAG, "mDNS scan results changed (%d)", mdns_current_count);
-            /* replace the old results */
-            free(mdns_prev_scan_results);
-            mdns_prev_scan_results = mdns_current_scan_results;
-            mdns_prev_count = mdns_current_count;
+        bool sta_changed = (sta_count != mdns_prev_sta_count) ||
+            !mdns_compare_scan_results(mdns_prev_sta_results, sta_results, sta_count);
+        bool ap_changed = (ap_count != mdns_prev_ap_count) ||
+            !mdns_compare_scan_results(mdns_prev_ap_results, ap_results, ap_count);
+
+        if (sta_changed) {
+            free(mdns_prev_sta_results);
+            mdns_prev_sta_results = sta_results;
+            mdns_prev_sta_count = sta_count;
+            sta_results = NULL;
+        }
+        if (ap_changed) {
+            free(mdns_prev_ap_results);
+            mdns_prev_ap_results = ap_results;
+            mdns_prev_ap_count = ap_count;
+            ap_results = NULL;
+        }
+        free(sta_results);
+        free(ap_results);
+
+        if (sta_changed || ap_changed) {
+            ESP_LOGI(TAG, "mDNS scan results changed STA:%d AP:%d", sta_count, ap_count);
             webserver_cur_mdns_scan_result_notify();
         }
-        else {
-            free(mdns_current_scan_results);
-        }
-
-        mdns_current_scan_results = NULL;
         vTaskDelay(pdMS_TO_TICKS(MDNS_SCAN_INTERVAL_MS));
     }
 }

@@ -1,5 +1,6 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './styles.css';
+import './styles/themes/index.scss';
 import './assets/i18n';
 import { ENV_VCONSOLE } from './constant';
 import dayjs from 'dayjs';

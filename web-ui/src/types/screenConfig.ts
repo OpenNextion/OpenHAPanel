@@ -9,7 +9,6 @@ export interface IHassScreenConfigItem {
     columns: number;
     badges?: IHassScreenConfigBadge[];
     cards?: IHassScreenConfigCard[];
-    features?: IHassScreenConfigFeature[];
 }
 ``;
 
@@ -28,11 +27,18 @@ export interface IHassScreenConfigCard {
         entity: string;
         full_width: boolean;
         actionConfig: IHassScreenActionConfig;
+        features?: IHassScreenConfigFeature[];
+        features_position?: 'bottom' | 'inline';
     };
 }
 
 export interface IHassScreenConfigFeature {
     type: string;
+    data: {
+        [key: string]: unknown;
+    };
+    /** Feature-specific options (for example, a slider's range or style). */
+    [key: string]: unknown;
 }
 
 export type THassScreenAction = 'more-info' | 'toggle' | 'nothing';

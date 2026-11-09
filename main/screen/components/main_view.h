@@ -14,10 +14,15 @@ typedef struct main_view main_view_t;
 void main_view_refresh_language(main_view_t *view, ha_entity_store_t *store);
 
 main_view_t *main_view_create(lv_obj_t *parent, const screen_view_t *view);
+/** Create the page structure and badges; leave card creation for later ticks. */
+main_view_t *main_view_create_deferred(lv_obj_t *parent, const screen_view_t *view);
+/** Build one card. Returns true while more cards remain on this page. */
+bool main_view_build_next_card(main_view_t *main_view);
 void main_view_destroy(main_view_t *main_view);
 
 lv_obj_t *main_view_get_obj(main_view_t *main_view);
 void main_view_update(main_view_t *main_view, const screen_view_t *view);
+void main_view_apply_theme(main_view_t *main_view);
 
 /**
  * Update one badge by its position in ScreenView.badges.

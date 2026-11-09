@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "screen_ui.h"
 #include "app.h"
@@ -48,6 +49,14 @@
 #define SCREEN_MANUAL_OTA_START_DELAY_MS 150
 #define SCREEN_DEFAULT_CONTENT_WIDTH 280
 #define SCREEN_PAGE_GESTURE_RELEASE_POLL_MS 20
+#define SCREEN_HOME_CARD_BUILD_INTERVAL_MS 40
+#if LV_COLOR_DEPTH < 24
+#define SCREEN_HOME_LIGHT_BG_COLOR 0xE8E8E8
+#define SCREEN_HOME_DARK_BG_COLOR 0x000000
+#else
+#define SCREEN_HOME_LIGHT_BG_COLOR 0xFAFAFA
+#define SCREEN_HOME_DARK_BG_COLOR 0x111111
+#endif
 
 typedef struct {
     lv_color_t bg_color;
@@ -62,6 +71,7 @@ typedef struct {
     lv_timer_t *device_info_refresh_timer;
     lv_timer_t *manual_ota_start_timer;
     lv_timer_t *page_gesture_release_timer;
+    lv_timer_t *home_card_build_timer;
     lv_obj_t *ha_provisioning_root;
     lv_obj_t *ap_provisioning_root;
     lv_obj_t *forgot_password_root;
@@ -74,6 +84,8 @@ typedef struct {
     main_view_t **main_views;
     size_t page_count;
     size_t active_page;
+    size_t home_card_build_page;
+    bool home_cards_building;
     lv_indev_t *page_gesture_indev;
     bool page_gesture_handled;
     bool manual_ota_active;
@@ -163,6 +175,8 @@ static void screen_ui_apply_home_theme(screen_ctx_t *ctx);
 static void screen_ui_create_home_loading(screen_ctx_t *ctx, lv_obj_t *screen);
 static void screen_ui_layout_home_loading(screen_ctx_t *ctx);
 static void screen_ui_sync_home_loading(void);
+static void screen_ui_home_card_build_timer_cb(lv_timer_t *timer);
+static void screen_ui_finish_home_card_build(screen_ctx_t *ctx);
 static void screen_create_status_bar(screen_ctx_t *ctx, lv_obj_t *screen);
 static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const screen_config_t *config);
 static void screen_create_indicator(screen_ctx_t *ctx, lv_obj_t *screen);
@@ -230,6 +244,18 @@ static void screen_render(const screen_config_t *config)
     screen_create_components(s_screen_ctx, screen, config);
     screen_ui_create_home_loading(s_screen_ctx, screen);
     screen_ui_sync_home_loading();
+    if (s_screen_ctx->home_cards_building) {
+        s_screen_ctx->home_card_build_timer =
+            lv_timer_create(screen_ui_home_card_build_timer_cb,
+                            SCREEN_HOME_CARD_BUILD_INTERVAL_MS,
+                            s_screen_ctx);
+        if (!s_screen_ctx->home_card_build_timer) {
+            ESP_LOGW(TAG, "Failed to defer home cards; building them now");
+            while (s_screen_ctx->home_cards_building) {
+                screen_ui_home_card_build_timer_cb(NULL);
+            }
+        }
+    }
 }
 
 esp_err_t screen_ui_init(void)
@@ -622,6 +648,9 @@ static void screen_ui_theme_event_handler(void *arg,
     if (s_screen_ctx && s_screen_ctx->root_screen) {
         screen_ui_apply_home_theme(s_screen_ctx);
     }
+    if (!more_info_screen_refresh_theme()) {
+        ESP_LOGW(TAG, "Failed to refresh More Info screen theme");
+    }
 
     /* Notification colors are captured when the component is created. Rebuild
      * the visible notification so a runtime theme switch is reflected
@@ -703,6 +732,7 @@ void screen_ui_set_active_screen(int32_t screen_index)
 {
     size_t position = 0;
     if (!s_screen_ctx || !s_screen_ctx->tileview ||
+        s_screen_ctx->home_cards_building ||
         !screen_find_page_position(s_screen_ctx, screen_index, &position)) {
         return;
     }
@@ -890,7 +920,8 @@ static screen_ctx_t *screen_ctx_create(void)
     const screen_theme_palette_t *palette =
         screen_theme_get_palette_for_mode(mode);
     const bool light = mode == SCREEN_THEME_LIGHT;
-    ctx->bg_color = lv_color_hex(light ? palette->page_bg : 0x010203);
+    ctx->bg_color = lv_color_hex(light ? SCREEN_HOME_LIGHT_BG_COLOR
+                                       : SCREEN_HOME_DARK_BG_COLOR);
     lv_style_set_text_color(&ctx->home_text_style,
                             lv_color_hex(light ? palette->text_primary
                                                : 0xFFFFFF));
@@ -930,6 +961,10 @@ static void screen_ctx_destroy(screen_ctx_t *ctx)
     if (ctx->page_gesture_release_timer) {
         lv_timer_delete(ctx->page_gesture_release_timer);
         ctx->page_gesture_release_timer = NULL;
+    }
+    if (ctx->home_card_build_timer) {
+        lv_timer_delete(ctx->home_card_build_timer);
+        ctx->home_card_build_timer = NULL;
     }
     screen_indicator_destroy(ctx->screen_indicator);
     screen_device_info_destroy(ctx->device_info);
@@ -1036,7 +1071,7 @@ static void screen_ui_render_centered_label(const char *text)
     lv_obj_t *label = lv_label_create(screen);
     ui_i18n_label_set_text(label, text ? text : "");
     lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(label, ha_ui_font_regular(16), 0);
     lv_obj_center(label);
 }
 
@@ -1388,7 +1423,8 @@ static void screen_ui_apply_home_theme(screen_ctx_t *ctx)
     const screen_theme_palette_t *palette =
         screen_theme_get_palette_for_mode(mode);
     const bool light = mode == SCREEN_THEME_LIGHT;
-    ctx->bg_color = lv_color_hex(light ? palette->page_bg : 0x010203);
+    ctx->bg_color = lv_color_hex(light ? SCREEN_HOME_LIGHT_BG_COLOR
+                                       : SCREEN_HOME_DARK_BG_COLOR);
 
     if (ctx->root_screen) {
         lv_obj_set_style_bg_color(ctx->root_screen, ctx->bg_color, 0);
@@ -1407,6 +1443,9 @@ static void screen_ui_apply_home_theme(screen_ctx_t *ctx)
     }
     if (ctx->screen_indicator) {
         screen_indicator_apply_theme(ctx->screen_indicator);
+    }
+    for (size_t i = 0; ctx->main_views && i < ctx->page_count; ++i) {
+        main_view_apply_theme(ctx->main_views[i]);
     }
     if (ctx->root_screen) {
         lv_obj_invalidate(ctx->root_screen);
@@ -1487,7 +1526,7 @@ static void screen_ui_create_home_loading(screen_ctx_t *ctx, lv_obj_t *screen)
         return;
     }
     ui_i18n_label_set_text(label, i18n_get(I18N_HOME_LOADING));
-    lv_obj_set_style_text_font(label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(label, ha_ui_font_medium(20), 0);
     lv_obj_add_style(label, &ctx->home_text_style, 0);
 }
 
@@ -1543,8 +1582,8 @@ static void screen_ui_sync_home_loading(void)
         return;
     }
 
-    const bool should_show = !screen_ui_home_data_ready(
-        ctx, app_get_ha_entity_store());
+    const bool should_show = ctx->home_cards_building ||
+        !screen_ui_home_data_ready(ctx, app_get_ha_entity_store());
     const bool visible = !lv_obj_has_flag(ctx->home_loading_overlay,
                                           LV_OBJ_FLAG_HIDDEN);
     if (should_show == visible) {
@@ -2475,7 +2514,7 @@ static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const scree
         lv_obj_set_style_pad_all(tile, 0, 0);
         const screen_view_t *view = &config->screens[i];
         if (screen_view_has_badges_or_entities(view)) {
-            ctx->main_views[i] = main_view_create(tile, view);
+            ctx->main_views[i] = main_view_create_deferred(tile, view);
         }
         else {
             screen_create_default_content(ctx,
@@ -2484,12 +2523,26 @@ static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const scree
         }
     }
 
-    /* A configuration reload releases every previous view before rebuilding
-     * it. Keep cached snapshots through that handoff so unchanged cards do
-     * not fall back to their entity IDs, then discard entities absent from the
-     * newly created views and rebuild the filtered HA subscription once. */
+    ctx->home_cards_building = true;
+    ctx->home_card_build_page = 0;
+}
+
+static void screen_ui_finish_home_card_build(screen_ctx_t *ctx)
+{
+    ctx->home_cards_building = false;
+    if (ctx->home_card_build_timer) {
+        lv_timer_delete(ctx->home_card_build_timer);
+        ctx->home_card_build_timer = NULL;
+    }
+
+    /* Bind newly built cards before clearing the loading overlay. */
     ha_entity_store_t *store = app_get_ha_entity_store();
     if (store) {
+        for (size_t i = 0; i < ctx->page_count; i++) {
+            if (ctx->main_views[i]) {
+                main_view_set_entity_store(ctx->main_views[i], store);
+            }
+        }
         ha_entity_store_prune_unreferenced(store);
         esp_err_t err = ha_entity_store_sync(store);
         if (err != ESP_OK) {
@@ -2498,6 +2551,30 @@ static void screen_create_pages(screen_ctx_t *ctx, lv_obj_t *screen, const scree
                      esp_err_to_name(err));
         }
     }
+    screen_ui_sync_home_loading();
+}
+
+static void screen_ui_home_card_build_timer_cb(lv_timer_t *timer)
+{
+    screen_ctx_t *ctx = timer ? lv_timer_get_user_data(timer) : s_screen_ctx;
+    if (!ctx || ctx != s_screen_ctx || !ctx->home_cards_building) {
+        return;
+    }
+    if (timer && bsp_lcd_boot_screen_active()) {
+        return;
+    }
+
+    while (ctx->home_card_build_page < ctx->page_count) {
+        main_view_t *view = ctx->main_views[ctx->home_card_build_page];
+        if (view && main_view_build_next_card(view)) {
+            return;
+        }
+        ctx->home_card_build_page++;
+        if (view) {
+            return;
+        }
+    }
+    screen_ui_finish_home_card_build(ctx);
 }
 
 static void screen_create_indicator(screen_ctx_t *ctx, lv_obj_t *screen)
@@ -2538,7 +2615,7 @@ static void screen_create_default_content(screen_ctx_t *ctx,
     ui_i18n_label_set_text(label,
                       i18n_get(I18N_SYSTEM_NO_ENTITIES));
     lv_obj_add_style(label, &ctx->home_text_style, 0);
-    lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(label, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_obj_align(container, LV_ALIGN_CENTER, 0, y_offset);
@@ -2587,6 +2664,8 @@ static void screen_page_gesture_cb(lv_event_t *event)
     screen_ctx_t *ctx = lv_event_get_user_data(event);
     lv_indev_t *indev = lv_indev_active();
     if (!ctx || ctx != s_screen_ctx || !indev || !ctx->tileview ||
+        (ctx->home_loading_overlay &&
+         !lv_obj_has_flag(ctx->home_loading_overlay, LV_OBJ_FLAG_HIDDEN)) ||
         ctx->page_count < 2 || lv_screen_active() != ctx->root_screen) {
         return;
     }

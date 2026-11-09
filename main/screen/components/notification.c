@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "notification.h"
 
 #include <stdbool.h>
@@ -167,7 +168,7 @@ notification_t *notification_show(const notification_config_t *config)
     lv_obj_t *header_title_label = lv_label_create(header_title_ctn);
     ui_i18n_label_set_text(header_title_label, config->title);
     lv_obj_set_style_text_color(header_title_label, title_color, 0);
-    lv_obj_set_style_text_font(header_title_label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(header_title_label, ha_ui_font_medium(20), 0);
     lv_obj_set_size(header_title_label, LV_PCT(100), LV_SIZE_CONTENT);
     lv_label_set_long_mode(header_title_label, LV_LABEL_LONG_WRAP);
 
@@ -197,7 +198,7 @@ notification_t *notification_show(const notification_config_t *config)
         lv_obj_t *status_label = lv_label_create(status_ctn);
         ui_i18n_label_set_text(status_label, config->status_text);
         lv_obj_set_style_text_color(status_label, level_color, 0);
-        lv_obj_set_style_text_font(status_label, &ha_font_misan_regular_14, 0);
+        lv_obj_set_style_text_font(status_label, ha_ui_font_regular(14), 0);
         lv_obj_set_flex_grow(status_label, 1);
         lv_label_set_long_mode(status_label, LV_LABEL_LONG_WRAP);
     }
@@ -206,7 +207,7 @@ notification_t *notification_show(const notification_config_t *config)
         lv_obj_t *description_label = lv_label_create(dialog);
         ui_i18n_label_set_text(description_label, config->description);
         lv_obj_set_style_text_color(description_label, description_color, 0);
-        lv_obj_set_style_text_font(description_label, &ha_font_misan_regular_14, 0);
+        lv_obj_set_style_text_font(description_label, ha_ui_font_regular(14), 0);
         lv_obj_set_size(description_label, LV_PCT(100), LV_SIZE_CONTENT);
         lv_label_set_long_mode(description_label, LV_LABEL_LONG_WRAP);
     }
@@ -238,7 +239,7 @@ notification_t *notification_show(const notification_config_t *config)
         ui_i18n_label_set_text(tips_label, config->tips);
         lv_obj_set_flex_grow(tips_label, 1);
         lv_obj_set_style_text_color(tips_label, lv_color_hex(0xB8B8B8), 0);
-        lv_obj_set_style_text_font(tips_label, &ha_font_misan_regular_20, 0);
+        lv_obj_set_style_text_font(tips_label, ha_ui_font_regular(20), 0);
         lv_label_set_long_mode(tips_label, LV_LABEL_LONG_MODE_WRAP);
     }
 

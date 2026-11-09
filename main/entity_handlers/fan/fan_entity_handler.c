@@ -1,4 +1,5 @@
 #include "esp_log.h"
+#include "ha_ui_font.h"
 #include "fan_entity_handler.h"
 #include "app.h"
 #include "assets/ha_ui_assets.h"
@@ -8,7 +9,9 @@
 #include "screen/components/ha_relative_time_label.h"
 #include "bsp_lcd.h"
 #include "i18n.h"
+#include "screen_theme.h"
 #include "ui_i18n.h"
+#include "screen_theme.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -29,15 +32,12 @@ static void fan_label_set_display_text(lv_obj_t *label, const char *text)
  * ------------------------------------------------------------------------- */
 
 #define FAN_TILE_BG              0x1E2228
-#define FAN_TILE_ICON_ON         0x00bcd4
-#define FAN_TILE_ICON_OFF        0x9e9e9e
-#define FAN_TILE_CIRCLE_ON       0x163c41
-#define FAN_TILE_CIRCLE_OFF      0x363636
+#define FAN_TILE_ICON_ON         0x00BCD4
+#define FAN_TILE_ICON_OFF        0x9E9E9E
+#define FAN_TILE_ICON_UNAVAILABLE_DARK  0x6F6F6F
+#define FAN_TILE_ICON_UNAVAILABLE_LIGHT 0xBDBDBD
 #define FAN_TILE_TITLE           0xFFFFFF
 #define FAN_TILE_STATE           0x666666
-#define FAN_TILE_DISABLED_BG     0x242424
-#define FAN_TILE_DISABLED_CIRCLE 0x3A3A3A
-#define FAN_TILE_DISABLED_ICON   0x6f6f6f
 
 #define FAN_DETAIL_CONTENT_WIDTH 280
 #define FAN_CONTROL_GAP          16
@@ -112,13 +112,43 @@ static void fan_label_set_display_text(lv_obj_t *label, const char *text)
 #define FAN_BOTTOM_ITEM_PAD_VER    4
 #define FAN_BOTTOM_ITEM_PAD_HOR    10
 #define FAN_BOTTOM_ICON_SIZE       20
-#define FAN_BOTTOM_FONT            &ha_font_misan_regular_14 /* Ensure this font exists */
+#define FAN_BOTTOM_FONT            ha_ui_font_regular(14) /* Ensure this font exists */
 #define FAN_BOTTOM_TEXT_COLOR      0xFFFFFF
 #define FAN_BOTTOM_BG_DEFAULT      0x1F1F1F
 #define FAN_BOTTOM_BG_ACTIVE       0x303030
 #define FAN_BOTTOM_POPUP_BG        0x24272D
 #define FAN_BOTTOM_POPUP_ROW_H     40
 #define FAN_BOTTOM_POPUP_MAX_H     136
+
+/* Light mode colors */
+#define FAN_LIGHT_CONTROL_ON_COLOR      0x00bcd4
+#define FAN_LIGHT_CONTROL_OFF_COLOR     0x9e9e9e
+#define FAN_LIGHT_INACTIVE_FG           0x141414
+#define FAN_LIGHT_SPEED_TRACK_ON_BG     0xccf2f6
+#define FAN_LIGHT_SPEED_TRACK_OFF_BG    0xececec
+#define FAN_LIGHT_SPEED_TRACK_UNAVAIL_BG 0xE2E4E8
+#define FAN_LIGHT_UNAVAIL_BTN_BG        0xbdbdbd
+#define FAN_LIGHT_UNAVAIL_FG            0xbdbdbd
+#define FAN_ICON_SWITCH_UNAVAIL_FG      0x8d8d8d
+#define FAN_ICON_SWITCH_UNAVAIL_FG_LIGHT  0xFFFFFF
+#define FAN_LIGHT_TIP_BG                0x262626
+#define FAN_LIGHT_PWR_BTN_ICON          0x333333
+#define FAN_LIGHT_BOTTOM_TEXT_COLOR     0x333333
+#define FAN_LIGHT_BOTTOM_POPUP_BG       0xFFFFFF
+#define FAN_LIGHT_POPUP_BORDER          0xE0E0E0
+#define FAN_LIGHT_POPUP_SELECTED_BG     0xF0F0F0
+#define FAN_LIGHT_POPUP_TEXT            0x333333
+#define FAN_LIGHT_BOTTOM_BG             0x999999
+
+static bool fan_light_theme(void)
+{
+    return screen_theme_get() == SCREEN_THEME_LIGHT;
+}
+
+static uint32_t fan_theme_color(uint32_t dark_color, uint32_t light_color)
+{
+    return fan_light_theme() ? light_color : dark_color;
+}
 
 /* Dynamic bottom bar: 1-item (centered) or 2-item (22.5 from sides) */
 #define FAN_BOTTOM_ITEM_SINGLE_W   135
@@ -241,6 +271,7 @@ typedef struct {
     /* LVGL objects */
     lv_obj_t *state_label;
     lv_obj_t *time_label;
+    lv_obj_t *state_block;
     lv_obj_t *root;
     lv_obj_t *slider_fill;
     lv_obj_t *slider_handle;
@@ -508,12 +539,17 @@ static esp_err_t fan_render_tile(ha_entity_store_t *store,
     model->background_color = lv_color_hex(FAN_TILE_BG);
     model->title_color = lv_color_hex(FAN_TILE_TITLE);
     model->state_color = lv_color_hex(FAN_TILE_STATE);
+    model->icon_circle_background_opa = LV_OPA_20;
 
     if (entity_handler_snapshot_is_unavailable(snapshot)) {
+        const uint32_t unavailable_color =
+            screen_theme_get() == SCREEN_THEME_LIGHT
+                ? FAN_TILE_ICON_UNAVAILABLE_LIGHT
+                : FAN_TILE_ICON_UNAVAILABLE_DARK;
         model->icon = MDI_SYMBOL_FAN;
-        model->icon_color = lv_color_hex(FAN_TILE_DISABLED_ICON);
-        model->icon_circle_background_color =
-            lv_color_hex(FAN_TILE_DISABLED_CIRCLE);
+        model->icon_color = lv_color_hex(unavailable_color);
+        model->icon_circle_background_color = model->icon_color;
+        model->icon_circle_background_color_light = lv_color_hex(FAN_TILE_ICON_UNAVAILABLE_LIGHT);
         entity_handler_copy_snapshot_state(model->state_text,
                                            sizeof(model->state_text),
                                            snapshot);
@@ -524,10 +560,8 @@ static esp_err_t fan_render_tile(ha_entity_store_t *store,
     model->icon = is_on ? MDI_SYMBOL_FAN : MDI_SYMBOL_FAN_OFF;
     model->icon_color =
         lv_color_hex(is_on ? FAN_TILE_ICON_ON : FAN_TILE_ICON_OFF);
-    model->icon_circle_background_color =
-        lv_color_hex(is_on ? FAN_TILE_CIRCLE_ON : FAN_TILE_CIRCLE_OFF);
-
-    /* Show percentage in state text if available. */
+    model->icon_circle_background_color = model->icon_color;
+    model->icon_circle_background_color_light = model->icon_color;
     double pct = 0;
     if (
         ha_entity_store_get_attr_number(store,
@@ -568,18 +602,6 @@ static bool fan_handle_action(const entity_action_context_t *context)
 }
 
 /* ---------------------------------------------------------------------------
- * More Info page: close callback
- * ------------------------------------------------------------------------- */
-
-static void fan_more_info_close_event_cb(lv_event_t *event)
-{
-    const entity_more_info_context_t *context = lv_event_get_user_data(event);
-    if (context && context->close) {
-        context->close(context->close_user_data);
-    }
-}
-
-/* ---------------------------------------------------------------------------
  * More Info page: layout builders
  * ------------------------------------------------------------------------- */
 
@@ -596,57 +618,6 @@ static lv_obj_t *fan_create_container(lv_obj_t *parent,
     return c;
 }
 
-static void fan_build_header(lv_obj_t *screen,
-                             lv_obj_t *overlay,
-                             const entity_more_info_context_t *context)
-{
-    lv_obj_t *header = lv_obj_create(screen);
-    lv_obj_remove_style_all(header);
-    lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(header, 0, 0);
-    lv_obj_set_size(header, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(header, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(header,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(header, 20, 0);
-    lv_obj_set_style_pad_ver(header, 12, 0);
-    lv_obj_set_style_pad_gap(header, 10, 0);
-
-    lv_obj_t *close_btn = lv_image_create(header);
-    lv_img_set_src(close_btn, &close_50);
-    lv_obj_add_flag(close_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(close_btn,
-                        fan_more_info_close_event_cb,
-                        LV_EVENT_CLICKED,
-                        (void *)context);
-
-    lv_obj_t *title = lv_label_create(header);
-    lv_obj_set_flex_grow(title, 1);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_label_set_text(title,
-                      context->snapshot.friendly_name[0]
-                          ? context->snapshot.friendly_name
-                          : context->snapshot.entity_id);
-    lv_obj_set_style_text_font(title, &ha_font_misan_medium_20, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_height(title,
-                      lv_font_get_line_height(&ha_font_misan_medium_20));
-
-    lv_obj_t *close_hitbox = lv_obj_create(overlay);
-    lv_obj_remove_style_all(close_hitbox);
-    lv_obj_remove_flag(close_hitbox, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(close_hitbox, 50, 50);
-    lv_obj_align(close_hitbox, LV_ALIGN_TOP_LEFT, 20, 12);
-    lv_obj_add_event_cb(close_hitbox,
-                        fan_more_info_close_event_cb,
-                        LV_EVENT_CLICKED,
-                        (void *)context);
-}
-
 static void fan_build_state_block(lv_obj_t *parent,
                                   const entity_more_info_context_t *context,
                                   fan_more_info_page_t *page)
@@ -661,6 +632,7 @@ static void fan_build_state_block(lv_obj_t *parent,
                                            block_w,
                                            LV_SIZE_CONTENT);
     lv_obj_set_pos(block, block_x, block_y);
+    page->state_block = block;
     lv_obj_set_layout(block, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(block, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(block,
@@ -689,12 +661,13 @@ static void fan_build_state_block(lv_obj_t *parent,
 
     lv_obj_t *state_label = lv_label_create(block);
     ui_i18n_label_set_text(state_label, state_text);
-    lv_obj_set_style_text_font(state_label, &ha_font_misan_medium_20, 0);
-    lv_obj_set_style_text_color(state_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(state_label, ha_ui_font_medium(20), 0);
+    const bool light = screen_theme_get() == SCREEN_THEME_LIGHT;
+    lv_obj_set_style_text_color(state_label, lv_color_hex(light ? 0x333333 : 0xFFFFFF), 0);
     lv_obj_set_style_text_align(state_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_size(state_label,
                     block_w,
-                    lv_font_get_line_height(&ha_font_misan_medium_20));
+                    lv_font_get_line_height(ha_ui_font_medium(20)));
     page->state_label = state_label;
 
     /* Relative time */
@@ -713,12 +686,12 @@ static void fan_build_state_block(lv_obj_t *parent,
 
     lv_obj_t *time_label = lv_label_create(block);
     ui_i18n_label_set_text(time_label, time_text);
-    lv_obj_set_style_text_font(time_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(time_label, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_color(time_label, lv_color_hex(0x666666), 0);
     lv_obj_set_style_text_align(time_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_size(time_label,
                     block_w,
-                    lv_font_get_line_height(&ha_font_misan_regular_16));
+                    lv_font_get_line_height(ha_ui_font_regular(16)));
     page->time_label = time_label;
     if (time_text[0]) {
         ha_relative_time_label_bind(time_label, changed_epoch);
@@ -921,15 +894,39 @@ static void fan_update_main_control_visual(fan_more_info_page_t *page)
         return;
     }
 
-    const uint32_t track_color = page->on
-                                     ? FAN_CONTROL_ON_COLOR
-                                     : FAN_CONTROL_OFF_COLOR;
-    lv_obj_set_style_bg_color(page->main_control_track,
-                              lv_color_hex(track_color), 0);
-    lv_obj_set_style_bg_opa(page->main_control_track,
-                            page->on ? LV_OPA_30 : LV_OPA_20, 0);
-    lv_obj_set_style_opa(page->main_control_track,
-                         page->available ? LV_OPA_COVER : LV_OPA_40, 0);
+    /* Track background */
+    if (!page->available) {
+        lv_obj_set_style_bg_color(page->main_control_track,
+                                  lv_color_hex(fan_light_theme()
+                                                   ? FAN_LIGHT_SPEED_TRACK_UNAVAIL_BG
+                                                   : (page->on
+                                                          ? FAN_CONTROL_ON_COLOR
+                                                          : FAN_CONTROL_OFF_COLOR)),
+                                  0);
+        lv_obj_set_style_bg_opa(page->main_control_track, LV_OPA_COVER, 0);
+        if (!fan_light_theme())
+        {
+            lv_obj_set_style_opa(page->main_control_track, LV_OPA_40, 0);
+        }
+    } else {
+        const bool is_lbl_off = !page->on &&
+            page->main_control_kind == FAN_MAIN_CONTROL_LABELED_SWITCH;
+        const uint32_t dark_track = page->on ? FAN_CONTROL_ON_COLOR
+                                             : FAN_CONTROL_OFF_COLOR;
+       const uint32_t light_track = page->on
+                                         ? FAN_LIGHT_SPEED_TRACK_ON_BG
+                                         : FAN_CONTROL_OFF_COLOR;
+        lv_obj_set_style_bg_color(page->main_control_track,
+                                  lv_color_hex(fan_theme_color(dark_track,
+                                                               light_track)),
+                                  0);
+        lv_obj_set_style_bg_opa(page->main_control_track,
+                                fan_light_theme() && !is_lbl_off && page->on
+                                    ? LV_OPA_COVER
+                                    : (page->on ? LV_OPA_30 : LV_OPA_20),
+                                0);
+        lv_obj_set_style_opa(page->main_control_track, LV_OPA_COVER, 0);
+    }
 
     if (page->main_control_kind == FAN_MAIN_CONTROL_ICON_SWITCH) {
         const bool landscape = bsp_lcd_is_landscape();
@@ -943,14 +940,23 @@ static void fan_update_main_control_visual(fan_more_info_page_t *page)
                                                 : FAN_SWITCH_KNOB_H);
         lv_obj_set_style_bg_color(page->main_control_knob,
                                   lv_color_hex(page->on
-                                                   ? FAN_CONTROL_ON_COLOR
-                                                   : FAN_CONTROL_OFF_COLOR),
+                                                   ? fan_theme_color(
+                                                         FAN_CONTROL_ON_COLOR,
+                                                         FAN_LIGHT_CONTROL_ON_COLOR)
+                                                   : fan_theme_color(
+                                                         FAN_CONTROL_OFF_COLOR,
+                                                         FAN_LIGHT_CONTROL_OFF_COLOR)),
                                   0);
         lv_obj_set_style_bg_opa(page->main_control_knob, LV_OPA_COVER, 0);
         if (page->main_option_icons[0]) {
             lv_label_set_text(page->main_option_icons[0],
                               page->on ? MDI_SYMBOL_FAN
                                        : MDI_SYMBOL_FAN_OFF);
+            lv_obj_set_style_text_color(page->main_option_icons[0],
+                                        lv_color_hex(page->available
+                                            ? fan_theme_color(FAN_CONTROL_INACTIVE_FG, 0xFFFFFF)
+                                            : fan_theme_color(FAN_ICON_SWITCH_UNAVAIL_FG, FAN_ICON_SWITCH_UNAVAIL_FG_LIGHT)),
+                                        0);
         }
         if (page->initial_visual_setup_done) {
             lv_anim_del(page->main_control_knob, fan_icon_switch_knob_anim_cb);
@@ -979,26 +985,41 @@ static void fan_update_main_control_visual(fan_more_info_page_t *page)
 
     for (int i = 0; i < option_count; i++) {
         const bool active = i == selected;
+        const bool is_off = (i == option_count - 1);
         lv_obj_set_style_bg_opa(page->main_option_boxes[i],
                                 active ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+
+        uint32_t btn_bg;
+        if (!page->available && active) {
+            btn_bg = fan_light_theme()
+                         ? FAN_LIGHT_UNAVAIL_BTN_BG
+                         : (is_off ? FAN_CONTROL_OFF_COLOR
+                                   : FAN_CONTROL_ON_COLOR);
+        } else {
+            btn_bg = fan_theme_color(
+                is_off ? FAN_CONTROL_OFF_COLOR : FAN_CONTROL_ON_COLOR,
+                is_off ? FAN_LIGHT_CONTROL_OFF_COLOR
+                       : FAN_LIGHT_CONTROL_ON_COLOR);
+        }
         lv_obj_set_style_bg_color(page->main_option_boxes[i],
-                                  lv_color_hex((i == option_count - 1)
-                                                   ? FAN_CONTROL_OFF_COLOR
-                                                   : FAN_CONTROL_ON_COLOR),
-                                  0);
+                                  lv_color_hex(btn_bg), 0);
+
+        const uint32_t inactive_fg = fan_theme_color(FAN_CONTROL_INACTIVE_FG,
+                                                      FAN_LIGHT_INACTIVE_FG);
+        const uint32_t icon_clr = active
+                                      ? 0xFFFFFF
+                                      : (!page->available
+                                             ? (fan_light_theme()
+                                                    ? FAN_LIGHT_UNAVAIL_FG
+                                                    : FAN_CONTROL_INACTIVE_FG)
+                                             : inactive_fg);
         if (page->main_option_icons[i]) {
             lv_obj_set_style_text_color(page->main_option_icons[i],
-                                        lv_color_hex(active
-                                                         ? 0xFFFFFF
-                                                         : FAN_CONTROL_INACTIVE_FG),
-                                        0);
+                                        lv_color_hex(icon_clr), 0);
         }
         if (page->main_option_labels[i]) {
             lv_obj_set_style_text_color(page->main_option_labels[i],
-                                        lv_color_hex(active
-                                                         ? 0xFFFFFF
-                                                         : FAN_CONTROL_INACTIVE_FG),
-                                        0);
+                                        lv_color_hex(icon_clr), 0);
         }
     }
 }
@@ -1010,7 +1031,9 @@ static void fan_close_bottom_popup_v2(fan_more_info_page_t *page)
     }
     if (page->open_bottom_idx >= 0 && page->bottom_btns[page->open_bottom_idx]) {
         lv_obj_set_style_bg_color(page->bottom_btns[page->open_bottom_idx],
-                                  lv_color_hex(FAN_BOTTOM_BG_DEFAULT), 0);
+                                  lv_color_hex(FAN_LIGHT_BOTTOM_BG), 0);
+        lv_obj_set_style_bg_opa(page->bottom_btns[page->open_bottom_idx],
+                                LV_OPA_20, 0);
     }
     lv_obj_t *popup = page->bottom_popup;
     page->bottom_popup = NULL;
@@ -1028,7 +1051,7 @@ static esp_err_t fan_more_info_update(
 {
     fan_more_info_page_t *page = s_active_fan_page;
     if (!context || !page || !page->root ||
-        lv_obj_get_parent(page->root) != context->screen ||
+        lv_obj_get_parent(page->root) != context->body ||
         strcmp(page->entity_id, context->snapshot.entity_id) != 0) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -1243,7 +1266,7 @@ static void fan_create_option_content(fan_more_info_page_t *page,
     lv_label_set_text(icon, icon_text);
     lv_obj_set_style_text_font(icon,
                                &ha_font_mdi_20, 0);
-    lv_obj_set_style_text_color(icon, lv_color_hex(FAN_CONTROL_INACTIVE_FG), 0);
+    lv_obj_set_style_text_color(icon, lv_color_hex(fan_theme_color(FAN_CONTROL_INACTIVE_FG, FAN_LIGHT_INACTIVE_FG)), 0);
     lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
     if (horizontal) {
         lv_obj_set_width(icon, LV_SIZE_CONTENT);
@@ -1256,8 +1279,8 @@ static void fan_create_option_content(fan_more_info_page_t *page,
     if (label_text) {
         lv_obj_t *label = lv_label_create(option);
         lv_label_set_text(label, label_text);
-        lv_obj_set_style_text_font(label, &ha_font_misan_regular_14, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(FAN_CONTROL_INACTIVE_FG), 0);
+        lv_obj_set_style_text_font(label, ha_ui_font_regular(14), 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(fan_theme_color(FAN_CONTROL_INACTIVE_FG, FAN_LIGHT_INACTIVE_FG)), 0);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
         if (horizontal) {
             lv_obj_set_width(label, LV_SIZE_CONTENT);
@@ -1657,11 +1680,11 @@ static void fan_build_vertical_slider(lv_obj_t *parent, fan_more_info_page_t *pa
                         FAN_HSLIDER_TIP_W_LANDSCAPE,
                         FAN_HSLIDER_TIP_H_LANDSCAPE);
         lv_obj_set_style_radius(page->slider_tip, 7, 0);
-        lv_obj_set_style_bg_color(page->slider_tip, lv_color_hex(0x242424), 0);
+        lv_obj_set_style_bg_color(page->slider_tip, lv_color_hex(fan_theme_color(0x242424, FAN_LIGHT_TIP_BG)), 0);
         lv_obj_set_style_bg_opa(page->slider_tip, LV_OPA_COVER, 0);
         page->slider_tip_label = lv_label_create(page->slider_tip);
         lv_obj_set_style_text_font(page->slider_tip_label,
-                                   &ha_font_misan_regular_14, 0);
+                                   ha_ui_font_regular(14), 0);
         lv_obj_set_style_text_color(page->slider_tip_label,
                                     lv_color_hex(0xFFFFFF), 0);
         lv_obj_center(page->slider_tip_label);
@@ -1746,11 +1769,11 @@ static void fan_build_vertical_slider(lv_obj_t *parent, fan_more_info_page_t *pa
     lv_obj_remove_flag(page->slider_tip, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(page->slider_tip, FAN_VSLIDER_TIP_W, FAN_VSLIDER_TIP_H);
     lv_obj_set_style_radius(page->slider_tip, 7, 0);
-    lv_obj_set_style_bg_color(page->slider_tip, lv_color_hex(0x242424), 0);
+    lv_obj_set_style_bg_color(page->slider_tip, lv_color_hex(fan_theme_color(0x242424, FAN_LIGHT_TIP_BG)), 0);
     lv_obj_set_style_bg_opa(page->slider_tip, LV_OPA_COVER, 0);
     page->slider_tip_label = lv_label_create(page->slider_tip);
     lv_obj_set_style_text_font(page->slider_tip_label,
-                               &ha_font_misan_regular_14, 0);
+                               ha_ui_font_regular(14), 0);
     lv_obj_set_style_text_color(page->slider_tip_label,
                                 lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(page->slider_tip_label);
@@ -1834,7 +1857,7 @@ static void fan_build_power_button(lv_obj_t *parent, fan_more_info_page_t *page)
     lv_obj_t *icon = lv_label_create(btn);
     lv_label_set_text(icon, MDI_SYMBOL_POWER);
     lv_obj_set_style_text_font(icon, &ha_font_mdi_20, 0);
-    lv_obj_set_style_text_color(icon, lv_color_hex(FAN_PWR_BTN_ICON), 0);
+    lv_obj_set_style_text_color(icon, lv_color_hex(fan_theme_color(FAN_PWR_BTN_ICON, FAN_LIGHT_PWR_BTN_ICON)), 0);
     lv_obj_center(icon);
 
     lv_obj_add_event_cb(btn, fan_pwr_btn_event_cb, LV_EVENT_CLICKED, page);
@@ -2007,7 +2030,8 @@ static void fan_open_bottom_popup_v2(fan_more_info_page_t *page, int idx)
     lv_obj_t *btn = page->bottom_btns[idx];
     int btn_width = lv_obj_get_width(btn);
 
-    lv_obj_set_style_bg_color(btn, lv_color_hex(FAN_BOTTOM_BG_ACTIVE), 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(FAN_LIGHT_BOTTOM_BG), 0);
+    lv_obj_set_style_bg_opa(btn,LV_OPA_40, 0);
 
     int32_t max_text_w = 0;
     lv_text_attributes_t text_attr;
@@ -2052,13 +2076,26 @@ static void fan_open_bottom_popup_v2(fan_more_info_page_t *page, int idx)
     lv_obj_add_event_cb(backdrop, fan_backdrop_click_cb, LV_EVENT_CLICKED, page);
 
     const int natural_h = option_count * FAN_BOTTOM_POPUP_ROW_H;
-    const int max_popup_h = landscape ? 320 : FAN_BOTTOM_BAR_Y;
-    const int popup_height = LV_MIN(natural_h, max_popup_h);
+    int max_popup_h;
+    int popup_height;
+
     if (landscape) {
         lv_obj_t *bar = lv_obj_get_parent(btn);
-        popup_y = lv_obj_get_y(bar) + lv_obj_get_y(btn) - popup_height;
-        popup_y = LV_CLAMP(0, popup_y, 320 - popup_height);
+        const int btn_top_y = lv_obj_get_y(bar) + lv_obj_get_y(btn);
+        const int safe_top = 80;
+        const int active_count = fan_get_active_features_count(page, NULL);
+        const bool is_first_of_three = (active_count == 3 && idx == FAN_BOTTOM_IDX_PRESET);
+        const int overlap = is_first_of_three ? FAN_BOTTOM_POPUP_ROW_H : 0;
+        const int max_h = btn_top_y - safe_top + overlap;
+        max_popup_h = LV_MAX(FAN_BOTTOM_POPUP_ROW_H, max_h);
+        popup_height = LV_MIN(natural_h, max_popup_h);
+        popup_y = btn_top_y + overlap - popup_height;
+        if (popup_y < safe_top) {
+            popup_y = safe_top;
+        }
     } else {
+        max_popup_h = FAN_BOTTOM_BAR_Y;
+        popup_height = LV_MIN(natural_h, max_popup_h);
         popup_y = FAN_BOTTOM_BAR_Y - popup_height;
     }
     lv_obj_t *popup = lv_obj_create(page->root);
@@ -2071,8 +2108,8 @@ static void fan_open_bottom_popup_v2(fan_more_info_page_t *page, int idx)
     lv_obj_set_size(popup, popup_width, popup_height);
     lv_obj_set_style_radius(popup, FAN_BOTTOM_ITEM_RADIUS, 0);
     lv_obj_set_style_border_width(popup, 1, 0);
-    lv_obj_set_style_border_color(popup, lv_color_hex(0x3A4048), 0);
-    lv_obj_set_style_bg_color(popup, lv_color_hex(FAN_BOTTOM_POPUP_BG), 0);
+    lv_obj_set_style_border_color(popup, lv_color_hex(fan_theme_color(0x3A4048, FAN_LIGHT_POPUP_BORDER)), 0);
+    lv_obj_set_style_bg_color(popup, lv_color_hex(fan_theme_color(FAN_BOTTOM_POPUP_BG, FAN_LIGHT_BOTTOM_POPUP_BG)), 0);
     lv_obj_set_style_bg_opa(popup, LV_OPA_COVER, 0);
     lv_obj_set_style_clip_corner(popup, true, 0);
     lv_obj_set_style_pad_all(popup, 0, 0);
@@ -2080,7 +2117,7 @@ static void fan_open_bottom_popup_v2(fan_more_info_page_t *page, int idx)
     lv_obj_add_flag(popup, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_layout(popup, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(popup, LV_FLEX_FLOW_COLUMN);
-    if (natural_h > (landscape ? 320 : FAN_BOTTOM_BAR_Y)) {
+    if (natural_h > max_popup_h) {
         lv_obj_set_scroll_dir(popup, LV_DIR_VER);
         lv_obj_set_scrollbar_mode(popup, LV_SCROLLBAR_MODE_AUTO);
     }
@@ -2104,7 +2141,7 @@ static void fan_open_bottom_popup_v2(fan_more_info_page_t *page, int idx)
         lv_obj_set_style_pad_left(row, 4, 0);
         lv_obj_set_style_pad_right(row, 4, 0);
         if (fan_bottom_option_selected_v2(page, idx, option)) {
-            lv_obj_set_style_bg_color(row, lv_color_hex(0x343941), 0);
+            lv_obj_set_style_bg_color(row, lv_color_hex(fan_theme_color(0x343941, FAN_LIGHT_POPUP_SELECTED_BG)), 0);
             lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         }
 
@@ -2114,7 +2151,7 @@ static void fan_open_bottom_popup_v2(fan_more_info_page_t *page, int idx)
             lv_label_set_text(icon, icon_src);
             lv_obj_set_style_text_font(icon, &ha_font_mdi_20, 0);
             lv_obj_set_style_text_color(icon,
-                                        lv_color_hex(0xFFFFFF), 0);
+                                        lv_color_hex(fan_theme_color(0xFFFFFF, FAN_LIGHT_POPUP_TEXT)), 0);
             lv_obj_set_pos(icon, 4, 10);
             lv_obj_set_size(icon, 20, 20);
             lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
@@ -2127,7 +2164,7 @@ static void fan_open_bottom_popup_v2(fan_more_info_page_t *page, int idx)
             lv_obj_set_pos(dot, 4, 17);
             lv_obj_set_size(dot, 6, 6);
             lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-            lv_obj_set_style_bg_color(dot, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_bg_color(dot, lv_color_hex(fan_theme_color(0xFFFFFF, FAN_LIGHT_POPUP_TEXT)), 0);
             lv_obj_set_style_bg_opa(dot,
                                    fan_bottom_option_selected_v2(page, idx, option)
                                        ? LV_OPA_COVER : LV_OPA_40,
@@ -2140,7 +2177,7 @@ static void fan_open_bottom_popup_v2(fan_more_info_page_t *page, int idx)
         lv_obj_set_pos(label, icon_src ? 28 : 14, 8);
         lv_obj_set_size(label, icon_src ? popup_width - 32 : popup_width - 18, 24);
         lv_obj_set_style_text_font(label, FAN_BOTTOM_FONT, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(fan_theme_color(0xFFFFFF, FAN_LIGHT_POPUP_TEXT)), 0);
 
         lv_obj_set_user_data(row,
                              (void *)(uintptr_t)(((uint32_t)idx << 8) |
@@ -2177,8 +2214,8 @@ static lv_obj_t *fan_create_bottom_item_v2(lv_obj_t *parent,
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(btn, width, FAN_BOTTOM_BAR_HEIGHT);
     lv_obj_set_style_radius(btn, FAN_BOTTOM_ITEM_RADIUS, 0);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(FAN_BOTTOM_BG_DEFAULT), 0);
-    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(FAN_LIGHT_BOTTOM_BG), 0);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_20, 0);
     lv_obj_set_style_pad_ver(btn, FAN_BOTTOM_ITEM_PAD_VER, 0);
     lv_obj_set_style_pad_hor(btn, FAN_BOTTOM_ITEM_PAD_HOR, 0);
 
@@ -2193,7 +2230,7 @@ static lv_obj_t *fan_create_bottom_item_v2(lv_obj_t *parent,
     lv_obj_t *icon = lv_label_create(top);
     lv_label_set_text(icon, icon_src);
     lv_obj_set_style_text_font(icon, &ha_font_mdi_20, 0);
-    lv_obj_set_style_text_color(icon, lv_color_hex(FAN_BOTTOM_TEXT_COLOR), 0);
+    lv_obj_set_style_text_color(icon, lv_color_hex(fan_theme_color(FAN_BOTTOM_TEXT_COLOR, FAN_LIGHT_BOTTOM_TEXT_COLOR)), 0);
     lv_obj_set_size(icon, FAN_BOTTOM_ICON_SIZE, FAN_BOTTOM_ICON_SIZE);
     page->bottom_icon_labels[idx] = icon;
 
@@ -2204,7 +2241,7 @@ static lv_obj_t *fan_create_bottom_item_v2(lv_obj_t *parent,
     lv_obj_set_size(title_label, width - 20, 22);
     lv_obj_set_style_text_font(title_label, FAN_BOTTOM_FONT, 0);
     lv_obj_set_style_text_color(title_label,
-                                lv_color_hex(FAN_BOTTOM_TEXT_COLOR), 0);
+                                lv_color_hex(fan_theme_color(FAN_BOTTOM_TEXT_COLOR, FAN_LIGHT_BOTTOM_TEXT_COLOR)), 0);
 
     page->bottom_btns[idx] = btn;
 
@@ -2370,8 +2407,7 @@ static void fan_build_bottom_bar_v2(lv_obj_t *parent,
 static esp_err_t fan_render_more_info(
     const entity_more_info_context_t *context)
 {
-    if (!context || !context->screen || !context->overlay ||
-        !context->store || !context->close) {
+    if (!context || !context->body || !context->store) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -2390,26 +2426,16 @@ static esp_err_t fan_render_more_info(
     }
     s_active_fan_page = page;
 
-    // Screen setup
-    lv_obj_t *screen = context->screen;
-    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x010203), 0);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-
-    lv_obj_t *root = fan_create_container(screen, 0, 0,
-                                          bsp_lcd_is_landscape() ? 480 : 320,
-                                          bsp_lcd_is_landscape() ? 320 : 480);
+    lv_obj_t *root = fan_create_container(context->body, 0, 0,
+                                          LV_PCT(100), LV_PCT(100));
     page->root = root;
     page->open_bottom_idx = -1;
     lv_obj_add_event_cb(root, fan_page_delete_cb, LV_EVENT_DELETE, page);
 
-    // 1. Header (Top)
-    fan_build_header(root, context->overlay, context);
-
-    // 2. State Label (Below header)
+    // 1. State Label (Below header)
     fan_build_state_block(root, context, page);
 
-    // 3. Main control selected from the fan's HA capabilities. Keep the
+    // 2. Main control selected from the fan's HA capabilities. Keep the
     // original continuous percentage slider as its own control type.
     const bool supports_set_speed =
         (page->supported_features & FAN_FEATURE_SET_SPEED) != 0;
@@ -2443,7 +2469,7 @@ static esp_err_t fan_render_more_info(
         fan_build_labeled_switch(root, page);
     }
 
-    // 4. Bottom pull-up selectors (zero to three depending on HA features).
+    // 3. Bottom pull-up selectors (zero to three depending on HA features).
     fan_build_bottom_bar_v2(root, page);
 
     return ESP_OK;

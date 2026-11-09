@@ -2,6 +2,7 @@
 
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "light_detail_theme.h"
 
 #define POWER_TOGGLE_WIDTH         88
 #define POWER_TOGGLE_HEIGHT        230
@@ -88,7 +89,9 @@ static void draw_icon(lv_layer_t *layer,
     lv_draw_label_dsc_init(&descriptor);
     descriptor.text = symbol;
     descriptor.font = &ha_font_mdi_20;
-    descriptor.color = lv_color_white();
+    descriptor.color = lv_color_hex(light_detail_theme_color(
+        0xFFFFFF,
+        LIGHT_DETAIL_LIGHT_TEXT_PRIMARY));
     descriptor.opa = opacity;
     descriptor.align = LV_TEXT_ALIGN_CENTER;
     descriptor.text_static = 1;
@@ -113,13 +116,21 @@ static void draw_toggle(lv_event_t *event,
 
     lv_area_t track;
     lv_obj_get_coords(context->root, &track);
-    const lv_opa_t opacity = context->disabled ? LV_OPA_40 : LV_OPA_COVER;
+    const bool light = light_detail_is_light_theme();
+    const lv_opa_t control_opacity =
+        context->disabled ? LV_OPA_40 : LV_OPA_COVER;
+    const lv_opa_t track_opacity =
+        light ? (context->disabled ? LV_OPA_10 : LV_OPA_20)
+              : control_opacity;
     draw_rect(layer,
               &track,
-              context->on ? POWER_TOGGLE_ON_TRACK
-                          : POWER_TOGGLE_OFF_TRACK,
+              context->on
+                  ? light_detail_theme_color(POWER_TOGGLE_ON_TRACK,
+                                             POWER_TOGGLE_ON_KNOB)
+                  : light_detail_theme_color(POWER_TOGGLE_OFF_TRACK,
+                                             LIGHT_DETAIL_LIGHT_INACTIVE),
               POWER_TOGGLE_RADIUS,
-              opacity);
+              track_opacity);
 
     const int32_t y = knob_y(context, &track, context->visual);
     const lv_area_t knob = {
@@ -131,19 +142,23 @@ static void draw_toggle(lv_event_t *event,
     draw_rect(layer,
               &knob,
               context->on ? POWER_TOGGLE_ON_KNOB
-                          : POWER_TOGGLE_OFF_KNOB,
+                          : light_detail_theme_color(
+                                POWER_TOGGLE_OFF_KNOB,
+                                LIGHT_DETAIL_LIGHT_INACTIVE),
               POWER_TOGGLE_KNOB_RADIUS,
-              opacity);
+              control_opacity);
     draw_icon(layer,
               &knob,
               context->on ? MDI_SYMBOL_LIGHTBULB_ON : MDI_SYMBOL_LIGHTBULB_OFF,
-              opacity);
+              control_opacity);
 
     if (!context->disabled &&
         lv_obj_has_state(context->root, LV_STATE_PRESSED)) {
         draw_rect(layer,
                   &track,
-                  POWER_TOGGLE_PRESSED_COLOR,
+                  light_detail_theme_color(
+                      POWER_TOGGLE_PRESSED_COLOR,
+                      LIGHT_DETAIL_LIGHT_TEXT_PRIMARY),
                   POWER_TOGGLE_RADIUS,
                   LV_OPA_10);
     }

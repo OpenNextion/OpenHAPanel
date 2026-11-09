@@ -108,9 +108,7 @@ void badge_display_format(ha_entity_store_t *store,
         if (model->unavailable && model->state_text[0]) {
             snprintf(text, text_size, "%s", model->state_text);
         } else {
-            badge_copy_name(configured_name && configured_name[0]
-                                ? configured_name : model->title,
-                            text, text_size);
+            badge_copy_name(model->title, text, text_size);
         }
         return;
     }

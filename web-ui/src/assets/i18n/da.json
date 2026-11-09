@@ -1,7 +1,6 @@
 {
     "app": {
-        "name": "OpenNextion",
-        "subtitle": "Enhedskonsol"
+        "name": "OpenHAPanel"
     },
     "firmwareUpdate": {
         "operationBlocked": "Enheden opdateres og er midlertidigt utilgængelig."
@@ -98,11 +97,19 @@
             "entity": "Enhed",
             "interactions": "Interaktioner",
             "features": "Funktioner",
+            "featuresPosition": "Placering af funktioner",
+            "featuresPositionBottom": "Nederst",
+            "featuresPositionBottomHint": "Viser alle funktioner under hinanden",
+            "featuresPositionInline": "Ved siden af",
+            "featuresPositionInlineHint": "Viser funktioner i to kolonner ved siden af navnet",
             "tapBehavior": "Handling ved tryk",
             "iconTapBehavior": "Handling ved tryk på ikon",
             "longPressBehavior": "Handling ved langt tryk",
             "actionMoreInfo": "Flere oplysninger",
             "actionToggle": "Slå til/fra",
+            "actionButton": "Handlingsknap",
+            "actionActivate": "Aktivér",
+            "actionPress": "Tryk",
             "actionNothing": "Ingen handling",
             "actionDefault": "Standard",
             "config": "Opsætning",
@@ -114,9 +121,9 @@
             "comingSoon": "Kommer snart",
             "entityNotSupported": "Denne enhed understøttes endnu ikke",
             "connectHaFirst": "Forbind først til Home Assistant.",
-            "connectHa": "Forbind til Home Assistant",
-            "connectHaHint": "Konfigurer HA i webkonsollen",
-            "noContent": "Intet indhold. Tilføj enheder i Webkonsol > Skærmadministration",
+            "connectHa": "Tilslut Home Assistant",
+            "connectHaHint": "Fuldfør Home Assistant-forbindelsen i webkonsollen.",
+            "noContent": "Ingen enheder tilføjet endnu. Gå til Webkonsol > Skærmkonfiguration for at vælge de enheder, du vil styre fra skærmen.",
             "addSplit": "Tilføj skærm",
             "splitNamePlaceholder": "Indtast et skærmnavn",
             "addBadgeTitle": "Hvilket badge vil du tilføje?",
@@ -165,7 +172,7 @@
         "connected": "Forbundet",
         "disconnected": "Afbrudt",
         "internetConnection": "Internetforbindelse",
-        "apHint": "AP-hotspottet kan slås til eller fra, når Nextion er forbundet til Wi-Fi.",
+        "apHint": "AP-hotspottet kan slås til eller fra, når Nextion er forbundet til et Wi-Fi-netværk.",
         "apInUseTitle": "AP er i brug",
         "apInUseConfirm": "AP er i brug. Ændringer kan afbryde aktive klienter. Fortsæt?",
         "changePassword": "Skift adgangskode",
@@ -215,7 +222,7 @@
         "passwordLetterNumberRequired": "Adgangskoden skal bestå af 8 tegn med både bogstaver og tal.",
         "setupTitle": "Forbind til Wi-Fi",
         "setupSubtitle": "Vælg det 2,4 GHz Wi-Fi-netværk, du vil forbinde til. Kun 2,4 GHz Wi-Fi-netværk understøttes.",
-        "joinWifi": "Tilslut \"Wi-Fi {ssid}\"",
+        "joinWifi": "Tilslut Wi-Fi \"{ssid}\"",
         "addWifiManually": "Tilføj Wi-Fi manuelt"
     },
     "settingsDetail": {
@@ -223,7 +230,7 @@
         "mdnsRestartHint": "Enheden genstarter for at anvende ændringerne.",
         "dateTime": "Dato og tid",
         "timezone": "Tidszone",
-        "autoDetect": "Find placering automatisk",
+        "autoDetect": "Indstil automatisk",
         "ntp1": "NTP-server 1",
         "ntp2": "NTP-server 2",
         "ntpInvalid": "Indtast et gyldigt domænenavn",
@@ -242,6 +249,8 @@
         "to": "Til",
         "followSystem": "Følg systemet",
         "followHint": "Følg systemets indstilling for lys eller mørk tilstand.",
+        "webConsole": "Webkonsol",
+        "screenDevice": "Enhedsskærm",
         "lightMode": "Lys tilstand",
         "darkMode": "Mørk tilstand",
         "restartConfirmTitle": "Genstart enheden?",

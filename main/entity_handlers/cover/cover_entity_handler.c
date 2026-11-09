@@ -1,4 +1,5 @@
 #include "cover_entity_handler.h"
+#include "ha_ui_font.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -13,6 +14,7 @@
 #include "screen/components/ha_relative_time_label.h"
 #include "screen/components/more_info_screen.h"
 #include "bsp_lcd.h"
+#include "screen_theme.h"
 
 static const char *TAG = "cover_entity_handler";
 
@@ -83,6 +85,31 @@ static const char *TAG = "cover_entity_handler";
 #define COVER_TOGGLE_BOTTOM_Y_LANDSCAPE (COVER_TOGGLE_TRACK_HEIGHT_LANDSCAPE - \
                                        COVER_TOGGLE_KNOB_HEIGHT_LANDSCAPE - \
                                        COVER_TOGGLE_INSET)
+
+#define COVER_LIGHT_BG                 0xF4F5F7
+#define COVER_LIGHT_TEXT_PRIMARY       0x333333
+#define COVER_LIGHT_TEXT_SECONDARY     0x666666
+#define COVER_LIGHT_SURFACE            0xFFFFFF
+#define COVER_LIGHT_DISABLED           0xBDBDBD
+#define COVER_LIGHT_STATE_ACTIVE       0x926BC7
+#define COVER_LIGHT_STATE_INACTIVE     0x9E9E9E
+#define COVER_LIGHT_MODE_GROUP         0x8B9197
+#define COVER_LIGHT_DISABLED_FG        0xBDBDBD
+#define COVER_LIGHT_POSITION_DISABLED  0xBDBDBD
+#define COVER_LIGHT_DOT_INACTIVE       0xBDBDBD
+
+static bool s_cover_detail_light_theme;
+
+static bool cover_light_theme(void)
+{
+    return s_cover_detail_light_theme;
+}
+
+static uint32_t cover_theme_color(uint32_t dark_color,
+                                  uint32_t light_color)
+{
+    return cover_light_theme() ? light_color : dark_color;
+}
 
 typedef enum {
     COVER_DETAIL_MODE_BUTTONS = 0,
@@ -301,19 +328,6 @@ static bool cover_handle_action(const entity_action_context_t *context)
                  esp_err_to_name(err));
     }
     return true;
-}
-
-static void cover_more_info_close_event_cb(lv_event_t *event)
-{
-    const entity_more_info_context_t *context = lv_event_get_user_data(event);
-    if (context && context->close) {
-        s_cover_detail_screen = NULL;
-        s_cover_detail_entity_id[0] = '\0';
-        s_cover_toggle_visual_valid = false;
-        s_cover_position_visual_valid = false;
-        s_cover_detail_page = 0;
-        context->close(context->close_user_data);
-    }
 }
 
 static uint32_t cover_get_supported_features(
@@ -787,66 +801,7 @@ static void cover_mode_event_cb(lv_event_t *event)
 static lv_obj_t *cover_more_info_build_page(
     const entity_more_info_context_t *context)
 {
-    lv_obj_t *screen = context->screen;
-    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(screen, lv_color_hex(COVER_BG), 0);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(screen, 0, 0);
-    lv_obj_set_style_pad_all(screen, 0, 0);
-    lv_obj_set_layout(screen, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(screen,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(screen, 0, 0);
-
-    lv_obj_t *header = lv_obj_create(screen);
-    lv_obj_remove_style_all(header);
-    lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(header, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(header, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(header,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(header, 20, 0);
-    lv_obj_set_style_pad_ver(header, bsp_lcd_is_landscape() ? 7 : 12, 0);
-    lv_obj_set_style_pad_gap(header, 10, 0);
-
-    lv_obj_t *close_button = lv_image_create(header);
-    lv_img_set_src(close_button, &close_50);
-    lv_obj_add_flag(close_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(close_button,
-                        cover_more_info_close_event_cb,
-                        LV_EVENT_CLICKED,
-                        (void *)context);
-
-    lv_obj_t *title = lv_label_create(header);
-    lv_obj_set_flex_grow(title, 1);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_label_set_text(title,
-                      context->snapshot.friendly_name[0]
-                          ? context->snapshot.friendly_name
-                          : context->snapshot.entity_id);
-    lv_obj_set_style_text_font(title, &ha_font_misan_medium_20, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_height(title, lv_font_get_line_height(&ha_font_misan_medium_20));
-
-    lv_obj_t *close_hitbox = lv_obj_create(context->overlay);
-    lv_obj_remove_style_all(close_hitbox);
-    lv_obj_remove_flag(close_hitbox, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(close_hitbox, 50, 50);
-    lv_obj_align(close_hitbox, LV_ALIGN_TOP_LEFT, 20,
-                 bsp_lcd_is_landscape() ? 7 : 12);
-    lv_obj_add_event_cb(close_hitbox,
-                        cover_more_info_close_event_cb,
-                        LV_EVENT_CLICKED,
-                        (void *)context);
-
-    lv_obj_t *content = lv_obj_create(screen);
+    lv_obj_t *content = lv_obj_create(context->body);
     lv_obj_remove_style_all(content);
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_width(content, bsp_lcd_is_landscape() ? LV_PCT(100)
@@ -900,12 +855,16 @@ static void cover_build_state_block(
 
     lv_obj_t *state = lv_label_create(block);
     lv_label_set_text(state, state_text);
-    lv_obj_set_style_text_font(state, &ha_font_misan_medium_20, 0);
-    lv_obj_set_style_text_color(state, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(state, ha_ui_font_medium(20), 0);
+    lv_obj_set_style_text_color(
+        state,
+        lv_color_hex(cover_theme_color(0xFFFFFF,
+                                       COVER_LIGHT_TEXT_PRIMARY)),
+        0);
     lv_obj_set_style_text_align(state, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_size(state,
                     LV_PCT(100),
-                    lv_font_get_line_height(&ha_font_misan_medium_20));
+                    lv_font_get_line_height(ha_ui_font_medium(20)));
 
     char time_text[48] = {0};
     time_t changed_epoch = 0;
@@ -918,12 +877,16 @@ static void cover_build_state_block(
                                 &changed_epoch) == ESP_OK;
     lv_obj_t *time_label = lv_label_create(block);
     lv_label_set_text(time_label, has_time ? time_text : "");
-    lv_obj_set_style_text_font(time_label, &ha_font_misan_regular_16, 0);
-    lv_obj_set_style_text_color(time_label, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_font(time_label, ha_ui_font_regular(16), 0);
+    lv_obj_set_style_text_color(
+        time_label,
+        lv_color_hex(cover_theme_color(0x666666,
+                                       COVER_LIGHT_TEXT_SECONDARY)),
+        0);
     lv_obj_set_style_text_align(time_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_size(time_label,
                     LV_PCT(100),
-                    lv_font_get_line_height(&ha_font_misan_regular_16));
+                    lv_font_get_line_height(ha_ui_font_regular(16)));
     if (has_time) {
         ha_relative_time_label_bind(time_label, changed_epoch);
     }
@@ -972,16 +935,37 @@ static void cover_build_action_button(
                     bsp_lcd_is_landscape() ? COVER_BUTTON_WIDTH_LANDSCAPE : COVER_BUTTON_WIDTH_PORTRAIT,
                     bsp_lcd_is_landscape() ? COVER_BUTTON_HEIGHT_LANDSCAPE : COVER_BUTTON_HEIGHT_PORTRAIT);
     lv_obj_set_style_radius(button, COVER_BUTTON_RADIUS, 0);
+    lv_obj_set_style_radius(button,
+                            COVER_BUTTON_RADIUS,
+                            LV_STATE_PRESSED);
+    lv_obj_set_style_transform_width(button, 0, LV_STATE_PRESSED);
+    lv_obj_set_style_transform_height(button, 0, LV_STATE_PRESSED);
     lv_obj_set_style_border_width(button, 0, 0);
     lv_obj_set_style_shadow_width(button, 0, 0);
-    lv_obj_set_style_bg_color(button, lv_color_hex(COVER_CONTROL_BG), 0);
+    lv_obj_set_style_bg_color(
+        button,
+        lv_color_hex(cover_theme_color(COVER_CONTROL_BG,
+                                       COVER_LIGHT_DISABLED)),
+        0);
+    lv_obj_set_style_bg_opa(button,
+                            cover_light_theme() ? LV_OPA_20 : LV_OPA_COVER,
+                            0);
     lv_obj_set_style_bg_color(button,
-                              lv_color_hex(COVER_CONTROL_PRESSED),
+                              lv_color_hex(cover_theme_color(
+                                  COVER_CONTROL_PRESSED,
+                                  COVER_LIGHT_DISABLED)),
                               LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(button,
+                            cover_light_theme() ? LV_OPA_40 : LV_OPA_COVER,
+                            LV_STATE_PRESSED);
     lv_obj_set_style_bg_color(button,
-                              lv_color_hex(COVER_DISABLED_BG),
+                              lv_color_hex(cover_theme_color(
+                                  COVER_DISABLED_BG,
+                                  COVER_LIGHT_DISABLED)),
                               LV_STATE_DISABLED);
-    lv_obj_set_style_bg_opa(button, LV_OPA_20, LV_STATE_DISABLED);
+    lv_obj_set_style_bg_opa(button,
+                            LV_OPA_20,
+                            LV_STATE_DISABLED);
     lv_obj_add_event_cb(button,
                         cover_action_event_cb,
                         LV_EVENT_CLICKED,
@@ -993,9 +977,18 @@ static void cover_build_action_button(
     lv_obj_t *label = lv_label_create(button);
     lv_label_set_text(label, icon);
     lv_obj_set_style_text_font(label, &ha_font_mdi_20, 0);
-    lv_obj_set_style_text_color(label, enabled ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x8F8F8F), 0);
+    lv_obj_set_style_text_color(
+        label,
+        enabled
+            ? lv_color_hex(cover_theme_color(0xFFFFFF,
+                                             COVER_LIGHT_TEXT_PRIMARY))
+            : lv_color_hex(cover_theme_color(0x8F8F8F,
+                                             COVER_LIGHT_DISABLED_FG)),
+        0);
     lv_obj_set_style_text_color(label,
-                                lv_color_hex(0x8F8F8F),
+                                lv_color_hex(cover_theme_color(
+                                    0x8F8F8F,
+                                    COVER_LIGHT_DISABLED_FG)),
                                 LV_STATE_DISABLED);
     lv_obj_center(label);
     // if (!enabled) {
@@ -1097,8 +1090,12 @@ static void cover_build_open_close_toggle(
                                          : COVER_TOGGLE_BOTTOM_Y_LANDSCAPE;
         const int32_t target_y = is_on ? COVER_TOGGLE_TOP_Y
                                         : COVER_TOGGLE_BOTTOM_Y_LANDSCAPE;
-        const uint32_t state_color = is_on ? COVER_TOGGLE_OPEN
-                                        : COVER_TOGGLE_CLOSED;
+        const uint32_t state_color =
+            is_on
+                ? cover_theme_color(COVER_TOGGLE_OPEN,
+                                    COVER_LIGHT_STATE_ACTIVE)
+                : cover_theme_color(COVER_TOGGLE_CLOSED,
+                                    COVER_LIGHT_STATE_INACTIVE);
         lv_obj_t *track = lv_obj_create(parent);
         lv_obj_remove_style_all(track);
         lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
@@ -1110,13 +1107,20 @@ static void cover_build_open_close_toggle(
         lv_obj_set_style_pad_all(track, 0, 0);
         lv_obj_set_style_bg_color(track,
                                 lv_color_hex(unavailable
-                                                ? COVER_TOGGLE_DISABLED_TRACK
+                                                ? cover_theme_color(
+                                                      COVER_TOGGLE_DISABLED_TRACK,
+                                                      COVER_LIGHT_STATE_INACTIVE)
                                                 : state_color),
                                 0);
         lv_obj_set_style_bg_opa(track,
-                                unavailable ? LV_OPA_COVER
+                                unavailable && cover_light_theme()
+                                    ? LV_OPA_20
+                                    : unavailable ? LV_OPA_COVER
                                             : COVER_TOGGLE_TRACK_OPA,
                                 0);
+        if (unavailable && cover_light_theme()) {
+            lv_obj_set_style_opa(track, LV_OPA_50, 0);
+        }
         lv_obj_set_style_bg_opa(track,
                                 unavailable ? LV_OPA_COVER
                                             : COVER_TOGGLE_PRESSED_OPA,
@@ -1141,7 +1145,9 @@ static void cover_build_open_close_toggle(
         lv_obj_set_style_border_width(knob, 0, 0);
         lv_obj_set_style_bg_color(knob,
                                 lv_color_hex(unavailable
-                                                ? COVER_TOGGLE_DISABLED_KNOB
+                                                ? cover_theme_color(
+                                                      COVER_TOGGLE_DISABLED_KNOB,
+                                                      COVER_LIGHT_STATE_INACTIVE)
                                                 : state_color),
                                 0);
         lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
@@ -1155,8 +1161,12 @@ static void cover_build_open_close_toggle(
         lv_label_set_text(icon_label, icon);
         lv_obj_set_style_text_font(icon_label, &ha_font_mdi_20, 0);
         lv_obj_set_style_text_color(icon_label,
-                                    lv_color_hex(unavailable ? 0x999999
-                                                            : 0xFFFFFF),
+                                    lv_color_hex(
+                                        unavailable
+                                            ? cover_theme_color(
+                                                  0x999999,
+                                                  0xFFFFFF)
+                                            : 0xFFFFFF),
                                     0);
         lv_obj_center(icon_label);
 
@@ -1173,8 +1183,12 @@ static void cover_build_open_close_toggle(
                                          : COVER_TOGGLE_BOTTOM_Y_PORTRAIT;
         const int32_t target_y = is_on ? COVER_TOGGLE_TOP_Y
                                         : COVER_TOGGLE_BOTTOM_Y_PORTRAIT;
-        const uint32_t state_color = is_on ? COVER_TOGGLE_OPEN
-                                        : COVER_TOGGLE_CLOSED;
+        const uint32_t state_color =
+            is_on
+                ? cover_theme_color(COVER_TOGGLE_OPEN,
+                                    COVER_LIGHT_STATE_ACTIVE)
+                : cover_theme_color(COVER_TOGGLE_CLOSED,
+                                    COVER_LIGHT_STATE_INACTIVE);
         lv_obj_t *track = lv_obj_create(parent);
         lv_obj_remove_style_all(track);
         lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
@@ -1186,13 +1200,20 @@ static void cover_build_open_close_toggle(
         lv_obj_set_style_pad_all(track, 0, 0);
         lv_obj_set_style_bg_color(track,
                                 lv_color_hex(unavailable
-                                                ? COVER_TOGGLE_DISABLED_TRACK
+                                                ? cover_theme_color(
+                                                      COVER_TOGGLE_DISABLED_TRACK,
+                                                      COVER_LIGHT_STATE_INACTIVE)
                                                 : state_color),
                                 0);
         lv_obj_set_style_bg_opa(track,
-                                unavailable ? LV_OPA_COVER
+                                unavailable && cover_light_theme()
+                                    ? LV_OPA_20
+                                    : unavailable ? LV_OPA_COVER
                                             : COVER_TOGGLE_TRACK_OPA,
                                 0);
+        if (unavailable && cover_light_theme()) {
+            lv_obj_set_style_opa(track, LV_OPA_50, 0);
+        }
         lv_obj_set_style_bg_opa(track,
                                 unavailable ? LV_OPA_COVER
                                             : COVER_TOGGLE_PRESSED_OPA,
@@ -1217,7 +1238,9 @@ static void cover_build_open_close_toggle(
         lv_obj_set_style_border_width(knob, 0, 0);
         lv_obj_set_style_bg_color(knob,
                                 lv_color_hex(unavailable
-                                                ? COVER_TOGGLE_DISABLED_KNOB
+                                                ? cover_theme_color(
+                                                      COVER_TOGGLE_DISABLED_KNOB,
+                                                      COVER_LIGHT_STATE_INACTIVE)
                                                 : state_color),
                                 0);
         lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
@@ -1231,8 +1254,12 @@ static void cover_build_open_close_toggle(
         lv_label_set_text(icon_label, icon);
         lv_obj_set_style_text_font(icon_label, &ha_font_mdi_20, 0);
         lv_obj_set_style_text_color(icon_label,
-                                    lv_color_hex(unavailable ? 0x999999
-                                                            : 0xFFFFFF),
+                                    lv_color_hex(
+                                        unavailable
+                                            ? cover_theme_color(
+                                                  0x999999,
+                                                  0xFFFFFF)
+                                            : 0xFFFFFF),
                                     0);
         lv_obj_center(icon_label);
 
@@ -1305,9 +1332,13 @@ static void cover_build_position_control(
      * without recreating the former full-height ARGB8888 layer. */
     lv_obj_set_style_clip_corner(track, true, 0);
     lv_obj_set_style_bg_color(track,
-                              lv_color_hex(COVER_POSITION_TRACK),
+                              lv_color_hex(cover_theme_color(
+                                  COVER_POSITION_TRACK,
+                                  unavailable
+                                      ? COVER_LIGHT_POSITION_DISABLED
+                                      : COVER_LIGHT_STATE_ACTIVE)),
                               0);
-    lv_obj_set_style_bg_opa(track,LV_OPA_20, 0);
+    lv_obj_set_style_bg_opa(track, LV_OPA_20, 0);
 
     view->active_bar = lv_obj_create(track);
     lv_obj_remove_style_all(view->active_bar);
@@ -1320,8 +1351,12 @@ static void cover_build_position_control(
                             0);
     lv_obj_set_style_bg_color(
         view->active_bar,
-        lv_color_hex(unavailable ? 0x404040
-                                 : COVER_POSITION_ACTIVE),
+        lv_color_hex(
+            unavailable
+                ? cover_theme_color(0x404040,
+                                    COVER_LIGHT_POSITION_DISABLED)
+                : cover_theme_color(COVER_POSITION_ACTIVE,
+                                    COVER_LIGHT_STATE_ACTIVE)),
         0);
     lv_obj_set_style_bg_opa(view->active_bar, LV_OPA_COVER, 0);
 
@@ -1347,12 +1382,22 @@ static void cover_build_position_control(
     lv_obj_t *hint_parent = landscape ? lv_obj_get_parent(parent) : control;
     lv_obj_t *value_label = lv_label_create(hint_parent);
     lv_label_set_text(value_label, value_text);
-    lv_obj_set_style_text_font(value_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(value_label, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_color(value_label,
-                                lv_color_hex(unavailable ? COVER_DISABLED_FG
-                                                         : 0xDADADA),
+                                lv_color_hex(
+                                    unavailable
+                                        ? cover_theme_color(
+                                              COVER_DISABLED_FG,
+                                              COVER_LIGHT_DISABLED_FG)
+                                        : cover_theme_color(
+                                              0xDADADA,
+                                              COVER_LIGHT_TEXT_PRIMARY)),
                                 0);
-    lv_obj_set_style_bg_color(value_label, lv_color_hex(0x252525), 0);
+    lv_obj_set_style_bg_color(
+        value_label,
+        lv_color_hex(cover_theme_color(0x252525,
+                                       COVER_LIGHT_SURFACE)),
+        0);
     lv_obj_set_style_bg_opa(value_label, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(value_label, 8, 0);
     lv_obj_set_style_pad_hor(value_label, 6, 0);
@@ -1419,6 +1464,17 @@ static lv_obj_t *cover_build_mode_button(
     const char *icon)
 {
     const bool selected = s_cover_detail_mode == mode;
+    const bool light = cover_light_theme();
+    const uint32_t background_color =
+        light ? (selected ? COVER_LIGHT_TEXT_PRIMARY
+                          : COVER_LIGHT_MODE_GROUP)
+              : (selected ? 0xFFFFFF : COVER_CONTROL_BG);
+    const lv_opa_t background_opa =
+        light ? (selected ? LV_OPA_COVER : LV_OPA_TRANSP)
+              : LV_OPA_COVER;
+    const lv_opa_t pressed_opa =
+        light ? (selected ? LV_OPA_COVER : LV_OPA_10)
+              : LV_OPA_COVER;
     lv_obj_t *button = lv_button_create(parent);
     lv_obj_set_user_data(button, (void *)(uintptr_t)mode);
     lv_obj_set_size(button, 48, 48);
@@ -1426,12 +1482,15 @@ static lv_obj_t *cover_build_mode_button(
     lv_obj_set_style_border_width(button, 0, 0);
     lv_obj_set_style_shadow_width(button, 0, 0);
     lv_obj_set_style_bg_color(button,
-                              lv_color_hex(selected ? 0xFFFFFF
-                                                    : COVER_CONTROL_BG),
+                              lv_color_hex(background_color),
                               0);
+    lv_obj_set_style_bg_opa(button, background_opa, 0);
     lv_obj_set_style_bg_color(button,
-                              lv_color_hex(COVER_CONTROL_PRESSED),
+                              lv_color_hex(cover_theme_color(
+                                  COVER_CONTROL_PRESSED,
+                                  COVER_LIGHT_TEXT_PRIMARY)),
                               LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(button, pressed_opa, LV_STATE_PRESSED);
     lv_obj_add_event_cb(button,
                         cover_mode_event_cb,
                         LV_EVENT_CLICKED,
@@ -1441,7 +1500,14 @@ static lv_obj_t *cover_build_mode_button(
     lv_label_set_text(label, icon);
     lv_obj_set_style_text_font(label, &ha_font_mdi_20, 0);
     lv_obj_set_style_text_color(label,
-                                lv_color_hex(selected ? 0x202020 : 0xC8C8C8),
+                                lv_color_hex(
+                                    selected
+                                        ? cover_theme_color(
+                                              0x202020,
+                                              COVER_LIGHT_BG)
+                                        : cover_theme_color(
+                                              0xC8C8C8,
+                                              COVER_LIGHT_TEXT_PRIMARY)),
                                 0);
     lv_obj_center(label);
     return button;
@@ -1459,8 +1525,14 @@ static void cover_build_mode_switch(
                     landscape ? COVER_MODE_HEIGHT : COVER_MODE_WIDTH,
                     landscape ? 2 * COVER_MODE_HEIGHT + 2 : COVER_MODE_HEIGHT);
     lv_obj_set_style_radius(group, COVER_MODE_HEIGHT / 2, 0);
-    lv_obj_set_style_bg_color(group, lv_color_hex(COVER_CONTROL_BG), 0);
-    lv_obj_set_style_bg_opa(group, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(
+        group,
+        lv_color_hex(cover_theme_color(COVER_CONTROL_BG,
+                                       COVER_LIGHT_MODE_GROUP)),
+        0);
+    lv_obj_set_style_bg_opa(group,
+                            cover_light_theme() ? LV_OPA_10 : LV_OPA_COVER,
+                            0);
     lv_obj_set_layout(group, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(group,
                          landscape ? LV_FLEX_FLOW_COLUMN : LV_FLEX_FLOW_ROW);
@@ -1518,19 +1590,44 @@ static void cover_build_presets(
 
     for (size_t i = 0; i < sizeof(positions) / sizeof(positions[0]); i++) {
         const bool selected = !unavailable && current_position == positions[i];
+        const bool light = cover_light_theme();
+        const uint32_t background_color =
+            light ? (selected ? COVER_LIGHT_STATE_ACTIVE
+                              : COVER_LIGHT_DISABLED)
+                  : (selected ? 0xFFFFFF : COVER_CONTROL_BG);
+        const uint32_t pressed_color =
+            light ? (selected ? COVER_LIGHT_STATE_ACTIVE
+                              : COVER_LIGHT_DISABLED)
+                  : COVER_CONTROL_PRESSED;
+        const uint32_t label_color =
+            unavailable
+                ? cover_theme_color(COVER_DISABLED_FG,
+                                    COVER_LIGHT_DISABLED_FG)
+                : light ? COVER_LIGHT_TEXT_PRIMARY
+                        : (selected ? 0x202020 : 0xDADADA);
         lv_obj_t *button = lv_button_create(row);
         lv_obj_set_user_data(button, (void *)(uintptr_t)positions[i]);
         lv_obj_set_size(button, 62, COVER_PRESET_HEIGHT);
         lv_obj_set_style_radius(button, COVER_PRESET_HEIGHT / 2, 0);
+        lv_obj_set_style_radius(button,
+                                COVER_PRESET_HEIGHT / 2,
+                                LV_STATE_PRESSED);
+        lv_obj_set_style_transform_width(button, 0, LV_STATE_PRESSED);
+        lv_obj_set_style_transform_height(button, 0, LV_STATE_PRESSED);
         lv_obj_set_style_border_width(button, 0, 0);
         lv_obj_set_style_shadow_width(button, 0, 0);
         lv_obj_set_style_bg_color(button,
-                                  lv_color_hex(selected ? 0xFFFFFF
-                                                        : COVER_CONTROL_BG),
+                                  lv_color_hex(background_color),
                                   0);
+        lv_obj_set_style_bg_opa(button,
+                                light ? LV_OPA_20 : LV_OPA_COVER,
+                                0);
         lv_obj_set_style_bg_color(button,
-                                  lv_color_hex(COVER_CONTROL_PRESSED),
+                                  lv_color_hex(pressed_color),
                                   LV_STATE_PRESSED);
+        lv_obj_set_style_bg_opa(button,
+                                light ? LV_OPA_40 : LV_OPA_COVER,
+                                LV_STATE_PRESSED);
         lv_obj_add_event_cb(button,
                             cover_preset_event_cb,
                             LV_EVENT_CLICKED,
@@ -1538,7 +1635,9 @@ static void cover_build_presets(
         if (unavailable) {
             lv_obj_add_state(button, LV_STATE_DISABLED);
             lv_obj_set_style_bg_color(button,                      
-                              lv_color_hex(COVER_DISABLED_BG), 
+                              lv_color_hex(cover_theme_color(
+                                  COVER_DISABLED_BG,
+                                  COVER_LIGHT_DISABLED)),
                               LV_STATE_DISABLED);
             lv_obj_set_style_bg_opa(button, LV_OPA_20, LV_STATE_DISABLED);
         }
@@ -1547,12 +1646,9 @@ static void cover_build_presets(
         snprintf(text, sizeof(text), "%d%%", positions[i]);
         lv_obj_t *label = lv_label_create(button);
         lv_label_set_text(label, text);
-        lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
+        lv_obj_set_style_text_font(label, ha_ui_font_regular(16), 0);
         lv_obj_set_style_text_color(label,
-                                    lv_color_hex(unavailable
-                                                     ? COVER_DISABLED_FG
-                                                     : selected ? 0x202020
-                                                                : 0xDADADA),
+                                    lv_color_hex(label_color),
                                     0);
         lv_obj_center(label);
     }
@@ -1567,7 +1663,14 @@ static void cover_pager_update_dots(cover_pager_t *pager, lv_obj_t *tileview)
     for (size_t i = 0; i < 2; i++) {
         const bool selected = active == pager->pages[i];
         lv_obj_set_style_bg_color(pager->dots[i],
-                                  lv_color_hex(selected ? 0xE1E1E1 : 0x5C5C5C),
+                                  lv_color_hex(
+                                      selected
+                                          ? cover_theme_color(
+                                                0xE1E1E1,
+                                                COVER_LIGHT_TEXT_PRIMARY)
+                                          : cover_theme_color(
+                                                0x5C5C5C,
+                                                COVER_LIGHT_DOT_INACTIVE)),
                                   0);
         lv_obj_set_style_bg_opa(pager->dots[i], LV_OPA_COVER, 0);
         if (selected) {
@@ -1759,20 +1862,24 @@ static esp_err_t cover_render_tile(ha_entity_store_t *store,
     model->title_color = lv_color_hex(0xFFFFFF);
     model->state_color = lv_color_hex(0x666666);
     model->icon_color = lv_color_hex(0x9E9E9E);
-    model->icon_circle_background_color = lv_color_hex(0x363636);
+    model->icon_circle_background_color = model->icon_color;
+    model->icon_circle_background_color_light = lv_color_hex(0xD2D5DA);
+    model->icon_circle_background_opa = LV_OPA_20;
 
     if (entity_handler_snapshot_is_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
                                            sizeof(model->state_text),
                                            snapshot);
         model->icon_color = lv_color_hex(0x6F6F6F);
-        model->icon_circle_background_color = lv_color_hex(0x2D2D2D);
+        model->icon_circle_background_color = model->icon_color;
+        model->icon_circle_background_color_light = lv_color_hex(0xCDD0D6);
         return ESP_OK;
     }
 
     if (strcmp(snapshot->state, "closed") != 0) {
         model->icon_color = lv_color_hex(0x926BC7);
-        model->icon_circle_background_color = lv_color_hex(0x342C3E);
+        model->icon_circle_background_color = model->icon_color;
+        model->icon_circle_background_color_light = lv_color_hex(0xCEC9E1);
     }
 
     double position = 0;
@@ -1820,6 +1927,14 @@ static esp_err_t cover_render_more_info(
         return ESP_ERR_INVALID_ARG;
     }
 
+    s_cover_detail_light_theme =
+        screen_theme_get() == SCREEN_THEME_LIGHT;
+    lv_obj_set_style_bg_color(
+        context->screen,
+        lv_color_hex(cover_theme_color(COVER_BG, COVER_LIGHT_BG)),
+        0);
+    lv_obj_set_style_bg_opa(context->screen, LV_OPA_COVER, 0);
+
     const uint32_t features = cover_get_supported_features(context);
     const bool supports_position = features & COVER_FEATURE_SET_POSITION;
     const bool supports_buttons = features & (COVER_FEATURE_OPEN |
@@ -1832,8 +1947,7 @@ static esp_err_t cover_render_more_info(
         strcmp(context->snapshot.state, "unknown") != 0;
     const bool landscape = bsp_lcd_is_landscape();
 
-    if (s_cover_detail_screen != context->screen ||
-        strcmp(s_cover_detail_entity_id,
+    if (strcmp(s_cover_detail_entity_id,
                context->snapshot.entity_id) != 0) {
         s_cover_toggle_visual_valid = false;
         s_cover_position_visual_valid = false;

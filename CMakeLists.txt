@@ -142,6 +142,45 @@ add_compile_definitions("OTA_ALLOW_INSECURE_HTTP=${OTA_ALLOW_INSECURE_HTTP}")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(open-ha-panel)
 
+# LVGL 9.5 does not declare the optional FreeType component in its manifest.
+# Give its FreeType source files the component's public headers and link library.
+idf_component_get_property(ha_lvgl_lib lvgl__lvgl COMPONENT_LIB)
+idf_component_get_property(ha_lvgl_dir lvgl__lvgl COMPONENT_DIR)
+idf_component_get_property(ha_freetype_lib espressif__freetype COMPONENT_LIB)
+idf_component_get_property(ha_heap_lib heap COMPONENT_LIB)
+target_link_libraries(${ha_lvgl_lib} PRIVATE ${ha_freetype_lib} ${ha_heap_lib})
+get_target_property(ha_lvgl_sources ${ha_lvgl_lib} SOURCES)
+set(ha_lvgl_bitmap_source "")
+foreach(ha_lvgl_source IN LISTS ha_lvgl_sources)
+    if(ha_lvgl_source MATCHES "src/libs/freetype/lv_freetype_image\\.c$")
+        set(ha_lvgl_bitmap_source "${ha_lvgl_source}")
+        break()
+    endif()
+endforeach()
+if(NOT ha_lvgl_bitmap_source)
+    message(FATAL_ERROR "Unable to locate LVGL FreeType bitmap renderer for software bold")
+endif()
+list(REMOVE_ITEM ha_lvgl_sources "${ha_lvgl_bitmap_source}")
+set_property(TARGET ${ha_lvgl_lib} PROPERTY SOURCES "${ha_lvgl_sources}")
+target_include_directories(${ha_lvgl_lib} PRIVATE "${ha_lvgl_dir}/src/libs/freetype")
+# Compile the allocators into the library that calls them so the static linker
+# resolves the LVGL pool callback and FreeType initialization wrappers.
+target_sources(${ha_lvgl_lib} PRIVATE
+    "${CMAKE_SOURCE_DIR}/main/font/lv_freetype_image_bold.c"
+    "${CMAKE_SOURCE_DIR}/main/freetype_psram.c"
+    "${CMAKE_SOURCE_DIR}/main/lvgl_psram_pool.c")
+# FreeType's default FT_Init_FreeType uses ordinary malloc, which prefers
+# scarce internal RAM for small blocks on this device. The application uses
+# FT_New_Library with a PSRAM allocator instead, including the matching
+# FT_Done_Library cleanup path.
+target_compile_definitions(${ha_lvgl_lib} PRIVATE
+    FT_Init_FreeType=ha_freetype_init_psram
+    FT_Done_FreeType=ha_freetype_done_psram
+    FT_New_Face=ha_freetype_new_face_psram
+    LV_MEM_POOL_ALLOC=ha_lvgl_psram_pool_alloc
+    "LV_MEM_POOL_INCLUDE=\"ha_lvgl_psram_pool.h\"")
+target_include_directories(${ha_lvgl_lib} PRIVATE "${CMAKE_SOURCE_DIR}/main")
+
 configure_file(
     "${CMAKE_SOURCE_DIR}/tools/open_ha_panel_build_metadata.json.in"
     "${CMAKE_BINARY_DIR}/open_ha_panel_build_metadata.json"

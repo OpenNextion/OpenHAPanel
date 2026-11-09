@@ -1,7 +1,6 @@
 {
     "app": {
-        "name": "OpenNextion",
-        "subtitle": "Console do dispositivo"
+        "name": "OpenHAPanel"
     },
     "firmwareUpdate": {
         "operationBlocked": "O dispositivo está sendo atualizado e está temporariamente indisponível."
@@ -98,11 +97,19 @@
             "entity": "Entidade",
             "interactions": "Interações",
             "features": "Recursos",
+            "featuresPosition": "Posição dos recursos",
+            "featuresPositionBottom": "Embaixo",
+            "featuresPositionBottomHint": "Exibe todos os recursos empilhados",
+            "featuresPositionInline": "Em linha",
+            "featuresPositionInlineHint": "Exibe os recursos em duas colunas, ao lado do nome",
             "tapBehavior": "Ação ao tocar",
             "iconTapBehavior": "Ação ao tocar no ícone",
             "longPressBehavior": "Ação ao manter pressionado",
             "actionMoreInfo": "Mais informações",
             "actionToggle": "Alternar",
+            "actionButton": "Botão de ação",
+            "actionActivate": "Ativar",
+            "actionPress": "Pressionar",
             "actionNothing": "Nenhuma",
             "actionDefault": "Padrão",
             "config": "Configuração",
@@ -114,9 +121,9 @@
             "comingSoon": "Em breve",
             "entityNotSupported": "Esta entidade ainda não é compatível",
             "connectHaFirst": "Conecte o Home Assistant primeiro.",
-            "connectHa": "Conectar ao Home Assistant",
-            "connectHaHint": "Configure o HA no console web",
-            "noContent": "Sem conteúdo. Adicione entidades em Console web > Gerenciamento de telas",
+            "connectHa": "Conectar Home Assistant",
+            "connectHaHint": "Conclua a conexão do Home Assistant no console Web.",
+            "noContent": "Nenhuma entidade adicionada. Vá em Console Web > Configuração de Tela para escolher entidades a controlar.",
             "addSplit": "Adicionar tela",
             "splitNamePlaceholder": "Digite um nome para a tela",
             "addBadgeTitle": "Qual emblema você gostaria de adicionar?",
@@ -165,7 +172,7 @@
         "connected": "Conectado",
         "disconnected": "Desconectado",
         "internetConnection": "Conexão com a internet",
-        "apHint": "O ponto de acesso AP pode ser ativado ou desativado quando o Nextion está conectado ao Wi-Fi.",
+        "apHint": "O ponto de acesso AP pode ser ativado ou desativado quando o Nextion está conectado a uma rede Wi-Fi.",
         "apInUseTitle": "AP em uso",
         "apInUseConfirm": "O AP está em uso. Alterar suas configurações pode desconectar os clientes ativos. Continuar?",
         "changePassword": "Alterar senha",
@@ -215,7 +222,7 @@
         "passwordLetterNumberRequired": "A senha deve ter 8 caracteres, combinando letras e números.",
         "setupTitle": "Conectar ao Wi-Fi",
         "setupSubtitle": "Selecione a rede Wi-Fi de 2,4 GHz à qual deseja se conectar. Apenas redes de 2,4 GHz são compatíveis.",
-        "joinWifi": "Conectar a \"Wi-Fi {ssid}\"",
+        "joinWifi": "Conectar a Wi-Fi \"{ssid}\"",
         "addWifiManually": "Adicionar Wi-Fi manualmente"
     },
     "settingsDetail": {
@@ -223,7 +230,7 @@
         "mdnsRestartHint": "O dispositivo será reiniciado para aplicar as alterações.",
         "dateTime": "Data e hora",
         "timezone": "Fuso horário",
-        "autoDetect": "Detectar localização automaticamente",
+        "autoDetect": "Definir automaticamente",
         "ntp1": "Servidor NTP 1",
         "ntp2": "Servidor NTP 2",
         "ntpInvalid": "Digite um domínio válido",
@@ -242,6 +249,8 @@
         "to": "Às",
         "followSystem": "Seguir o sistema",
         "followHint": "Usar o modo claro ou escuro definido no sistema.",
+        "webConsole": "Console web",
+        "screenDevice": "Tela do dispositivo",
         "lightMode": "Modo claro",
         "darkMode": "Modo escuro",
         "restartConfirmTitle": "Reiniciar o dispositivo?",

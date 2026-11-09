@@ -1,6 +1,6 @@
 import type { IAuthNotify, IForgotPwdNotify } from '@/types/auth';
 import type { IConnectionStatusNotify, IWifiInfoNotify, IWifiScanResultNotify } from '@/types/network';
-import type { IDeviceInfoNotify, ILanguageNotify, IScreenRotationNotify } from './device';
+import type { IDeviceInfoNotify, IScreenRotationNotify, IScreenThemeNotify, ILanguageNotify } from './device';
 import type { IHassAuthorizationResult, IHassConnectionStatusNotify, IHassScanResultNotify } from '@/types/homeassistant';
 import type { IHassScreenConfigNotify } from './screenConfig';
 import type { IFirmwareUpdateStatusNotify } from './firmware';
@@ -56,6 +56,9 @@ export enum EWsMethods {
     SET_SCREEN_ROTATION = 'Device.SetScreenRotation',
     SET_SCREEN_ROTATION_RSP = 'Device.SetScreenRotationRsp',
     SCREEN_ROTATION_NOTIFY = 'Device.ScreenRotationNotify',
+    SET_SCREEN_THEME = 'Device.SetScreenTheme',
+    SET_SCREEN_THEME_RSP = 'Device.SetScreenThemeRsp',
+    SCREEN_THEME_NOTIFY = 'Device.ScreenThemeNotify',
     //SET_IDENTIFY = 'Device.Identify',
     //SET_IDENTIFY_RSP = 'Device.IdentifyRsp',
     //SET_IEEE_ADDRESS = 'Device.SetIEEAddress',
@@ -165,6 +168,7 @@ export type TMethodParams = {
     [EWsMethods.DEVICE_INFO_NOTIFY]: IResponse<IDeviceInfoNotify>;
     [EWsMethods.LANGUAGE_NOTIFY]: IResponse<ILanguageNotify>;
     [EWsMethods.SCREEN_ROTATION_NOTIFY]: IResponse<IScreenRotationNotify>;
+    [EWsMethods.SCREEN_THEME_NOTIFY]: IResponse<IScreenThemeNotify>;
     [EWsMethods.FIRMWARE_UPDATE_STATUS_NOTIFY]: IResponse<IFirmwareUpdateStatusNotify>;
     [EWsMethods.LAN_DEVICE_NOTIFY]: IResponse<ILanDeviceNotify>;
     //[EWsMethods.INDICATOR_NOTIFY]: IResponse<IDeviceIndicatorNotify>;

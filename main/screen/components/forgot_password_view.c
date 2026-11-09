@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "forgot_password_view.h"
 
@@ -74,7 +75,7 @@ lv_obj_t *forgot_password_view_create(lv_obj_t *parent)
     ctx->forget_label = forget_label;
     ui_i18n_label_set_text(forget_label, i18n_get(I18N_PASSWORD_TITLE));
     lv_obj_set_style_text_color(forget_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(forget_label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(forget_label, ha_ui_font_medium(20), 0);
     lv_obj_set_style_text_align(forget_label, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_obj_t *instructions_label = lv_label_create(root);
@@ -84,7 +85,7 @@ lv_obj_t *forgot_password_view_create(lv_obj_t *parent)
                           i18n_get(I18N_PASSWORD_CONFIRM),
                           (unsigned long)FORGOT_PASSWORD_TIMEOUT_SECONDS);
     lv_obj_set_style_text_color(instructions_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(instructions_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(instructions_label, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_align(instructions_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_line_space(instructions_label, 2, 0);
 

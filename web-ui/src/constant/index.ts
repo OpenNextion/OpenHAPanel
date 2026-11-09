@@ -57,5 +57,5 @@ export const LANGUAGE_LIST: ILanguageItem[] = [
     { label: 'Español', value: ELanguage.ES, loader: async () => esMessages },
     { label: 'Italiano', value: ELanguage.IT, loader: async () => itMessages },
     { label: 'Português (Brasil)', value: ELanguage.PT_BR, loader: async () => ptBRMessages },
-    //{ label: '한국어', value: ELanguage.KO, loader: async () => koMessages },
+    { label: '한국어', value: ELanguage.KO, loader: async () => koMessages },
 ];

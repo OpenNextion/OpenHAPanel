@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "main_view.h"
 
 #include <string.h>
@@ -18,6 +19,7 @@
 static const char *TAG = "main_view";
 
 #define MAIN_VIEW_CARD_GAP 8
+#define MAIN_VIEW_CARD_HEIGHT 68
 #define MAIN_VIEW_CARD_SIDE_PADDING 20
 
 typedef struct {
@@ -50,6 +52,9 @@ struct main_view {
     main_view_entity_ref_t *entities;
     size_t entity_count;
     int32_t cards_content_width;
+    size_t cards_layout_rows;
+    const screen_view_t *pending_view;
+    size_t next_card_index;
     bool suppress_actions_for_press;
 };
 
@@ -59,7 +64,8 @@ static void main_view_indev_pressed_cb(lv_event_t *event);
 static bool main_view_action_suppressed(const main_view_entity_ref_t *ref);
 static void main_view_clear_refs(main_view_t *main_view);
 static void main_view_render_badges(main_view_t *main_view, const screen_view_t *view);
-static void main_view_render_cards(main_view_t *main_view, const screen_view_t *view);
+static void main_view_prepare_cards(main_view_t *main_view, const screen_view_t *view);
+static void main_view_finish_cards(main_view_t *main_view);
 static void main_view_apply_card_layout(main_view_t *main_view);
 static void main_view_cards_size_changed_cb(lv_event_t *event);
 static const char *main_view_card_name(const screen_card_config_t *card);
@@ -93,7 +99,7 @@ static void main_view_dispatch_action(main_view_entity_ref_t *ref,
 static void main_view_open_more_info_cb(const char *entity_id,
                                         void *user_data);
 
-main_view_t *main_view_create(lv_obj_t *parent, const screen_view_t *view)
+static main_view_t *main_view_create_base(lv_obj_t *parent)
 {
     if (!parent) {
         return NULL;
@@ -125,8 +131,26 @@ main_view_t *main_view_create(lv_obj_t *parent, const screen_view_t *view)
         }
         indev = lv_indev_get_next(indev);
     }
-    main_view_update(main_view, view);
+    return main_view;
+}
 
+main_view_t *main_view_create(lv_obj_t *parent, const screen_view_t *view)
+{
+    main_view_t *main_view = main_view_create_base(parent);
+    if (main_view) {
+        main_view_update(main_view, view);
+    }
+    return main_view;
+}
+
+main_view_t *main_view_create_deferred(lv_obj_t *parent, const screen_view_t *view)
+{
+    main_view_t *main_view = main_view_create_base(parent);
+    if (!main_view || !view) {
+        return main_view;
+    }
+    main_view_render_badges(main_view, view);
+    main_view_prepare_cards(main_view, view);
     return main_view;
 }
 
@@ -160,13 +184,64 @@ void main_view_update(main_view_t *main_view, const screen_view_t *view)
     main_view_clear_refs(main_view);
     lv_obj_clean(main_view->container);
     main_view_render_badges(main_view, view);
-    main_view_render_cards(main_view, view);
+    main_view_prepare_cards(main_view, view);
+    while (main_view->pending_view) {
+        main_view_build_next_card(main_view);
+    }
 
     ha_entity_store_t *store = app_get_ha_entity_store();
     if (store && main_view_set_entity_store(main_view, store) > 0) {
         esp_err_t err = ha_entity_store_sync(store);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "Failed to request entity state sync: %s", esp_err_to_name(err));
+        }
+    }
+}
+
+void main_view_apply_theme(main_view_t *main_view)
+{
+    if (!main_view) {
+        return;
+    }
+
+    for (size_t i = 0; i < main_view->badge_count; ++i) {
+        if (main_view->badges[i].badge_pill) {
+            ha_badge_apply_theme(main_view->badges[i].badge_pill);
+        }
+    }
+    ha_entity_store_t *store = app_get_ha_entity_store();
+    for (size_t i = 0; i < main_view->entity_count; ++i) {
+        main_view_entity_ref_t *ref = &main_view->entities[i];
+        if (!ref->tile_card) {
+            continue;
+        }
+
+        /* These entities use theme-dependent unavailable icon colors. Rebuild
+         * their presentation model without rebuilding feature controls. */
+        if (store &&
+            (main_view_badge_domain_is(ref->entity_id, "switch") ||
+             main_view_badge_domain_is(ref->entity_id, "light") ||
+             main_view_badge_domain_is(ref->entity_id, "fan") ||
+             main_view_badge_domain_is(ref->entity_id, "button") ||
+             main_view_badge_domain_is(ref->entity_id, "scene"))) {
+            entity_display_model_t model;
+            if (entity_display_build(store, ref->entity_id, &model) == ESP_OK) {
+                main_view_apply_display_model(ref, &model);
+            }
+        }
+        ha_tile_card_apply_theme(ref->tile_card);
+
+        if (ref->feature_instances && ref->tile_config &&
+            ref->tile_config->feature_count > 0) {
+            const entity_handler_t *handler =
+                entity_handler_registry_find(ref->entity_id);
+            const entity_feature_handler_t *features =
+                handler ? handler->feature_handler : NULL;
+            if (features && features->apply_theme) {
+                for (size_t f = 0; f < ref->tile_config->feature_count; f++) {
+                    features->apply_theme(&ref->feature_instances[f]);
+                }
+            }
         }
     }
 }
@@ -371,6 +446,9 @@ static void main_view_clear_refs(main_view_t *main_view)
     main_view->entity_count = 0;
     main_view->cards_container = NULL;
     main_view->cards_content_width = -1;
+    main_view->cards_layout_rows = 0;
+    main_view->pending_view = NULL;
+    main_view->next_card_index = 0;
 }
 
 static void main_view_render_badges(main_view_t *main_view, const screen_view_t *view)
@@ -441,7 +519,7 @@ static void main_view_render_badges(main_view_t *main_view, const screen_view_t 
     }
 }
 
-static void main_view_render_cards(main_view_t *main_view, const screen_view_t *view)
+static void main_view_prepare_cards(main_view_t *main_view, const screen_view_t *view)
 {
     if (!view->cards || view->card_count == 0) {
         return;
@@ -457,76 +535,99 @@ static void main_view_render_cards(main_view_t *main_view, const screen_view_t *
     main_view->cards_container = cards_row;
     lv_obj_remove_style_all(cards_row);
     lv_obj_remove_flag(cards_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(cards_row, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(cards_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(cards_row, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(cards_row,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START);
+    lv_obj_set_size(cards_row, LV_PCT(100), 0);
+    lv_obj_set_layout(cards_row, LV_LAYOUT_NONE);
     lv_obj_set_style_pad_all(cards_row, 0, 0);
     lv_obj_set_style_pad_hor(cards_row, MAIN_VIEW_CARD_SIDE_PADDING, 0);
     lv_obj_set_style_pad_gap(cards_row, MAIN_VIEW_CARD_GAP, 0);
 
-    for (size_t i = 0; i < view->card_count; i++) {
-        const screen_card_config_t *card_config = &view->cards[i];
-
-        if (card_config->type == SCREEN_CARD_TYPE_TILE) {
-            main_view_entity_ref_t *ref = &main_view->entities[main_view->entity_count++];
-            ref->owner = main_view;
-            ref->config_index = i;
-            ref->entity_id = card_config->data.tile.entity;
-            main_view_apply_action_config(ref, &card_config->data.tile);
-
-            ref->tile_card = ha_tile_card_create(cards_row);
-            if (!ref->tile_card) {
-                ESP_LOGE(TAG, "Failed to create tile card for %s",
-                         ref->entity_id ? ref->entity_id : "");
-                continue;
-            }
-            if (ref->tile_config->feature_count > 0) {
-                ref->feature_instances = lv_calloc(
-                    ref->tile_config->feature_count,
-                    sizeof(*ref->feature_instances));
-                if (!ref->feature_instances) {
-                    ESP_LOGE(TAG, "Failed to allocate features for %s", ref->entity_id);
-                }
-            }
-            entity_display_model_t display_model;
-            entity_display_model_init(ref->entity_id, &display_model);
-            main_view_apply_display_model(ref, &display_model);
-            main_view_sync_features(ref, NULL, NULL);
-
-            continue;
-        }
-
-        lv_obj_t *card = lv_obj_create(cards_row);
-        lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_width(card, LV_PCT(100));
-        lv_obj_set_height(card, 54);
-        lv_obj_set_style_radius(card, 8, 0);
-        lv_obj_set_style_border_width(card, 0, 0);
-        lv_obj_set_style_bg_color(card, lv_color_hex(0x242936), 0);
-        lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-        lv_obj_set_style_pad_hor(card, 12, 0);
-        lv_obj_set_style_pad_ver(card, 8, 0);
-
-        lv_obj_t *name_label = lv_label_create(card);
-        ui_i18n_label_set_text(name_label, main_view_card_name(card_config));
-        lv_label_set_long_mode(name_label, LV_LABEL_LONG_DOT);
-        lv_obj_set_width(name_label, LV_PCT(100));
-        lv_obj_align(name_label, LV_ALIGN_LEFT_MID, 0, 0);
-        lv_obj_set_style_text_color(name_label, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(name_label, &ha_font_misan_regular_14, 0);
-
-    }
-
-    lv_obj_update_layout(cards_row);
-    main_view_apply_card_layout(main_view);
+    main_view->pending_view = view;
+    main_view->next_card_index = 0;
     lv_obj_add_event_cb(cards_row,
                         main_view_cards_size_changed_cb,
                         LV_EVENT_SIZE_CHANGED,
                         main_view);
+}
+
+bool main_view_build_next_card(main_view_t *main_view)
+{
+    if (!main_view || !main_view->pending_view) {
+        return false;
+    }
+
+    const screen_view_t *view = main_view->pending_view;
+    if (main_view->next_card_index >= view->card_count) {
+        main_view_finish_cards(main_view);
+        return false;
+    }
+
+    lv_obj_t *cards_row = main_view->cards_container;
+    const size_t i = main_view->next_card_index++;
+    const screen_card_config_t *card_config = &view->cards[i];
+
+    if (card_config->type == SCREEN_CARD_TYPE_TILE) {
+        main_view_entity_ref_t *ref = &main_view->entities[main_view->entity_count++];
+        ref->owner = main_view;
+        ref->config_index = i;
+        ref->entity_id = card_config->data.tile.entity;
+        main_view_apply_action_config(ref, &card_config->data.tile);
+
+        ref->tile_card = ha_tile_card_create(cards_row);
+        if (!ref->tile_card) {
+            ESP_LOGE(TAG, "Failed to create tile card for %s",
+                     ref->entity_id ? ref->entity_id : "");
+            goto card_done;
+        }
+        if (ref->tile_config->feature_count > 0) {
+            ref->feature_instances = lv_calloc(
+                ref->tile_config->feature_count,
+                sizeof(*ref->feature_instances));
+            if (!ref->feature_instances) {
+                ESP_LOGE(TAG, "Failed to allocate features for %s", ref->entity_id);
+            }
+        }
+        entity_display_model_t display_model;
+        entity_display_model_init(ref->entity_id, &display_model);
+        main_view_apply_display_model(ref, &display_model);
+        main_view_sync_features(ref, NULL, NULL);
+
+        goto card_done;
+    }
+
+    lv_obj_t *card = lv_obj_create(cards_row);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_width(card, LV_PCT(100));
+    lv_obj_set_height(card, 54);
+    lv_obj_set_style_radius(card, 8, 0);
+    lv_obj_set_style_border_width(card, 0, 0);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x242936), 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(card, 12, 0);
+    lv_obj_set_style_pad_ver(card, 8, 0);
+
+    lv_obj_t *name_label = lv_label_create(card);
+    ui_i18n_label_set_text(name_label, main_view_card_name(card_config));
+    lv_label_set_long_mode(name_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(name_label, LV_PCT(100));
+    lv_obj_align(name_label, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_text_color(name_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(name_label, ha_ui_font_regular(14), 0);
+
+card_done:
+    if (main_view->next_card_index >= view->card_count) {
+        main_view_finish_cards(main_view);
+        return false;
+    }
+    return true;
+}
+
+static void main_view_finish_cards(main_view_t *main_view)
+{
+    main_view->pending_view = NULL;
+    lv_obj_update_layout(main_view->cards_container);
+    main_view->cards_content_width = -1;
+    main_view->cards_layout_rows = 0;
+    main_view_apply_card_layout(main_view);
 }
 
 static void main_view_apply_card_layout(main_view_t *main_view)
@@ -535,33 +636,74 @@ static void main_view_apply_card_layout(main_view_t *main_view)
         return;
     }
 
-    int32_t cards_width = lv_obj_get_content_width(main_view->cards_container);
-    if (cards_width <= 0 || cards_width == main_view->cards_content_width) {
+    const int32_t cards_width = lv_obj_get_content_width(main_view->cards_container);
+    if (cards_width <= 0) {
         return;
     }
+    const bool width_changed = cards_width != main_view->cards_content_width;
     main_view->cards_content_width = cards_width;
 
-    size_t columns = bsp_lcd_is_landscape() ? 2 : 1;
-    size_t max_columns = ((size_t)cards_width + MAIN_VIEW_CARD_GAP) /
-                         (MAIN_VIEW_CARD_GAP + 1);
-    if (columns > max_columns) {
-        columns = max_columns;
+    const size_t columns = cards_width >= MAIN_VIEW_CARD_GAP + 2 ? 2 : 1;
+    const int32_t column_width = columns == 2
+        ? (cards_width - MAIN_VIEW_CARD_GAP) / 2 : cards_width;
+    /* Place each card in the earliest free cell; a full-width card starts
+     * after both columns. */
+    size_t column_rows[2] = {0, 0};
+    size_t total_rows = 0;
+    const size_t child_count = lv_obj_get_child_count(main_view->cards_container);
+
+    for (size_t i = 0; i < child_count; i++) {
+        lv_obj_t *card = lv_obj_get_child(main_view->cards_container, i);
+        main_view_entity_ref_t *ref = NULL;
+        for (size_t j = 0; j < main_view->entity_count; j++) {
+            if (main_view->entities[j].tile_card == card) {
+                ref = &main_view->entities[j];
+                break;
+            }
+        }
+        const bool full_width = !ref || ref->tile_config->full_width || columns == 1;
+        const size_t rows = ref
+            ? 1 + ha_tile_card_get_feature_row_count(card) : 1;
+        const int32_t width = full_width ? cards_width : column_width;
+        const int32_t height = ref
+            ? (int32_t)(rows * MAIN_VIEW_CARD_HEIGHT +
+                        (rows - 1) * MAIN_VIEW_CARD_GAP)
+            : 54;
+        if (width_changed || lv_obj_get_width(card) != width) {
+            lv_obj_set_width(card, width);
+        }
+        if (lv_obj_get_height(card) != height) {
+            lv_obj_set_height(card, height);
+        }
+
+        size_t column = 0;
+        size_t row = column_rows[0];
+        if (full_width) {
+            if (column_rows[1] > row) {
+                row = column_rows[1];
+            }
+            column_rows[0] = row + rows;
+            column_rows[1] = row + rows;
+        } else {
+            if (column_rows[1] < row) {
+                column = 1;
+                row = column_rows[1];
+            }
+            column_rows[column] = row + rows;
+        }
+        lv_obj_set_pos(card,
+                       (int32_t)column * (column_width + MAIN_VIEW_CARD_GAP),
+                       (int32_t)row * (MAIN_VIEW_CARD_HEIGHT + MAIN_VIEW_CARD_GAP));
+        if (row + rows > total_rows) {
+            total_rows = row + rows;
+        }
     }
 
-    int32_t column_width = columns > 1
-                               ? (cards_width - (int32_t)((columns - 1) * MAIN_VIEW_CARD_GAP)) /
-                                     (int32_t)columns
-                               : cards_width;
-
-    for (size_t i = 0; i < main_view->entity_count; i++) {
-        main_view_entity_ref_t *ref = &main_view->entities[i];
-        if (!ref->tile_card || !ref->tile_config) {
-            continue;
-        }
-        lv_obj_set_width(ref->tile_card,
-                         ref->tile_config->full_width || columns == 1
-                             ? LV_PCT(100)
-                             : column_width);
+    if (width_changed || total_rows != main_view->cards_layout_rows) {
+        main_view->cards_layout_rows = total_rows;
+        lv_obj_set_height(main_view->cards_container,
+                          total_rows ? (int32_t)(total_rows * MAIN_VIEW_CARD_HEIGHT +
+                                                 (total_rows - 1) * MAIN_VIEW_CARD_GAP) : 0);
     }
 }
 
@@ -610,9 +752,7 @@ static void main_view_apply_badge_model(main_view_entity_ref_t *ref,
     ha_badge_set_icon(ref->badge_pill, model->icon);
     ha_badge_set_icon_color(ref->badge_pill, model->icon_color);
     ha_badge_set_text(ref->badge_pill, text);
-    ha_badge_set_text_color(ref->badge_pill,
-                            model->unavailable ? lv_color_hex(0x909090)
-                                               : lv_color_hex(0xE4E7EE));
+    ha_badge_set_unavailable(ref->badge_pill, model->unavailable);
 }
 
 static bool main_view_badge_domain_is(const char *entity_id, const char *domain)
@@ -693,6 +833,10 @@ static void main_view_apply_display_model(main_view_entity_ref_t *ref,
     ha_tile_card_set_icon_color(tile_card, model->icon_color);
     ha_tile_card_set_icon_circle_background_color(tile_card,
                                                   model->icon_circle_background_color);
+    ha_tile_card_set_icon_circle_background_color_light(tile_card,
+                                                  model->icon_circle_background_color_light);
+    ha_tile_card_set_icon_circle_background_opa(
+        tile_card, model->icon_circle_background_opa);
     ha_tile_card_set_title_color(tile_card, model->title_color);
     ha_tile_card_set_state_color(tile_card, model->state_color);
     ha_tile_card_set_icon_click_cb(tile_card,
@@ -724,19 +868,19 @@ static void main_view_sync_features(main_view_entity_ref_t *ref,
     }
     const char *position = ref->tile_config->features_position
                                ? ref->tile_config->features_position : "bottom";
-    if (strcmp(position, "bottom") != 0) {
-        return;
-    }
+    const bool inline_features = strcmp(position, "inline") == 0;
     const entity_handler_t *handler = entity_handler_registry_find(ref->entity_id);
     const entity_feature_handler_t *features = handler ? handler->feature_handler : NULL;
     if (!features || !features->supports || !features->create || !features->update) {
         return;
     }
-    int32_t visible_index = 0;
+    int32_t below_index = 0;
     for (size_t i = 0; i < ref->tile_config->feature_count; i++) {
         entity_feature_instance_t *instance = &ref->feature_instances[i];
         const screen_feature_config_t *config = &ref->tile_config->features[i];
-        const bool supported = features->supports(store, ref->entity_id, config->type);
+        const bool supported =
+            (!features->supports_config || features->supports_config(config)) &&
+            features->supports(store, ref->entity_id, config->type);
         if (!supported) {
             if (instance->host) {
                 ha_tile_card_remove_feature_host(ref->tile_card, instance->host);
@@ -746,9 +890,13 @@ static void main_view_sync_features(main_view_entity_ref_t *ref,
             continue;
         }
         if (!instance->host) {
-            instance->host = ha_tile_card_add_feature_host(ref->tile_card);
+            instance->host = ha_tile_card_add_feature_host(ref->tile_card,
+                                                          inline_features && i == 0);
             if (!instance->host) {
                 continue;
+            }
+            if (config->type == SCREEN_FEATURE_TREND_GRAPH) {
+                lv_obj_set_height(instance->host, 62);
             }
             instance->entity_id = ref->entity_id;
             instance->config = config;
@@ -759,8 +907,16 @@ static void main_view_sync_features(main_view_entity_ref_t *ref,
                 continue;
             }
         }
-        lv_obj_move_to_index(instance->host, visible_index++);
+        if (inline_features && i == 0) {
+            lv_obj_move_to_index(instance->host, 2);
+        } else {
+            lv_obj_move_to_index(instance->host, below_index++);
+        }
         features->update(instance, store, snapshot);
+    }
+    ha_tile_card_update_feature_layout(ref->tile_card, inline_features);
+    if (!ref->owner->pending_view) {
+        main_view_apply_card_layout(ref->owner);
     }
 }
 
@@ -947,7 +1103,7 @@ static void main_view_dispatch_badge_action(main_view_entity_ref_t *ref,
         domain = "climate";
         service = strcmp(snapshot.state, "off") == 0
                       ? "turn_on" : "turn_off";
-    } 
+    }
     // else if (main_view_badge_domain_is(ref->entity_id, "fan")) {
         // ha_entity_store_t *store = app_get_ha_entity_store();
         // ha_entity_snapshot_t snapshot = {0};
@@ -961,7 +1117,7 @@ static void main_view_dispatch_badge_action(main_view_entity_ref_t *ref,
         // }
         // domain = "fan";
         // service = "toggle";
-    // } 
+    // }
     else if (main_view_badge_domain_is(ref->entity_id, "event") ||
                main_view_badge_domain_is(ref->entity_id, "sensor") ||
                main_view_badge_domain_is(ref->entity_id, "binary_sensor")) {
@@ -1015,9 +1171,6 @@ static void main_view_open_more_info_cb(const char *entity_id,
     if (!more_info_screen_open(store, entity_id, ref->tile_config)) {
         ESP_LOGW(TAG, "Failed to open more-info for %s", entity_id);
         return;
-    }
-    if (ref->badge_pill) {
-        ha_badge_stop_ripple(ref->badge_pill);
     }
 }
 

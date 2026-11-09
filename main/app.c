@@ -1691,6 +1691,7 @@ static void app_factory_reset_task(void *arg)
 
 static void app_lcd_prepare_black_frame(void)
 {
+    if (bsp_lcd_boot_screen_active()) return;
     if (!lvgl_port_lock(0)) {
         ESP_LOGW(TAG, "Failed to lock LVGL while preparing the startup frame");
         return;
@@ -1715,9 +1716,12 @@ static void app_lcd_enable_after_first_frame(uint8_t brightness)
 
     if (screen_state_get_current() == SCREEN_PAGE_NONE) {
         ESP_LOGW(TAG, "Timed out waiting for the initial screen page");
+        if (bsp_lcd_boot_screen_active()) return;
     }
 
     if (lvgl_port_lock(0)) {
+        bsp_lcd_boot_screen_finish();
+        lv_obj_invalidate(lv_screen_active());
         lv_refr_now(lv_display_get_default());
         lvgl_port_unlock();
     }
@@ -2257,11 +2261,10 @@ void app_init(void)
     webserver_client_list_init();
 
     webserver_config_init();
-    
+
     mdns_server_init(WIRELESS_CONTROLLER_WORK_MODE_INVALID, 0);
 
     network_init();
-
 
     sys_time_init();
     night_mode_init();
@@ -2354,7 +2357,7 @@ void app_init(void)
         return;
     }
 
-    s_screen_power_ready = true;
+    s_screen_power_ready = !bsp_lcd_boot_screen_active();
 
     esp_err_t boot_confirm_err = firmware_update_confirm_boot();
     if (boot_confirm_err != ESP_OK) {

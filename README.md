@@ -18,6 +18,38 @@ building or flashing; other Open Nextion boards need separate board support.
 <img width="200" height="300" alt="light-entity" src="https://github.com/user-attachments/assets/6783a575-07e8-4b1c-99d4-31e98382de44" />
 <img width="200" height="300" alt="button-entity" src="https://github.com/user-attachments/assets/8febc707-cef0-49b2-871b-ad27f57c55b3" />
 
+
+## Third-Party Licenses
+
+### Noto Sans KR
+
+Copyright 2014-2021 Adobe ([http://www.adobe.com/](http://www.adobe.com/)), with Reserved Font Name 'Source'
+
+This Font Software is licensed under the [SIL Open Font License, Version 1.1](https://openfontlicense.org/open-font-license-official-text/).
+
+The original license text is included in the [`thirdparty/NotoSans-KR/OFL.txt`](thirdparty/NotoSans-KR/OFL.txt) file.
+
+FAQ :  [https://openfontlicense.org](https://openfontlicense.org/)
+
+The license of this project does not apply to the Noto Sans font files.
+
+### MiSans
+
+MiSans is a font provided by Xiaomi Inc.
+
+This software uses MiSans font in accordance with the MiSans Font Intellectual Property License Agreement.
+
+The license agreement is available at: https://hyperos.mi.com/font/zh/download/
+
+### Material Design Icons
+
+Material Design Icons are provided by Pictogrammers.
+
+The icons are licensed under the Apache License, Version 2.0.
+
+The original license text is included in the [`thirdparty/MaterialDesignIcons/Apache-2.0.txt`](thirdparty/MaterialDesignIcons/Apache-2.0.txt) file.
+Source: https://pictogrammers.com/library/mdi/
+
 ## Usage
 
 1. Power on the device and connect a phone or computer to its Wi-Fi access point.

@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "screen_ota_update.h"
 
@@ -128,13 +129,13 @@ screen_ota_update_t *screen_ota_update_create(lv_obj_t *parent)
 
     view->progress_label = screen_ota_create_label(progress_box,
                                                    "0%",
-                                                   &ha_font_misan_medium_24,
+                                                   ha_ui_font_medium(24),
                                                    OTA_PRIMARY_COLOR);
     lv_obj_center(view->progress_label);
 
     view->updating_title = screen_ota_create_label(view->updating_content,
                                                    i18n_get(I18N_OTA_UPDATING),
-                                                   &ha_font_misan_medium_20,
+                                                   ha_ui_font_medium(20),
                                                    OTA_PRIMARY_COLOR);
     lv_obj_t *updating_warning_label = screen_ota_create_warning(
         view->updating_content,
@@ -152,11 +153,11 @@ screen_ota_update_t *screen_ota_update_create(lv_obj_t *parent)
     lv_image_set_src(failed_icon, &update_failed_120);
     view->failed_title = screen_ota_create_label(view->failed_content,
                                                  i18n_get(I18N_OTA_FAILED),
-                                                 &ha_font_misan_medium_20,
+                                                 ha_ui_font_medium(20),
                                                  OTA_PRIMARY_COLOR);
     view->failed_description = screen_ota_create_label(view->failed_content,
                                                        i18n_get(I18N_OTA_TRY_AGAIN),
-                                                       &ha_font_misan_regular_16,
+                                                       ha_ui_font_regular(16),
                                                        OTA_PRIMARY_COLOR);
 
     lv_obj_t *failed_buttons = lv_obj_create(view->failed_content);
@@ -195,12 +196,12 @@ screen_ota_update_t *screen_ota_update_create(lv_obj_t *parent)
     lv_image_set_src(restarting_icon, &restarting_120);
     view->restarting_title = screen_ota_create_label(view->restarting_content,
                                                      i18n_get(I18N_OTA_RESTARTING),
-                                                     &ha_font_misan_medium_20,
+                                                     ha_ui_font_medium(20),
                                                      OTA_PRIMARY_COLOR);
     view->restarting_description = screen_ota_create_label(
         view->restarting_content,
         i18n_get(I18N_OTA_WAIT),
-        &ha_font_misan_regular_16,
+        ha_ui_font_regular(16),
         OTA_PRIMARY_COLOR);
     lv_obj_t *restarting_warning_label = screen_ota_create_warning(
         view->restarting_content,
@@ -320,12 +321,12 @@ void screen_ota_update_apply_orientation(screen_ota_update_t *view)
         lv_obj_set_style_pad_all(view->updating_content, 0, 0);
         lv_obj_align(view->progress_box, LV_ALIGN_TOP_MID, 0, 27);
         lv_obj_set_style_text_font(view->updating_title,
-                                   &ha_font_misan_medium_20,
+                                   ha_ui_font_medium(20),
                                    0);
         lv_obj_set_width(view->updating_title, 440);
         lv_obj_align(view->updating_title, LV_ALIGN_TOP_MID, 0, 168);
         lv_obj_set_style_text_font(view->updating_warning_label,
-                                   &ha_font_misan_regular_16,
+                                   ha_ui_font_regular(16),
                                    0);
         lv_obj_set_style_text_align(view->updating_warning_label,
                                     LV_TEXT_ALIGN_LEFT,
@@ -345,12 +346,12 @@ void screen_ota_update_apply_orientation(screen_ota_update_t *view)
         lv_obj_set_style_pad_all(view->failed_content, 0, 0);
         lv_obj_align(view->failed_icon, LV_ALIGN_TOP_MID, 0, 3);
         lv_obj_set_style_text_font(view->failed_title,
-                                   &ha_font_misan_medium_20,
+                                   ha_ui_font_medium(20),
                                    0);
         lv_obj_set_width(view->failed_title, 440);
         lv_obj_align(view->failed_title, LV_ALIGN_TOP_MID, 0, 146);
         lv_obj_set_style_text_font(view->failed_description,
-                                   &ha_font_misan_regular_16,
+                                   ha_ui_font_regular(16),
                                    0);
         lv_obj_align(view->failed_description, LV_ALIGN_TOP_MID, 0, 183);
 
@@ -367,16 +368,16 @@ void screen_ota_update_apply_orientation(screen_ota_update_t *view)
         lv_obj_set_style_pad_all(view->restarting_content, 0, 0);
         lv_obj_align(view->restarting_icon, LV_ALIGN_TOP_MID, 0, 27);
         lv_obj_set_style_text_font(view->restarting_title,
-                                   &ha_font_misan_medium_20,
+                                   ha_ui_font_medium(20),
                                    0);
         lv_obj_set_width(view->restarting_title, 440);
         lv_obj_align(view->restarting_title, LV_ALIGN_TOP_MID, 0, 164);
         lv_obj_set_style_text_font(view->restarting_description,
-                                   &ha_font_misan_regular_16,
+                                   ha_ui_font_regular(16),
                                    0);
         lv_obj_align(view->restarting_description, LV_ALIGN_TOP_MID, 0, 205);
         lv_obj_set_style_text_font(view->restarting_warning_label,
-                                   &ha_font_misan_regular_16,
+                                   ha_ui_font_regular(16),
                                    0);
         lv_obj_set_style_text_align(view->restarting_warning_label,
                                     LV_TEXT_ALIGN_LEFT,
@@ -398,12 +399,12 @@ void screen_ota_update_apply_orientation(screen_ota_update_t *view)
         lv_obj_set_style_pad_all(view->updating_content, 0, 0);
         lv_obj_align(view->progress_box, LV_ALIGN_TOP_MID, 0, 20);
         lv_obj_set_style_text_font(view->updating_title,
-                                   &ha_font_misan_medium_20,
+                                   ha_ui_font_medium(20),
                                    0);
         lv_obj_set_width(view->updating_title, 280);
         lv_obj_align(view->updating_title, LV_ALIGN_TOP_MID, 0, 162);
         lv_obj_set_style_text_font(view->updating_warning_label,
-                                   &ha_font_misan_regular_16,
+                                   ha_ui_font_regular(16),
                                    0);
         lv_obj_set_style_text_align(view->updating_warning_label,
                                     LV_TEXT_ALIGN_LEFT,
@@ -429,11 +430,11 @@ void screen_ota_update_apply_orientation(screen_ota_update_t *view)
         lv_obj_set_style_pad_top(view->failed_content, 20, 0);
         lv_obj_set_style_pad_row(view->failed_content, 14, 0);
         lv_obj_set_style_text_font(view->failed_title,
-                                   &ha_font_misan_medium_20,
+                                   ha_ui_font_medium(20),
                                    0);
         lv_obj_set_width(view->failed_title, 280);
         lv_obj_set_style_text_font(view->failed_description,
-                                   &ha_font_misan_regular_16,
+                                   ha_ui_font_regular(16),
                                    0);
 
         lv_obj_set_size(view->failed_buttons, 236, LV_SIZE_CONTENT);
@@ -454,16 +455,16 @@ void screen_ota_update_apply_orientation(screen_ota_update_t *view)
         lv_obj_set_style_pad_all(view->restarting_content, 0, 0);
         lv_obj_align(view->restarting_icon, LV_ALIGN_TOP_MID, 0, 20);
         lv_obj_set_style_text_font(view->restarting_title,
-                                   &ha_font_misan_medium_20,
+                                   ha_ui_font_medium(20),
                                    0);
         lv_obj_set_width(view->restarting_title, 280);
         lv_obj_align(view->restarting_title, LV_ALIGN_TOP_MID, 0, 158);
         lv_obj_set_style_text_font(view->restarting_description,
-                                   &ha_font_misan_regular_16,
+                                   ha_ui_font_regular(16),
                                    0);
         lv_obj_align(view->restarting_description, LV_ALIGN_TOP_MID, 0, 196);
         lv_obj_set_style_text_font(view->restarting_warning_label,
-                                   &ha_font_misan_regular_16,
+                                   ha_ui_font_regular(16),
                                    0);
         lv_obj_set_style_text_align(view->restarting_warning_label,
                                     LV_TEXT_ALIGN_LEFT,
@@ -657,13 +658,13 @@ static lv_obj_t *screen_ota_create_warning(lv_obj_t *parent,
         lv_obj_t *mark = lv_label_create(icon);
         ui_i18n_label_set_text(mark, "!");
         lv_obj_set_style_text_color(mark, lv_color_hex(OTA_PRIMARY_COLOR), 0);
-        lv_obj_set_style_text_font(mark, &ha_font_misan_medium_20, 0);
+        lv_obj_set_style_text_font(mark, ha_ui_font_medium(20), 0);
         lv_obj_center(mark);
     }
 
     return screen_ota_create_label(row,
                                    text,
-                                   &ha_font_misan_regular_20,
+                                   ha_ui_font_regular(20),
                                    OTA_WARNING_COLOR);
 }
 
@@ -683,7 +684,7 @@ static lv_obj_t *screen_ota_create_button(lv_obj_t *parent,
 
     lv_obj_t *label = screen_ota_create_label(button,
                                               text,
-                                              &ha_font_misan_medium_24,
+                                              ha_ui_font_medium(24),
                                               OTA_PRIMARY_COLOR);
     lv_obj_set_width(label, LV_PCT(100));
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);

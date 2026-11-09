@@ -17,5 +17,13 @@ void ha_control_toggle_set_change_cb(lv_obj_t *obj,
                                      void *user_data);
 lv_obj_t *ha_control_toggle_get_knob(lv_obj_t *obj);
 void ha_control_toggle_set_icon_text(lv_obj_t *obj, const char *text);
+void ha_control_toggle_refresh_theme(lv_obj_t *obj);
+void ha_control_toggle_set_light_colors(lv_obj_t *obj,
+                                        lv_color_t track_off,
+                                        lv_color_t track_on,
+                                        lv_color_t knob_off,
+                                        lv_color_t knob_on,
+                                        lv_color_t disabled_track,
+                                        lv_color_t disabled_knob);
 
 #endif

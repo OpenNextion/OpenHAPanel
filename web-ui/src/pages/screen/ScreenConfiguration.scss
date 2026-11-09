@@ -1,0 +1,936 @@
+    .screen-config-page {
+        --screen-preview-width: 13.375rem;
+        --screen-preview-height: 20.0625rem;
+        --screen-card-width: 14.875rem;
+        --screen-card-height: 24rem;
+        --screen-grid-width: 46.25rem;
+        --screen-grid-height: 49.25rem;
+        --screen-grid-gap: 0.8125rem;
+        --screen-grid-columns: 3;
+        --screen-entity-row-height: 2.91875rem;
+        width: var(--screen-grid-width);
+        max-width: none;
+    }
+    .screen-config-page.landscape {
+        --screen-preview-width: 20.0625rem;
+        --screen-preview-height: 13.375rem;
+        --screen-card-width: 22.8125rem;
+        --screen-card-height: 17.3125rem;
+        --screen-grid-width: 46.4375rem;
+        --screen-grid-height: 46.25rem;
+        --screen-grid-columns: 2;
+    }
+    .screen-config-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        border-bottom: 0.0625rem solid var(--bs-border-color);
+        margin-bottom: 2rem;
+    }
+    .screen-config-header .page-heading-title {
+        display: block;
+        margin-bottom: 0;
+        font-size: 1rem;
+        font-weight: 500;
+        letter-spacing: 0;
+		word-break: break-word;
+    }
+    .screen-config-header .page-heading p {
+        font-size: 0.75rem;
+        font-weight: 400;
+    }
+    .screen-edit-button {
+        //min-width: 6rem;
+		white-space: nowrap;
+        padding: 0.65rem 2rem;
+        color: white;
+        border: 0;
+        border-radius: 999rem;
+        background: var(--primary-button-bg);
+    }
+    .screen-grid-layout {
+        position: relative;
+        width: var(--screen-grid-width);
+        min-height: var(--screen-grid-height);
+    }
+    .screen-grid {
+        display: grid;
+        width: var(--screen-grid-width);
+        min-height: var(--screen-grid-height);
+        grid-template-columns: repeat(var(--screen-grid-columns, 3), minmax(0, 1fr));
+        grid-auto-rows: var(--screen-card-height);
+        gap: var(--screen-grid-gap);
+        align-content: start;
+        align-items: stretch;
+    }
+    .screen-card {
+        width: 100%;
+        height: var(--screen-card-height);
+        padding: 0.75rem;
+        border: 0;
+        border-radius: 0.75rem;
+        background: var(--screen-card-background);
+    }
+    .screen-card-shell {
+        width: 100%;
+        min-width: 0;
+        height: var(--screen-card-height);
+    }
+    .screen-badge-dragged-preview > .hass-entity-row {
+        width: max-content;
+        max-width: none;
+        transform-origin: top left;
+    }
+    .screen-entity-dragged-preview > .hass-entity-row {
+        max-width: none;
+        transform-origin: top left;
+    }
+    .screen-card-dragged-content-preview {
+        scale: 1.1;
+        box-shadow: 0 0 0 0.125rem rgba(1, 119, 253, 1);
+        border-radius: 0.75rem;
+    }
+    .screen-item-dragged-content-preview {
+        box-shadow: 0 0 0 0.125rem rgba(1, 119, 253, 1);
+    }
+    .screen-card-title {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.9375rem;
+        color: var(--screen-card-title-color);
+        font-size: 1rem;
+        line-height: 1.5;
+    }
+    .screen-card-title.editing {
+        cursor: grab;
+    }
+    .screen-card-title-main {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 0.4rem;
+    }
+    .screen-card-title-main > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .screen-card-title > div[aria-hidden='true'] {
+        display: flex;
+        align-self: stretch;
+    }
+    .screen-card-title button {
+        display: inline-flex;
+        flex: 0 0 auto;
+        height: 1.5rem;
+        padding: 0;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font-size: 1.35rem;
+        line-height: 1;
+    }
+    .screen-card-title .screen-card-drag-handle {
+        display: inline-flex;
+        width: 2rem;
+        align-items: center;
+        align-self: stretch;
+        justify-content: center;
+        border-radius: 0.4rem;
+        cursor: grab;
+        touch-action: none;
+    }
+    .screen-card-drag-handle:active {
+        cursor: grabbing;
+    }
+    .screen-card-drag-handle svg {
+        width: 1.25rem;
+        height: 1.25rem;
+    }
+    .add-screen-dialog {
+        width: min(32.5rem, calc(100vw - 2rem));
+        padding: 1.25rem 1.25rem 2rem;
+        border-radius: 1.5rem;
+        background: var(--body-inner-level-2);
+        color: var(--bs-body-color);
+    }
+    .add-screen-dialog h2 {
+        margin: 0 0 2.75rem;
+        font-size: 1.375rem;
+        font-weight: 600;
+        line-height: 1.5;
+        text-align: center;
+    }
+    .add-screen-dialog label {
+        display: block;
+        margin-bottom: 0.625rem;
+        font-size: 1rem;
+        font-weight: 500;
+    }
+    .add-screen-dialog input {
+        width: 100%;
+        height: 3.5rem;
+        padding: 0 1.125rem;
+        outline: 0;
+        color: var(--bs-body-color);
+        border: 0.0625rem solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: transparent;
+    }
+    .add-screen-dialog input:focus {
+        border-color: var(--primary-button-bg);
+    }
+    .add-screen-dialog footer {
+        display: flex;
+        margin-top: 4.5rem;
+        justify-content: center;
+        gap: 1.75rem;
+    }
+    .add-screen-dialog footer button {
+        width: 8.875rem;
+        height: 3rem;
+        padding: 0.5rem 1rem;
+        color: var(--bs-body-color);
+        border: 0.0625rem solid var(--bs-border-color);
+        border-radius: 999rem;
+        background: transparent;
+    }
+    .add-screen-dialog footer .save-new-screen-button {
+        color: #fff;
+        border-color: var(--primary-button-bg);
+        background: var(--primary-button-bg);
+    }
+    .add-screen-dialog footer .save-new-screen-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+    .leave-editing-dialog {
+        width: min(21.25rem, calc(100vw - 2rem));
+        padding: 1.5rem;
+        border-radius: 1.25rem;
+        background: var(--body-inner-level-2);
+        color: var(--bs-body-color);
+        box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.28);
+    }
+    .leave-editing-dialog h2 {
+        margin: 0 0 0.85rem;
+        font-size: 1.05rem;
+        font-weight: 600;
+        line-height: 1.4;
+        text-align: center;
+    }
+    .leave-editing-dialog p {
+        margin: 0;
+        font-size: 0.92rem;
+        line-height: 1.55;
+        text-align: center;
+    }
+    .leave-editing-dialog footer {
+        display: flex;
+        margin-top: 1.5rem;
+        flex-direction: column-reverse;
+        gap: 0.65rem;
+    }
+    .leave-editing-dialog footer button {
+        width: 100%;
+        min-height: 2.5rem;
+        padding: 0.5rem 1rem;
+        border: 0.0625rem solid var(--bs-border-color);
+        border-radius: 999rem;
+        background: transparent;
+        color: var(--bs-body-color);
+        font-weight: 500;
+        line-height: 1.2;
+    }
+    .leave-editing-dialog footer .continue-editing-button {
+        color: white;
+        border-color: var(--primary-button-bg);
+        background: var(--primary-button-bg);
+    }
+    .add-screen-dialog footer .delete-screen-button {
+        color: rgba(241, 82, 75, 1);
+        border-color: transparent;
+        background: rgba(241, 82, 75, 0.25);
+    }
+    .delete-screen-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+    .add-screen-dialog footer .save-screen-button {
+        color: #fff;
+        border-color: var(--primary-button-bg);
+        background: var(--primary-button-bg);
+    }
+    .save-screen-button:disabled {
+        opacity: 0.5;
+    }
+    .screen-config-device-preview-frame {
+        position: relative;
+        left: 50%;
+        width: var(--screen-preview-width);
+        height: var(--screen-preview-height);
+        overflow: hidden;
+        background: var(--screen-background);
+        transform: translateX(-50%);
+    }
+    .screen-config-device-preview {
+        position: relative;
+        display: flex;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        flex-direction: column;
+        color: var(--screen-text-primary);
+        background: var(--screen-background);
+        font-family: MiSans, sans-serif;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+    .device-status {
+        display: flex;
+        width: 100%;
+        height: 3rem;
+        box-sizing: border-box;
+        padding: 0.5rem 0.75rem;
+        gap: 0.625rem;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .device-status > strong {
+        overflow: hidden;
+        font-family: MiSans, sans-serif;
+        font-size: 1rem;
+        font-weight: 400;
+        line-height: 1.5rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .device-status-icons {
+        display: flex;
+        margin-left: auto;
+        gap: 0.35rem;
+        align-items: center;
+    }
+    .device-status-icons .status-ha-icon,
+    .device-status-icons .status-wifi-icon {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        line-height: 0;
+    }
+    .device-status-icons .sf-icon {
+        display: inline-flex;
+        flex: 0 0 auto;
+    }
+    .device-status-icons svg {
+        width: 1.5rem;
+        height: 1.5rem;
+    }
+    .status-ha-icon svg path {
+        fill: var(--screen-status-ha-icon);
+    }
+    .status-wifi-icon svg path {
+        fill: var(--screen-status-wifi-icon);
+    }
+    .device-status-icons b {
+        font-family: MiSans, sans-serif;
+        font-size: 1.25rem;
+        font-weight: 500;
+        line-height: 1.75rem;
+    }
+    .screen-page-indicators {
+        position: absolute;
+        z-index: 1;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        display: flex;
+        height: 1.5rem;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        pointer-events: none;
+    }
+    .screen-page-indicator {
+        width: 0.4rem;
+        height: 0.4rem;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--screen-page-indicator);
+    }
+    .screen-page-indicator.active {
+        background: var(--screen-page-indicator-active);
+    }
+    .screen-badges {
+        display: flex;
+		justify-content: start;
+        width: 100%;
+        max-width: 100%;
+        padding: 0 0.75rem 0.5rem;
+        box-sizing: border-box;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    //.screen-config-page.landscape .screen-badges,
+    //.screen-config-page.landscape .screen-entities-layout {
+    //    padding-right: 1.25rem;
+    //    padding-left: 1.25rem;
+    //}
+    .screen-badge-items {
+        display: flex;
+        min-width: 0;
+        flex: 1 1 auto;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    .screen-badge-sort-item {
+        display: inline-flex;
+        min-width: 0;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 0.125rem;
+    }
+    .sortable-item {
+        cursor: grab;
+    }
+    .sortable-item:active {
+        cursor: grabbing;
+    }
+    .sortable-item .hass-entity-row {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+    .screen-badge-sort-item .hass-entity-row {
+        width: auto;
+        margin-inline: 0;
+    }
+    .add-badge-button {
+        position: relative;
+        display: inline-flex;
+        width: auto;
+        height: 1.875rem;
+        padding: 0 0.625rem;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+        color: var(--screen-add-text);
+        border: 0;
+        border-radius: 999rem;
+        background: var(--screen-background);
+        font-size: 0.875rem;
+        line-height: 1;
+        white-space: nowrap;
+    }
+    .add-badge-button .sf-icon {
+        width: 1rem;
+        height: 1rem;
+        flex: 0 0 auto;
+        font-size: 1rem;
+    }
+    .preview-empty {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        box-sizing: border-box;
+        padding: 1.5rem;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.25rem;
+        text-align: center;
+        font-size: 0.8rem;
+        pointer-events: none;
+    }
+    .preview-connect {
+        bottom: 5rem;
+        padding: 1rem;
+        gap: 0;
+    }
+    .screen-config-page.landscape .preview-connect {
+        bottom: 3rem;
+    }
+    .connect-ha-logo {
+        display: grid;
+        width: 3.75rem;
+        height: 3.75rem;
+        margin-bottom: 1rem;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 1.25rem;
+        background: var(--screen-connect-logo-gradient);
+    }
+    .connect-ha-logo svg {
+        width: 2.5rem;
+        height: 2.5rem;
+    }
+    .connect-ha-logo path {
+        fill: var(--screen-connect-logo-icon);
+    }
+    .connect-ha-title {
+        font-size: 1.25rem;
+        line-height: 1.75rem;
+    }
+    .connect-ha-hint {
+        margin-top: 0.5rem;
+        font-size: 1rem;
+        line-height: 1.5rem;
+    }
+    .image-placeholder {
+        display: grid;
+        width: min(100%, 9.0625rem);
+        aspect-ratio: 1;
+        margin-bottom: 0.5rem;
+        place-items: center;
+    }
+    .image-placeholder .sf-icon {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1;
+    }
+    .image-placeholder .sf-icon > svg {
+        display: block;
+        width: 100%;
+        height: auto;
+    }
+    .add-entity-button {
+        position: relative;
+        display: flex;
+        width: 100%;
+        height: 4.25rem;
+        padding: 0.25rem 0.5rem;
+        align-items: center;
+        justify-content: center;
+        gap: 0.625rem;
+        color: var(--screen-add-text);
+        border: 0;
+        border-radius: 0.75rem;
+        background: var(--screen-background);
+        font-size: 1.5rem;
+        line-height: 1;
+        opacity: 1;
+    }
+    .add-badge-button::after,
+    .add-entity-button::after {
+        position: absolute;
+        z-index: 1;
+        box-sizing: border-box;
+        border: 0.0625rem dashed var(--screen-add-outline);
+        border-radius: inherit;
+        content: '';
+        inset: 0;
+        pointer-events: none;
+    }
+    .add-entity-button .sf-icon {
+        display: inline-flex;
+        width: 1.75rem;
+        height: 1.75rem;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.75rem;
+    }
+    .screen-entities-layout {
+        display: grid;
+        min-height: 0;
+        padding: 0 0.75rem;
+        flex: 1 1 auto;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-content: start;
+        gap: 0.5rem;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+        scrollbar-width: none;
+    }
+    .screen-entities-layout::-webkit-scrollbar {
+        display: none;
+    }
+    .screen-config-page:not(.landscape) .screen-entities-layout > .add-entity-button {
+        grid-column: 1 / -1;
+    }
+    .screen-entities {
+        display: grid;
+        /* Keep the drop zone as tall as its cards while the parent scrolls. */
+        min-height: max-content;
+        max-height: none;
+        width: 100%;
+        padding: 0;
+        grid-column: 1 / -1;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-auto-rows: var(--screen-entity-row-height);
+        align-content: start;
+        gap: 0.5rem;
+        overflow: visible;
+    }
+    .screen-entity-sort-item {
+        width: 100%;
+        position: relative;
+        min-width: 0;
+        padding: 0;
+        color: inherit;
+        border: 0;
+        background: transparent;
+        font: inherit;
+        text-align: left;
+        border-radius: 0.65rem;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+    .screen-entity-sort-item.full-width {
+        grid-column: 1 / -1;
+    }
+    .screen-entity-sort-item.multi-row {
+        grid-row: span var(--screen-entity-row-span);
+    }
+    .screen-entity-sort-item.multi-row > .hass-entity-row {
+        height: 100%;
+    }
+    .screen-entity-sort-item.multi-row > .hass-entity-row.feature-tile:not(.inline-features) .tile-feature-slot {
+        --feature-height: 2.1rem;
+        display: flex;
+        min-height: 0;
+        flex: 1 1 auto;
+        flex-direction: column;
+    }
+    .screen-entity-sort-item.multi-row > .hass-entity-row.feature-tile:not(.inline-features) .tile-feature-list,
+    .screen-entity-sort-item.multi-row > .hass-entity-row.feature-tile:not(.inline-features) .tile-feature-item {
+        flex: 1 1 auto;
+    }
+    .screen-entity-sort-item.multi-row > .hass-entity-row.feature-tile:not(.inline-features) .tile-action-feature,
+    .screen-entity-sort-item.multi-row > .hass-entity-row.feature-tile:not(.inline-features) .tile-toggle-feature {
+        height: 100%;
+        max-height: var(--feature-height);
+    }
+    .add-screen-card {
+        position: absolute;
+        cursor: pointer;
+        top: calc(var(--add-screen-row) * (var(--screen-card-height) + var(--screen-grid-gap)));
+        left: calc(var(--add-screen-column) * (var(--screen-card-width) + var(--screen-grid-gap)));
+        display: flex;
+        width: var(--screen-card-width);
+        height: var(--screen-card-height);
+        padding: 0;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.6875rem;
+        color: var(--screen-card-title-color);
+        background: var(--screen-card-background);
+        font-size: 1rem;
+        font-weight: 600;
+        border-radius: 0.75rem;
+    }
+    .add-screen-icon {
+        display: inline-flex;
+        width: 2.6875rem;
+        height: 2.6875rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: #0177fd;
+        color: #fff;
+        font-size: 2.1875rem;
+        font-weight: 300;
+        line-height: 1;
+    }
+    @mixin compact-device-preview {
+        .screen-config-device-preview .device-status {
+            height: 2rem;
+            padding: 0.3125rem 0.5rem;
+            gap: 0.4375rem;
+        }
+        .screen-config-device-preview .device-status > strong {
+            font-size: 0.6875rem;
+            line-height: 1rem;
+        }
+        .screen-config-device-preview .device-status-icons {
+            gap: 0.25rem;
+        }
+        .screen-config-device-preview .device-status-icons svg {
+            width: 1rem;
+            height: 1rem;
+        }
+        .screen-config-device-preview .device-status-icons b {
+            font-size: 0.8125rem;
+            line-height: 1.1875rem;
+        }
+        .screen-config-device-preview .screen-page-indicators {
+            height: 1rem;
+            gap: 0.25rem;
+        }
+        .screen-config-device-preview .screen-page-indicator {
+            width: 0.25rem;
+            height: 0.25rem;
+        }
+        .screen-config-device-preview .screen-badges {
+            padding-bottom: 0.3125rem;
+            gap: 0.1875rem;
+        }
+        .screen-config-device-preview .screen-badge-items {
+            gap: 0.1875rem;
+        }
+        .screen-config-device-preview .screen-badge-sort-item {
+            gap: 0.0625rem;
+        }
+        .screen-config-device-preview .add-badge-button {
+            height: 1.25rem;
+            padding: 0 0.4375rem;
+            gap: 0.1875rem;
+            font-size: 0.625rem;
+        }
+        .screen-config-device-preview .add-badge-button .sf-icon {
+            width: 0.6875rem;
+            height: 0.6875rem;
+            font-size: 0.6875rem;
+        }
+        .screen-config-device-preview .preview-empty {
+            padding: 1rem;
+            gap: 0.8125rem;
+            font-size: 0.5625rem;
+        }
+        .screen-config-device-preview .preview-connect {
+            bottom: 3.375rem;
+            padding: 0.6875rem;
+        }
+        .screen-config-page.landscape .screen-config-device-preview .preview-connect {
+            bottom: 2rem;
+        }
+        .screen-config-device-preview .connect-ha-logo {
+            width: 2.5rem;
+            height: 2.5rem;
+            margin-bottom: 0.6875rem;
+            border-radius: 0.8125rem;
+        }
+        .screen-config-device-preview .connect-ha-logo svg {
+            width: 1.6875rem;
+            height: 1.6875rem;
+        }
+        .screen-config-device-preview .connect-ha-title {
+            font-size: 0.8125rem;
+            line-height: 1.1875rem;
+        }
+        .screen-config-device-preview .connect-ha-hint {
+            margin-top: 0.3125rem;
+            font-size: 0.6875rem;
+            line-height: 1rem;
+        }
+        .screen-config-device-preview .image-placeholder {
+            width: min(100%, 6.0625rem);
+            margin-bottom: 0.3125rem;
+        }
+    }
+    @mixin compact-entity-preview {
+        .screen-config-device-preview .add-entity-button {
+            height: 2.875rem;
+            padding: 0.1875rem 0.3125rem;
+            gap: 0.4375rem;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+        }
+        .screen-config-device-preview .add-entity-button .sf-icon {
+            width: 1.1875rem;
+            height: 1.1875rem;
+            font-size: 1.1875rem;
+        }
+        .screen-config-device-preview .screen-entities-layout {
+            width: var(--screen-content-width);
+            margin-inline: auto;
+            padding-inline: 0;
+            justify-content: center;
+            justify-items: center;
+            gap: 0.3125rem;
+        }
+        .screen-config-device-preview .screen-entities {
+            justify-content: center;
+            gap: 0.3125rem;
+        }
+        .screen-config-device-preview .screen-entity-sort-item {
+            border-radius: 0.4375rem;
+        }
+    }
+    @media (min-width: 52.0625rem) {
+        .screen-config-page {
+            --screen-content-width: 11.703125rem;
+        }
+        .screen-config-page.landscape {
+            --screen-content-width: 18.36875rem;
+        }
+        @include compact-device-preview;
+        @include compact-entity-preview;
+        .screen-config-device-preview .screen-badges {
+            width: var(--screen-content-width);
+            margin-inline: auto;
+            padding-inline: 0;
+        }
+    }
+    @media (max-width: 52rem) {
+        .screen-config-page {
+            --screen-card-width: 100%;
+            --screen-card-height: auto;
+            --screen-preview-width: 20.1875rem;
+            width: 100%;
+        }
+        .screen-config-page:not(.landscape) {
+            --screen-content-width: min(17.66375rem, calc(100% - 1rem));
+        }
+        .screen-config-page.landscape {
+            --screen-content-width: 91.56%;
+            --screen-card-width: 100%;
+            --screen-card-height: auto;
+            --screen-grid-width: 100%;
+            --screen-grid-height: auto;
+            --screen-grid-columns: 1;
+            width: 100%;
+        }
+        .screen-config-header {
+            align-items: center;
+        }
+        .screen-grid-layout {
+            width: 100%;
+            min-height: 0;
+        }
+        .screen-grid {
+            width: 100%;
+            min-height: 0;
+            grid-template-columns: var(--screen-card-width);
+            grid-auto-rows: auto;
+            justify-content: center;
+        }
+        .screen-grid-layout.has-add-screen .screen-grid {
+            padding-top: 5rem;
+        }
+        .screen-card-shell {
+            display: block;
+            width: var(--screen-card-width);
+            height: auto;
+        }
+        .screen-config-page.landscape .screen-card-shell,
+        .screen-config-page.landscape .screen-card {
+            width: 100%;
+        }
+        .screen-grid.sorting .screen-config-device-preview-frame,
+        .screen-card-dragged-preview .screen-config-device-preview-frame {
+            display: none;
+        }
+        .screen-card-shell.dragging .screen-card > :not(.screen-card-title),
+        .screen-card-dragged-preview .screen-card > :not(.screen-card-title) {
+            display: none;
+        }
+        .screen-card-shell.dragging .screen-card,
+        .screen-card-dragged-preview .screen-card {
+            height: auto;
+        }
+        .screen-card-shell.dragging .screen-card-title,
+        .screen-card-dragged-preview .screen-card-title {
+            margin-bottom: 0;
+        }
+        .screen-card {
+            height: auto;
+            padding: 0.75rem;
+        }
+        .screen-card-title {
+            margin-bottom: 1.25rem;
+            font-size: 1rem;
+        }
+        .screen-config-device-preview-frame {
+            left: auto;
+            width: min(100%, var(--screen-preview-width));
+            height: auto;
+            aspect-ratio: 2 / 3;
+            margin-inline: auto;
+            transform: none;
+        }
+        .screen-config-page.landscape .screen-config-device-preview-frame {
+            aspect-ratio: 3 / 2;
+        }
+        .screen-config-device-preview {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+        }
+        .screen-config-device-preview .screen-badges {
+            width: var(--screen-content-width);
+            margin-inline: auto;
+            padding-inline: 0;
+        }
+        .screen-config-device-preview .screen-entities-layout {
+            padding-block: 0;
+        }
+        .screen-grid-layout.editing .screen-entities-layout {
+            min-height: 0;
+            flex: 1 1 auto;
+            grid-template-rows: auto minmax(0, 1fr);
+            overflow: hidden;
+        }
+        .screen-grid-layout.editing .screen-entities {
+            min-height: 0;
+            max-height: 100%;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            touch-action: pan-y;
+            scrollbar-width: none;
+        }
+        .screen-grid-layout.editing .screen-entities::-webkit-scrollbar {
+            display: none;
+        }
+        .device-status {
+            width: 100%;
+            height: 3rem;
+            padding: 0.5rem 0.75rem;
+            gap: 0.625rem;
+        }
+        .device-status > strong {
+            font-size: 1rem;
+            line-height: 1.5rem;
+        }
+        .device-status-icons svg {
+            width: 1.5rem;
+            height: 1.5rem;
+        }
+        .device-status-icons b {
+            font-size: 1.25rem;
+            line-height: 1.75rem;
+        }
+        .add-screen-card {
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            height: 4.25rem;
+            gap: 0.25rem;
+            font-size: 0.75rem;
+        }
+        .add-screen-icon {
+            width: 2rem;
+            height: 2rem;
+            font-size: 1.75rem;
+        }
+    }
+    @media (max-width: 52rem) {
+        .screen-config-page .screen-card-shell,
+        .screen-config-page .screen-card {
+            width: 100%;
+        }
+        .screen-config-page {
+            @include compact-entity-preview;
+        }
+        .screen-config-page.landscape {
+            @include compact-device-preview;
+        }
+    }

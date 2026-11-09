@@ -1,7 +1,6 @@
 {
     "app": {
-        "name": "OpenNextion",
-        "subtitle": "Gerätekonsole"
+        "name": "OpenHAPanel"
     },
     "firmwareUpdate": {
         "operationBlocked": "Das Gerät wird aktualisiert und ist vorübergehend nicht verfügbar."
@@ -98,11 +97,19 @@
             "entity": "Entität",
             "interactions": "Interaktionen",
             "features": "Funktionen",
+            "featuresPosition": "Position der Funktionen",
+            "featuresPositionBottom": "Unten",
+            "featuresPositionBottomHint": "Zeigt alle Funktionen untereinander an",
+            "featuresPositionInline": "Nebeneinander",
+            "featuresPositionInlineHint": "Zeigt Funktionen in zwei Spalten an, beginnend neben dem Namen",
             "tapBehavior": "Verhalten beim Tippen",
             "iconTapBehavior": "Verhalten beim Tippen auf das Symbol",
             "longPressBehavior": "Verhalten bei langem Drücken",
             "actionMoreInfo": "Weitere Informationen",
             "actionToggle": "Umschalten",
+            "actionButton": "Aktionsschaltfläche",
+            "actionActivate": "Aktivieren",
+            "actionPress": "Drücken",
             "actionNothing": "Keine Aktion",
             "actionDefault": "Standard",
             "config": "Konfiguration",
@@ -114,9 +121,9 @@
             "comingSoon": "Demnächst verfügbar",
             "entityNotSupported": "Diese Entität wird noch nicht unterstützt",
             "connectHaFirst": "Zuerst Home Assistant verbinden.",
-            "connectHa": "Mit Home Assistant verbinden",
-            "connectHaHint": "HA in der Webkonsole einrichten",
-            "noContent": "Kein Inhalt. Entitäten unter Webkonsole > Bildschirmverwaltung hinzufügen",
+            "connectHa": "Home Assistant verbinden",
+            "connectHaHint": "Schließe die Verbindung mit Home Assistant in der Webkonsole ab.",
+            "noContent": "Noch keine Entitäten hinzugefügt. Wähle unter Webkonsole > Bildschirmkonfiguration die Entitäten aus, die du über den Bildschirm steuern möchtest.",
             "addSplit": "Bildschirm hinzufügen",
             "splitNamePlaceholder": "Bildschirmnamen eingeben",
             "addBadgeTitle": "Welches Badge möchtest du hinzufügen?",
@@ -165,7 +172,7 @@
         "connected": "Verbunden",
         "disconnected": "Getrennt",
         "internetConnection": "Internetverbindung",
-        "apHint": "Der AP-Hotspot kann ein- oder ausgeschaltet werden, während Nextion mit WLAN verbunden ist.",
+        "apHint": "Der AP-Hotspot kann ein- oder ausgeschaltet werden, während Nextion mit einem WLAN-Netzwerk verbunden ist.",
         "apInUseTitle": "AP wird verwendet",
         "apInUseConfirm": "Der AP wird derzeit verwendet. Eine Änderung seiner Einstellungen kann aktive Clients trennen. Fortfahren?",
         "changePassword": "Passwort ändern",
@@ -215,7 +222,7 @@
         "passwordLetterNumberRequired": "Das Passwort muss aus genau 8 Buchstaben und Ziffern bestehen.",
         "setupTitle": "Mit WLAN verbinden",
         "setupSubtitle": "Wähle das 2,4-GHz-WLAN, mit dem du dich verbinden möchtest. Nur 2,4-GHz-WLANs werden unterstützt.",
-        "joinWifi": "Mit \"Wi-Fi {ssid}\" verbinden",
+        "joinWifi": "Mit Wi-Fi \"{ssid}\" verbinden",
         "addWifiManually": "WLAN manuell hinzufügen"
     },
     "settingsDetail": {
@@ -223,7 +230,7 @@
         "mdnsRestartHint": "Das Gerät wird neu gestartet, um die Änderungen zu übernehmen.",
         "dateTime": "Datum und Uhrzeit",
         "timezone": "Zeitzone",
-        "autoDetect": "Standort automatisch erkennen",
+        "autoDetect": "Automatisch einstellen",
         "ntp1": "NTP-Server 1",
         "ntp2": "NTP-Server 2",
         "ntpInvalid": "Gültigen Domainnamen eingeben",
@@ -242,6 +249,8 @@
         "to": "Bis",
         "followSystem": "Systemeinstellung übernehmen",
         "followHint": "Hellen oder dunklen Modus des Systems übernehmen.",
+        "webConsole": "Web-Konsole",
+        "screenDevice": "Gerätebildschirm",
         "lightMode": "Heller Modus",
         "darkMode": "Dunkler Modus",
         "restartConfirmTitle": "Gerät neu starten?",

@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "system_status_bar.h"
 
 #include <string.h>
@@ -76,13 +77,13 @@ system_status_bar_t *system_status_bar_create(lv_obj_t *parent)
     bar->title_label = lv_label_create(bar->container);
     lv_obj_set_size(bar->title_label,
                     SYSTEM_STATUS_BAR_TITLE_WIDTH,
-                    lv_font_get_line_height(&ha_font_misan_regular_16));
+                    lv_font_get_line_height(ha_ui_font_regular(16)));
     lv_label_set_long_mode(bar->title_label, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_text_color(
         bar->title_label,
         lv_color_hex(SYSTEM_STATUS_BAR_DEFAULT_COLOR),
         0);
-    lv_obj_set_style_text_font(bar->title_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(bar->title_label, ha_ui_font_regular(16), 0);
     system_status_bar_set_title(bar, "");
 
     lv_obj_t *right = lv_obj_create(bar->container);
@@ -120,7 +121,7 @@ system_status_bar_t *system_status_bar_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(bar->time_label,
                                 lv_color_hex(SYSTEM_STATUS_BAR_DEFAULT_COLOR),
                                 0);
-    lv_obj_set_style_text_font(bar->time_label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(bar->time_label, ha_ui_font_medium(20), 0);
     system_status_bar_refresh_time(bar);
     bar->refresh_timer = lv_timer_create(system_status_bar_timer_cb,
                                          SYSTEM_STATUS_BAR_REFRESH_MS,

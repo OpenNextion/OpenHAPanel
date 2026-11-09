@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "toast.h"
 
 #include <string.h>
@@ -83,11 +84,11 @@ toast_t *toast_show(lv_obj_t *parent, const toast_config_t *config)
 
     lv_obj_t *title = lv_label_create(toast->obj);
     lv_obj_set_flex_grow(title, 1);
-    lv_obj_set_height(title, lv_font_get_line_height(&ha_font_misan_medium_20));
+    lv_obj_set_height(title, lv_font_get_line_height(ha_ui_font_medium(20)));
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
     ui_i18n_label_set_text(title, config->title);
     lv_obj_set_style_text_color(title, lv_color_white(), 0);
-    lv_obj_set_style_text_font(title, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(title, ha_ui_font_medium(20), 0);
 
     if (config->behind_siblings) {
         lv_obj_move_to_index(toast->obj, 0);

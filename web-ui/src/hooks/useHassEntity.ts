@@ -1,4 +1,4 @@
-import { get } from 'svelte/store';
+import { get, readable } from 'svelte/store';
 import { locale, t } from 'svelte-i18n';
 import {
     getHassEntityMdiIcon,
@@ -35,6 +35,12 @@ interface IHassEntityPresentationOptions {
 
 const FALLBACK_PREVIEW: IHassEntityPreviewConfig = { tone: 'neutral' };
 
+/** Shared clock: time-based entity rows subscribe only while they are mounted. */
+export const hassEntityRelativeTimeClock = readable(Date.now(), (set) => {
+    const interval = setInterval(() => set(Date.now()), 1000);
+    return () => clearInterval(interval);
+});
+
 const STATE_TRANSLATION_KEYS: Readonly<Record<string, string>> = {
     on: 'on',
     off: 'off',
@@ -63,6 +69,7 @@ const CLIMATE_ACTION_INDICATORS = {
     defrosting: { icon: 'mdi:snowflake', tone: 'cooling' },
     drying: { icon: 'mdi:water-percent', tone: 'drying' },
     fan: { icon: 'mdi:fan', tone: 'fan' },
+    idle: { icon: 'mdi:clock-outline', tone: 'idle' },
 } as const;
 
 function translateHassState(key: string) {
@@ -132,6 +139,7 @@ function supportsFanSpeed(attributes: Record<string, unknown> | undefined) {
 }
 
 function parseHassDate(value: string) {
+    if (!/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value)) return null;
     const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
     const date = dateOnly
         ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
@@ -139,13 +147,10 @@ function parseHassDate(value: string) {
     return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function formatHassDate(value: string, format: 'date' | 'date-short' | 'datetime') {
+function formatHassDateShort(value: string) {
     const date = parseHassDate(value);
     if (!date) return value;
-    const currentLocale = getDisplayLocale();
-    if (format === 'date-short') return new Intl.DateTimeFormat(currentLocale, { month: 'short', day: 'numeric' }).format(date);
-    if (format === 'date') return new Intl.DateTimeFormat(currentLocale, { year: 'numeric', month: 'short', day: 'numeric' }).format(date);
-    return new Intl.DateTimeFormat(currentLocale, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+    return new Intl.DateTimeFormat(getDisplayLocale(), { month: 'short', day: 'numeric' }).format(date);
 }
 
 function formatRelativeTime(value: string) {
@@ -223,10 +228,10 @@ export function getHassEntityDisplayState(
             return formatSensorState(state, getAttributeString(attributes, 'unit_of_measurement'), displayPrecision);
         case 'enum':
             return prettifyState(state);
-        case 'date':
+        case 'raw':
+            return state;
         case 'date-short':
-        case 'datetime':
-            return formatHassDate(state, format);
+            return formatHassDateShort(state);
         case 'binary-sensor': {
             if (normalizedState === 'on') return translateHassState(classConfig?.on ?? 'detected');
             if (normalizedState === 'off') return translateHassState(classConfig?.off ?? 'clear');
@@ -269,6 +274,21 @@ export function getHassEntityDisplayState(
         default:
             return prettifyState(state);
     }
+}
+
+export function usesHassEntityRelativeTime(
+    entityId: string,
+    stateObject?: IHassStateEntry,
+    variant: THassEntityDisplayMode = 'entity',
+) {
+    const stateDisplay = getHassEntitySupportConfig(entityId)?.stateDisplay;
+    const deviceClass = getAttributeString(stateObject?.attributes, 'device_class');
+    const classConfig = stateDisplay?.byDeviceClass?.[deviceClass];
+    const format = classConfig?.[variant]
+        ?? (variant === 'badge' ? stateDisplay?.badge : undefined)
+        ?? stateDisplay?.entity;
+    return (format === 'relative-time' || format === 'event')
+        && Boolean(stateObject && parseHassDate(stateObject.state));
 }
 
 function prettifyState(state: string) {

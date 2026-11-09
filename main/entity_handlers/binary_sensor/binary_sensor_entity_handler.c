@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "binary_sensor_entity_handler.h"
 #include "entity_handlers/entity_state_translation.h"
@@ -12,6 +13,7 @@
 #include "assets/mdi_symbol_def.h"
 #include "bsp_lcd.h"
 #include "entity_handlers/ha_datetime_format.h"
+#include "entity_handlers/light/components/light_detail_theme.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 #include "screen/components/ha_history_list.h"
@@ -237,8 +239,8 @@ static lv_obj_t *binary_sensor_create_more_info_state_label(
     char state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};
     binary_sensor_format_state(snapshot, state_text, sizeof(state_text));
     ui_i18n_label_set_text(label, state_text);
-    lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
-    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(label, ha_ui_font_regular(16), 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(light_detail_theme_color(0xFFFFFF, LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)), 0);
     return label;
 }
 
@@ -539,82 +541,13 @@ static bool binary_sensor_handle_action(const entity_action_context_t *context)
     return entity_handler_handle_more_info_action(context);
 }
 
-static void binary_sensor_more_info_close_event_cb(lv_event_t *event)
-{
-    const entity_more_info_context_t *context = lv_event_get_user_data(event);
-    if (context && context->close) {
-        context->close(context->close_user_data);
-    }
-}
-
 static lv_obj_t *binary_sensor_more_info_build_page(
     const entity_more_info_context_t *context)
 {
-    lv_obj_t *screen = context->screen;
-    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x010203), 0);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(screen, 0, 0);
-    lv_obj_set_style_pad_all(screen, 0, 0);
-    lv_obj_set_layout(screen, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(screen,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(screen, 0, 0);
-
-    lv_obj_t *header = lv_obj_create(screen);
-    lv_obj_remove_style_all(header);
-    lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(header, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(header, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(header,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(header, 20, 0);
-    lv_obj_set_style_pad_ver(header, 12, 0);
-    lv_obj_set_style_pad_gap(header, 10, 0);
-
-    lv_obj_t *close_button = lv_image_create(header);
-    lv_img_set_src(close_button, &close_50);
-    lv_obj_add_flag(close_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(close_button,
-                        binary_sensor_more_info_close_event_cb,
-                        LV_EVENT_CLICKED,
-                        (void *)context);
-
-    lv_obj_t *title = lv_label_create(header);
-    lv_obj_set_flex_grow(title, 1);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    ui_i18n_label_set_text(title,
-                      context->snapshot.friendly_name[0]
-                          ? context->snapshot.friendly_name
-                          : context->snapshot.entity_id);
-    lv_obj_set_style_text_font(title, &ha_font_misan_medium_24, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_height(title, lv_font_get_line_height(&ha_font_misan_medium_24));
-
-    lv_obj_t *close_hitbox = lv_obj_create(context->overlay);
-    lv_obj_remove_style_all(close_hitbox);
-    lv_obj_remove_flag(close_hitbox, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(close_hitbox, 50, 50);
-    lv_obj_align(close_hitbox, LV_ALIGN_TOP_LEFT, 20, 12);
-    lv_obj_add_event_cb(close_hitbox,
-                        binary_sensor_more_info_close_event_cb,
-                        LV_EVENT_CLICKED,
-                        (void *)context);
-
-    lv_obj_set_size(screen, LV_PCT(100), LV_PCT(100));
-
-    lv_obj_t *main_ctn = lv_obj_create(screen);
+    lv_obj_t *main_ctn = lv_obj_create(context->body);
     lv_obj_remove_style_all(main_ctn);
     lv_obj_set_scroll_dir(main_ctn, LV_DIR_VER);
-    lv_obj_set_size(main_ctn, LV_PCT(100), 0);
-    lv_obj_set_flex_grow(main_ctn, 1);
+    lv_obj_set_size(main_ctn, LV_PCT(100), LV_PCT(100));
     lv_obj_set_layout(main_ctn, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(main_ctn, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(main_ctn,
@@ -658,8 +591,7 @@ static esp_err_t binary_sensor_render_tile(ha_entity_store_t *store,
 static esp_err_t binary_sensor_render_more_info(
     const entity_more_info_context_t *context)
 {
-    if (!context || !context->screen || !context->overlay ||
-        !context->close) {
+    if (!context || !context->body) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -686,7 +618,7 @@ static esp_err_t binary_sensor_render_more_info(
     lv_obj_set_style_pad_hor(content, 12, 0);
     lv_obj_set_style_pad_ver(content, 8, 0);
     lv_obj_set_style_pad_gap(content, 10, 0);
-    lv_obj_set_style_bg_color(content, lv_color_hex(0x1E2228), 0);
+    lv_obj_set_style_bg_color(content, lv_color_hex(light_detail_theme_color(0x1E2228, LIGHT_DETAIL_LIGHT_SURFACE)), 0);
     lv_obj_set_style_bg_opa(content, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(content, 12, 0);
 
@@ -729,12 +661,12 @@ static esp_err_t binary_sensor_render_more_info(
     lv_obj_set_style_pad_all(tile_content_ctx, 0, 0);
 
     lv_obj_t *tile_content_title = lv_label_create(tile_content_ctx);
-    lv_obj_set_style_text_font(tile_content_title, &ha_font_misan_medium_24, 0);
+    lv_obj_set_style_text_font(tile_content_title, ha_ui_font_medium(24), 0);
     lv_obj_set_size(tile_content_title,
                     landscape ? 0 : LV_PCT(100),
-                    lv_font_get_line_height(&ha_font_misan_medium_24));
+                    lv_font_get_line_height(ha_ui_font_medium(24)));
     lv_label_set_long_mode(tile_content_title, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_color(tile_content_title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(tile_content_title, lv_color_hex(light_detail_theme_color(0xFFFFFF, LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)), 0);
     // 展示实体的friendly_name
     ui_i18n_label_set_text(tile_content_title,
                       context->snapshot.friendly_name[0]
@@ -769,8 +701,8 @@ static esp_err_t binary_sensor_render_more_info(
     else {
         lv_obj_add_flag(tile_content_state, LV_OBJ_FLAG_HIDDEN);
     }
-    lv_obj_set_style_text_font(tile_content_state, &ha_font_misan_regular_16, 0);
-    lv_obj_set_size(tile_content_state, LV_PCT(100), lv_font_get_line_height(&ha_font_misan_regular_16));
+    lv_obj_set_style_text_font(tile_content_state, ha_ui_font_regular(16), 0);
+    lv_obj_set_size(tile_content_state, LV_PCT(100), lv_font_get_line_height(ha_ui_font_regular(16)));
     lv_label_set_long_mode(tile_content_state, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(tile_content_state, lv_color_hex(0x666666), 0);
 
@@ -786,7 +718,7 @@ static esp_err_t binary_sensor_render_more_info(
         lv_obj_update_layout(content);
         lv_point_t state_size;
         lv_text_get_size(&state_size, lv_label_get_text(current_state),
-                         &ha_font_misan_regular_16,
+                         ha_ui_font_regular(16),
                          lv_obj_get_style_text_letter_space(
                              current_state, LV_PART_MAIN),
                          0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
@@ -799,7 +731,7 @@ static esp_err_t binary_sensor_render_more_info(
             LV_MIN(state_size.x, LV_MAX(max_state_width, 0));
         lv_obj_set_width(state_box, state_width);
         lv_obj_set_size(current_state, state_width,
-                        lv_font_get_line_height(&ha_font_misan_regular_16));
+                        lv_font_get_line_height(ha_ui_font_regular(16)));
         lv_label_set_long_mode(current_state, LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_align(current_state, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_center(current_state);

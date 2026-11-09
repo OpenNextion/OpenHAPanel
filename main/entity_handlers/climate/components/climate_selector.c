@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "entity_handlers/entity_state_translation.h"
 #include "i18n.h"
 #include "climate_selector.h"
@@ -8,6 +9,7 @@
 
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "climate_detail_theme.h"
 #include <lvgl_private.h>
 
 #define EFFECT_MAX_OPTIONS 16
@@ -27,6 +29,32 @@
 #define EFFECT_MENU_BORDER_COLOR 0x44474C
 #define EFFECT_TEXT_COLOR        0xFFFFFF
 #define EFFECT_SELECTED_BG_COLOR 0x34373D
+
+static uint32_t selector_text_color(void)
+{
+    return climate_detail_theme_color(
+        EFFECT_TEXT_COLOR,
+        CLIMATE_DETAIL_LIGHT_TEXT_PRIMARY);
+}
+
+static uint32_t selector_button_color(void)
+{
+    return climate_detail_theme_color(
+        EFFECT_BUTTON_COLOR,
+        CLIMATE_DETAIL_LIGHT_CONTROL_BG);
+}
+
+static lv_opa_t selector_button_opa(void)
+{
+    return LV_OPA_COVER;
+}
+
+static uint32_t selector_pressed_color(void)
+{
+    return climate_detail_theme_color(
+        EFFECT_BUTTON_PRESSED,
+        CLIMATE_DETAIL_LIGHT_SURFACE_PRESS);
+}
 
 typedef struct climate_selector_context climate_selector_context_t;
 
@@ -48,6 +76,9 @@ struct climate_selector_context {
     const char *option_icons[EFFECT_MAX_OPTIONS];
     size_t option_count;
     size_t selected;
+    /* Measure before LVGL's dot mode shortens the label's displayed text. */
+    int32_t title_text_width;
+    int32_t value_text_width;
     bool disabled;
     unsigned translation_scope;
     climate_selector_change_cb_t callback;
@@ -65,6 +96,15 @@ static void display_option(climate_selector_context_t *context, const char *sour
                          entity_state_translate_climate_option(context->translation_scope, source) : "-");
 }
 
+static int32_t selector_text_width(const char *text)
+{
+    if (!text || !text[0]) return 0;
+    lv_text_attributes_t text_attr;
+    lv_text_attributes_init(&text_attr);
+    return lv_text_get_width(text, strlen(text),
+                             ha_ui_font_regular(14), &text_attr);
+}
+
 static void close_popup(climate_selector_context_t *context)
 {
     if (!context || !context->popup_mask) {
@@ -72,8 +112,11 @@ static void close_popup(climate_selector_context_t *context)
     }
 
     lv_obj_set_style_bg_color(context->root,
-                              lv_color_hex(EFFECT_BUTTON_COLOR),
+                              lv_color_hex(selector_button_color()),
                               LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(context->root,
+                            selector_button_opa(),
+                            LV_PART_MAIN);
 
     lv_obj_t *mask = context->popup_mask;
     context->popup_mask = NULL;
@@ -94,39 +137,27 @@ static void reposition_labels(climate_selector_context_t *context)
     lv_obj_update_layout(context->root);
     int32_t root_w = lv_obj_get_width(context->root);
 
-    const char *title_text = lv_label_get_text(context->title_label);
-    const char *value_text = lv_label_get_text(context->value_label);
-
-    lv_text_attributes_t text_attr;
-    lv_text_attributes_init(&text_attr);
-
-    int32_t title_w = title_text
-        ? lv_text_get_width(title_text, strlen(title_text),
-                            &ha_font_misan_regular_14, &text_attr)
-        : 0;
-    int32_t value_w = value_text
-        ? lv_text_get_width(value_text, strlen(value_text),
-                            &ha_font_misan_regular_14, &text_attr)
-        : 0;
-    int32_t max_label_w = LV_MAX(title_w, value_w);
+    int32_t max_label_w = LV_MAX(context->title_text_width,
+                                context->value_text_width);
 
     const int32_t icon_w = 24;
     const int32_t gap = 4;
+    const int32_t left_pad = 8;
     const int32_t right_pad = 6;
-    int32_t avail_w = root_w - icon_w - gap - right_pad;
-    if (avail_w < 0) avail_w = 0;
-    if (max_label_w > avail_w) max_label_w = avail_w;
-
-    lv_obj_set_width(context->title_label, max_label_w);
-    lv_obj_set_width(context->value_label, max_label_w);
-
     int32_t group_w = icon_w + gap + max_label_w;
     int32_t left_offset = (root_w - group_w) / 2;
-    if (left_offset < 0) left_offset = 0;
+    if (left_offset < left_pad) left_offset = left_pad;
+    int32_t text_x = left_offset + icon_w + gap;
+    int32_t label_w = LV_MAX(1, root_w - text_x - right_pad);
+
+    lv_obj_set_width(context->title_label, label_w);
+    lv_obj_set_height(context->title_label, lv_font_get_line_height(ha_ui_font_regular(14)));
+    lv_obj_set_width(context->value_label, label_w);
+    lv_obj_set_height(context->value_label, lv_font_get_line_height(ha_ui_font_regular(14)));
 
     lv_obj_set_x(context->icon_label, left_offset);
-    lv_obj_set_x(context->title_label, left_offset + icon_w + gap);
-    lv_obj_set_x(context->value_label, left_offset + icon_w + gap);
+    lv_obj_set_x(context->title_label, text_x);
+    lv_obj_set_x(context->value_label, text_x);
 }
 
 static void refresh_trigger(climate_selector_context_t *context)
@@ -139,6 +170,7 @@ static void refresh_trigger(climate_selector_context_t *context)
     char label[EFFECT_NAME_MAX];
     display_option(context, context->option_count > 0 && context->selected < context->option_count
                        ? context->options[context->selected] : "-", label, sizeof(label));
+    context->value_text_width = selector_text_width(label);
     ui_i18n_label_set_text(context->value_label, label);
     if (context->option_count > 0 && context->selected < context->option_count) {
         const char *icon = context->option_icons[context->selected];
@@ -161,7 +193,7 @@ static void refresh_rows(climate_selector_context_t *context)
         lv_obj_t *label = lv_obj_get_child(row, 0);
         if (label) {
             lv_obj_set_style_text_color(label,
-                                        lv_color_hex(EFFECT_TEXT_COLOR),
+                                        lv_color_hex(selector_text_color()),
                                         0);
         }
     }
@@ -229,7 +261,9 @@ static lv_obj_t *create_menu_row(climate_selector_context_t *context,
     const bool edge_row = index == 0 || index + 1 == context->option_count;
     lv_obj_set_style_radius(row, edge_row ? EFFECT_MENU_RADIUS : 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(row,
-                              lv_color_hex(EFFECT_SELECTED_BG_COLOR),
+                              lv_color_hex(climate_detail_theme_color(
+                                  EFFECT_SELECTED_BG_COLOR,
+                                  CLIMATE_DETAIL_LIGHT_SURFACE_PRESS)),
                               LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(row,
                             LV_OPA_COVER,
@@ -247,7 +281,7 @@ static lv_obj_t *create_menu_row(climate_selector_context_t *context,
     bool has_icon = context->option_icons[index] && context->option_icons[index][0];
     lv_obj_set_pos(label, has_icon ? 30 : 12, 10);
     lv_obj_set_size(label, LV_MAX(1, width - (has_icon ? 38 : 20)), 20);
-    lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(label, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_color(label, lv_color_hex(EFFECT_TEXT_COLOR), 0);
     if (has_icon) {
         lv_obj_t *icon = lv_label_create(row);
@@ -256,7 +290,9 @@ static lv_obj_t *create_menu_row(climate_selector_context_t *context,
             lv_obj_set_pos(icon, 6, 10);
             lv_obj_set_size(icon, 20, 20);
             lv_obj_set_style_text_font(icon, &ha_font_mdi_20, 0);
-            lv_obj_set_style_text_color(icon, lv_color_hex(EFFECT_TEXT_COLOR), 0);
+            lv_obj_set_style_text_color(icon,
+                                        lv_color_hex(selector_text_color()),
+                                        0);
         }
     }
     return row;
@@ -270,8 +306,9 @@ static void open_popup(climate_selector_context_t *context)
     }
 
     lv_obj_set_style_bg_color(context->root,
-                              lv_color_hex(EFFECT_BUTTON_PRESSED),
+                              lv_color_hex(selector_pressed_color()),
                               LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(context->root, LV_OPA_COVER, LV_PART_MAIN);
 
     lv_display_t *display = lv_obj_get_display(context->root);
     if (!display) {
@@ -317,7 +354,7 @@ static void open_popup(climate_selector_context_t *context)
         display_option(context, context->options[i], text, sizeof(text));
         bool has_icon = context->option_icons[i] && context->option_icons[i][0];
         int32_t tw = lv_text_get_width(text, strlen(text),
-                                       &ha_font_misan_regular_16, &text_attr);
+                                       ha_ui_font_regular(16), &text_attr);
         int32_t row_w = tw + (has_icon ? 38 : 20);
         if (row_w > max_text_w) max_text_w = row_w;
     }
@@ -342,13 +379,17 @@ static void open_popup(climate_selector_context_t *context)
     lv_obj_set_size(menu, menu_width, menu_height);
     lv_obj_set_style_radius(menu, EFFECT_MENU_RADIUS, LV_PART_MAIN);
     lv_obj_set_style_bg_color(menu,
-                              lv_color_hex(EFFECT_MENU_COLOR),
+                              lv_color_hex(climate_detail_theme_color(
+                                  EFFECT_MENU_COLOR,
+                                  0xFFFFFF)),
                               LV_PART_MAIN);
     lv_obj_set_style_bg_opa(menu, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(menu, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(
         menu,
-        lv_color_hex(EFFECT_MENU_BORDER_COLOR),
+        lv_color_hex(climate_detail_theme_color(
+            EFFECT_MENU_BORDER_COLOR,
+            CLIMATE_DETAIL_LIGHT_DIVIDER)),
         LV_PART_MAIN);
     lv_obj_set_style_border_opa(menu, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(menu, 12, LV_PART_MAIN);
@@ -370,7 +411,9 @@ static void open_popup(climate_selector_context_t *context)
     lv_obj_set_style_pad_bottom(menu, EFFECT_SCROLLBAR_INSET, LV_PART_SCROLLBAR);
     lv_obj_set_style_pad_right(menu, 2, LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_color(menu,
-                              lv_color_hex(EFFECT_MENU_BORDER_COLOR),
+                              lv_color_hex(climate_detail_theme_color(
+                                  EFFECT_MENU_BORDER_COLOR,
+                                  CLIMATE_DETAIL_LIGHT_DISABLED)),
                               LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(menu, LV_OPA_COVER, LV_PART_SCROLLBAR);
 
@@ -429,9 +472,9 @@ lv_obj_t *climate_selector_create(lv_obj_t *parent)
     lv_obj_set_size(root, EFFECT_BUTTON_W, EFFECT_BUTTON_H);
     lv_obj_set_style_radius(root, 12, LV_PART_MAIN);
     lv_obj_set_style_bg_color(root,
-                              lv_color_hex(EFFECT_BUTTON_COLOR),
+                              lv_color_hex(selector_button_color()),
                               LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(root, selector_button_opa(), LV_PART_MAIN);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(root, root_event_cb, LV_EVENT_ALL, context);
 
@@ -439,19 +482,21 @@ lv_obj_t *climate_selector_create(lv_obj_t *parent)
     ui_i18n_label_set_text(context->icon_label, MDI_SYMBOL_CREATION);
     lv_obj_set_style_text_font(context->icon_label, &ha_font_mdi_20, 0);
     lv_obj_set_style_text_color(context->icon_label,
-                                lv_color_hex(EFFECT_TEXT_COLOR),
+                                lv_color_hex(selector_text_color()),
                                 0);
     lv_obj_align(context->icon_label, LV_ALIGN_LEFT_MID, 8, 0);
 
     context->title_label = lv_label_create(root);
-    ui_i18n_label_set_text(context->title_label, i18n_get(I18N_CLIMATE_MODE));
+    const char *initial_title = i18n_get(I18N_CLIMATE_MODE);
+    context->title_text_width = selector_text_width(initial_title);
+    ui_i18n_label_set_text(context->title_label, initial_title);
     lv_label_set_long_mode(context->title_label, LV_LABEL_LONG_DOT);
     lv_obj_set_pos(context->title_label, 34, 7);
     lv_obj_set_style_text_font(context->title_label,
-                               &ha_font_misan_regular_14,
+                               ha_ui_font_regular(14),
                                0);
     lv_obj_set_style_text_color(context->title_label,
-                                lv_color_hex(EFFECT_TEXT_COLOR),
+                                lv_color_hex(selector_text_color()),
                                 0);
 
     context->value_label = lv_label_create(root);
@@ -459,10 +504,10 @@ lv_obj_t *climate_selector_create(lv_obj_t *parent)
     lv_label_set_long_mode(context->value_label, LV_LABEL_LONG_DOT);
     lv_obj_set_pos(context->value_label, 34, 27);
     lv_obj_set_style_text_font(context->value_label,
-                               &ha_font_misan_regular_14,
+                               ha_ui_font_regular(14),
                                0);
     lv_obj_set_style_text_color(context->value_label,
-                                lv_color_hex(EFFECT_TEXT_COLOR),
+                                lv_color_hex(selector_text_color()),
                                 0);
     refresh_trigger(context);
     return root;
@@ -525,7 +570,7 @@ void climate_selector_set_disabled(lv_obj_t *obj, bool disabled)
     else {
         lv_obj_remove_state(obj, LV_STATE_DISABLED);
     }
-    lv_obj_set_style_opa(obj, disabled ? LV_OPA_50 : LV_OPA_COVER, 0);
+    lv_obj_set_style_opa(obj, LV_OPA_COVER, 0);
 }
 
 void climate_selector_set_change_cb(lv_obj_t *obj,
@@ -544,7 +589,9 @@ void climate_selector_set_title(lv_obj_t *obj, const char *title)
 {
     climate_selector_context_t *context = effect_context(obj);
     if (!context) return;
-    ui_i18n_label_set_text(context->title_label, title ? title : "");
+    const char *text = title ? title : "";
+    context->title_text_width = selector_text_width(text);
+    ui_i18n_label_set_text(context->title_label, text);
     reposition_labels(context);
 }
 

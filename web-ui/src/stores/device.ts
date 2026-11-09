@@ -1,6 +1,6 @@
 import { cloneDeep, merge, omit, set } from 'lodash-es';
 import { get, writable, derived } from 'svelte/store';
-import type { IDeviceInfoNotify, INightModeSettings, IScreenRotationNotify, IThemeModeNotify } from '@/types/device';
+import type { IDeviceInfoNotify, INightModeSettings, IScreenRotationNotify, IThemeModeNotify, TScreenTheme } from '@/types/device';
 import EThemeMode from '@/types/EThemeMode';
 import sendForReply from '@/ws/sendForReply';
 import { ERROR_CODE } from '@/constant';
@@ -9,6 +9,7 @@ import { EWsMethods } from '@/types/websocket';
 interface IDevice extends IDeviceInfoNotify, IThemeModeNotify {
     nightMode: INightModeSettings;
     screenRotation: IScreenRotationNotify;
+    screenTheme: TScreenTheme | null;
 }
 
 type TBootstrapTheme = 'light' | 'dark';
@@ -63,6 +64,7 @@ const INIT_VALUE: IDevice = {
         width: 320,
         height: 480,
     },
+    screenTheme: null,
 };
 
 export const deviceStore = writable<IDevice>(cloneDeep(INIT_VALUE), () => {
@@ -176,6 +178,15 @@ themeInfo.subscribe((store) => {
         return;
     }
     setDataBsTheme(currentMode === EThemeMode.DARK ? 'dark' : 'light');
+});
+
+derived(deviceStore, (store) => store.screenTheme).subscribe((theme) => {
+    if (theme) {
+        document.documentElement.setAttribute('data-screen-theme', theme);
+    } else {
+        // Until the device reports its theme, keep the existing dark preview fallback.
+        document.documentElement.removeAttribute('data-screen-theme');
+    }
 });
 
 const syncSystemTheme = (matches = darkModeMediaQuery.matches) => {

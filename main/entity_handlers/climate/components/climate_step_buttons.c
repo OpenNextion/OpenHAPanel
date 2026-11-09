@@ -2,6 +2,7 @@
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
 #include "climate_outlined_icon_button.h"
+#include "climate_detail_theme.h"
 
 typedef struct {
     lv_obj_t *buttons[2];
@@ -40,8 +41,14 @@ lv_obj_t *climate_step_buttons_create(lv_obj_t *parent)
         climate_outlined_icon_button_set_size(button, 40);
         climate_outlined_icon_button_set_icon_size(button, 24);
         climate_outlined_icon_button_set_symbol(button, i ? MDI_SYMBOL_PLUS : MDI_SYMBOL_MINUS);
-        climate_outlined_icon_button_set_outline_color(button, lv_color_white());
-        climate_outlined_icon_button_set_text_color(button, lv_color_white());
+        const lv_color_t control_color = lv_color_hex(
+            climate_detail_theme_color(
+                0xFFFFFF,
+                CLIMATE_DETAIL_LIGHT_TEXT_SECONDARY));
+        climate_outlined_icon_button_set_outline_color(button,
+                                                       control_color);
+        climate_outlined_icon_button_set_text_color(button,
+                                                    control_color);
         climate_outlined_icon_button_set_text_font(button, &ha_font_mdi_24);
         lv_obj_set_x(button, i ? 64 : 0);
         lv_obj_add_event_cb(button, clicked, LV_EVENT_CLICKED, context);

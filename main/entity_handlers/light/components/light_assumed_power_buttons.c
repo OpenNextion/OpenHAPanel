@@ -2,6 +2,7 @@
 
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "light_detail_theme.h"
 
 #define POWER_BUTTONS_WIDTH        76
 #define POWER_BUTTONS_HEIGHT       230
@@ -38,10 +39,16 @@ static void refresh_visual(light_assumed_power_buttons_context_t *context)
 
     const uint32_t on_color = context->known && context->on
                                   ? POWER_BUTTON_ON_ACTIVE
-                                  : POWER_BUTTON_INACTIVE;
+                                  : light_detail_theme_color(
+                                        POWER_BUTTON_INACTIVE,
+                                        LIGHT_DETAIL_LIGHT_SURFACE);
     const uint32_t off_color = context->known && !context->on
-                                   ? POWER_BUTTON_OFF_ACTIVE
-                                   : POWER_BUTTON_INACTIVE;
+                                   ? light_detail_theme_color(
+                                         POWER_BUTTON_OFF_ACTIVE,
+                                         LIGHT_DETAIL_LIGHT_INACTIVE)
+                                   : light_detail_theme_color(
+                                         POWER_BUTTON_INACTIVE,
+                                         LIGHT_DETAIL_LIGHT_SURFACE);
     lv_obj_set_style_bg_color(context->on_button,
                               lv_color_hex(on_color),
                               0);
@@ -102,7 +109,12 @@ static lv_obj_t *create_button(lv_obj_t *parent,
     }
     lv_label_set_text_static(icon, symbol);
     lv_obj_set_style_text_font(icon, &ha_font_mdi_20, 0);
-    lv_obj_set_style_text_color(icon, lv_color_white(), 0);
+    lv_obj_set_style_text_color(
+        icon,
+        lv_color_hex(light_detail_theme_color(
+            0xFFFFFF,
+            LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)),
+        0);
     lv_obj_center(icon);
     return button;
 }

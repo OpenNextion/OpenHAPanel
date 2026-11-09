@@ -137,7 +137,7 @@
 <div class="page-container settings-detail">
     <SettingPageHeader title={$_('page.settings.time')} />
     <div class="time-settings-groups">
-        <SettingRow title={$_('settingsDetail.dateTime')} content={currentTime.format('YYYY-MM-DD HH:mm')} margin={0} titleCol={8} contentCol={4}/>
+        <SettingRow title={$_('settingsDetail.dateTime')} content={currentTime.format('YYYY-MM-DD HH:mm')} margin={0} titleCol={6} contentCol={6}/>
         <SettingRowGroup>
             <SettingRow title={$_('settingsDetail.timezone')} content={timeInfo.tzInfo.timeZone || '--'} route={ROUTES_PATH.SETTINGS_TIME_ZONE} />
             <SettingRow disable={loading || !hasInternetConnect} onclick={handleDetect} titleCol={12}>

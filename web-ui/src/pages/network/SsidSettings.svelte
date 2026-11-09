@@ -89,7 +89,7 @@
 <div class="page-container network-page network-detail ssid-page">
     <NetworkPageHeader title="SSID" back="/network/wlan" />
     <div class="network-form">
-        <label class="ssid-field-label" for="ssid">SSID <small>{$_('networkPage.wifiModeResetHint')}</small></label>
+        <label class="ssid-field-label" for="ssid">SSID ({$_('networkPage.wifiModeResetHint')})</label>
         <input id="ssid" class="form-control" maxlength={SSID_MAX_LENGTH} value={ssid} oninput={(event) => updateSsid(event.currentTarget.value)} /><small>{$_('networkPage.only24g')}</small>
         <label for="wifi-password">{$_('networkPage.password')}</label>
         <div class="password-input">
@@ -156,9 +156,7 @@
         flex-wrap: wrap;
         align-items: baseline;
         gap: 0 0.25rem;
-    }
-    .ssid-field-label small {
-        font-size: 0.75rem;
+		color: rgba(150, 150, 150, 1);
     }
     .wifi-scan-list {
         display: flex;

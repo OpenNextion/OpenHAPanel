@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "ap_provisioning_view.h"
 
@@ -44,7 +45,7 @@ lv_obj_t *ap_provisioning_view_create(lv_obj_t *parent,
     ui_i18n_label_set_text(title, i18n_get(I18N_PROVISION_HOTSPOT_TITLE));
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(title, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(title, ha_ui_font_medium(20), 0);
 
     lv_obj_t *instructions = lv_label_create(root);
     lv_obj_set_size(instructions, 280, LV_SIZE_CONTENT);
@@ -55,7 +56,7 @@ lv_obj_t *ap_provisioning_view_create(lv_obj_t *parent,
                           setup_url);
     lv_obj_set_style_text_align(instructions, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(instructions, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(instructions, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(instructions, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_line_space(instructions, 2, 0);
 
     lv_obj_t *card = lv_obj_create(root);
@@ -91,7 +92,7 @@ lv_obj_t *ap_provisioning_view_create(lv_obj_t *parent,
     lv_obj_set_style_max_width(ssid_label, 176, 0);
     ui_i18n_label_set_text(ssid_label, ssid);
     lv_obj_set_style_text_color(ssid_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(ssid_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(ssid_label, ha_ui_font_regular(16), 0);
 
     lv_obj_t *credential_row = lv_obj_create(card);
     ap_view_apply_clear_style(credential_row);
@@ -115,7 +116,7 @@ lv_obj_t *ap_provisioning_view_create(lv_obj_t *parent,
     lv_obj_set_style_max_width(credential_label, 176, 0);
     ui_i18n_label_set_text(credential_label, credential);
     lv_obj_set_style_text_color(credential_label, lv_color_hex(0x707070), 0);
-    lv_obj_set_style_text_font(credential_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(credential_label, ha_ui_font_regular(16), 0);
 
     return root;
 }

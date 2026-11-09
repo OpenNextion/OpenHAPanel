@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "climate_more_info.h"
 #include "entity_handlers/entity_state_translation.h"
@@ -13,6 +14,7 @@
 #include "assets/mdi_symbol_def.h"
 #include "bsp_lcd.h"
 #include "components/climate_dial.h"
+#include "components/climate_detail_theme.h"
 #include "components/climate_selector.h"
 #include "components/climate_step_buttons.h"
 #include "components/climate_target_toggle.h"
@@ -312,12 +314,6 @@ static void climate_selector_changed(size_t index, const char *value, void *user
     }
 }
 
-static void climate_close_clicked(lv_event_t *event)
-{
-    const entity_more_info_context_t *context = lv_event_get_user_data(event);
-    if (context && context->close) context->close(context->close_user_data);
-}
-
 static void climate_page_deleted(lv_event_t *event)
 {
     climate_page_t *page = lv_obj_get_user_data(lv_event_get_target_obj(event));
@@ -596,7 +592,7 @@ esp_err_t climate_more_info_update(const entity_more_info_context_t *context)
 {
     climate_page_t *page = s_active_page;
     if (!context || !page || !page->root || !page->dial ||
-        lv_obj_get_parent(page->root) != context->screen ||
+        lv_obj_get_parent(page->root) != context->body ||
         strcmp(page->entity_id, context->snapshot.entity_id) != 0)
         return ESP_ERR_INVALID_STATE;
 
@@ -626,9 +622,6 @@ esp_err_t climate_more_info_update(const entity_more_info_context_t *context)
         page->dual_temperature = old_dual;
     }
 
-    if (page->title)
-        ui_i18n_label_set_text(page->title, context->snapshot.friendly_name[0]
-                                      ? context->snapshot.friendly_name : page->entity_id);
     climate_refresh_toggle(page);
     if (!dragging) {
         if (!page->humidity_supported) page->humidity_mode = s_humidity_mode = false;
@@ -640,8 +633,17 @@ esp_err_t climate_more_info_update(const entity_more_info_context_t *context)
 
 esp_err_t climate_more_info_render(const entity_more_info_context_t *context)
 {
-    if (!context || !context->screen || !context->overlay || !context->store || !context->close)
+    if (!context || !context->screen || !context->body || !context->store)
         return ESP_ERR_INVALID_ARG;
+
+    lv_obj_set_style_bg_color(
+        context->screen,
+        lv_color_hex(climate_detail_theme_color(
+            0x010203,
+            CLIMATE_DETAIL_LIGHT_BG)),
+        0);
+    lv_obj_set_style_bg_opa(context->screen, LV_OPA_COVER, 0);
+
     climate_page_t *page = lv_calloc(1, sizeof(*page));
     if (!page) return ESP_ERR_NO_MEM;
     page->store = context->store;
@@ -655,15 +657,7 @@ esp_err_t climate_more_info_render(const entity_more_info_context_t *context)
     climate_read_attributes(page, &context->snapshot);
     if (!page->humidity_supported) page->humidity_mode = s_humidity_mode = false;
 
-    lv_obj_t *screen = context->screen;
-    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x010203), 0);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(screen, 0, 0);
-    lv_obj_set_style_pad_all(screen, 0, 0);
-    lv_obj_set_size(screen, LV_PCT(100), LV_PCT(100));
-
-    lv_obj_t *root = lv_obj_create(screen);
+    lv_obj_t *root = lv_obj_create(context->body);
     if (!root) { lv_free(page); return ESP_ERR_NO_MEM; }
     page->root = root;
     lv_obj_remove_style_all(root);
@@ -671,34 +665,6 @@ esp_err_t climate_more_info_render(const entity_more_info_context_t *context)
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_user_data(root, page);
     lv_obj_add_event_cb(root, climate_page_deleted, LV_EVENT_DELETE, NULL);
-
-    lv_obj_t *header = lv_obj_create(root);
-    lv_obj_remove_style_all(header);
-    lv_obj_set_pos(header, 0, 0);
-    lv_obj_set_size(header, LV_PCT(100), 76);
-    lv_obj_t *close = lv_image_create(header);
-    lv_image_set_src(close, &close_40);
-    lv_obj_set_pos(close, 20, 18);
-    lv_obj_add_flag(close, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(close, climate_close_clicked, LV_EVENT_CLICKED, (void *)context);
-    lv_obj_t *title = lv_label_create(header);
-    page->title = title;
-    lv_obj_set_pos(title, 72, 22);
-    lv_obj_set_width(title, page->landscape ? 388 : 228);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    ui_i18n_label_set_text(title, context->snapshot.friendly_name[0] ?
-                            context->snapshot.friendly_name : page->entity_id);
-    lv_obj_set_style_text_font(title, &ha_font_misan_medium_20, 0);
-    lv_obj_set_style_text_color(title, lv_color_white(), 0);
-    lv_obj_set_height(title, lv_font_get_line_height(&ha_font_misan_medium_20));
-
-    lv_obj_t *close_hitbox = lv_obj_create(context->overlay);
-    lv_obj_remove_style_all(close_hitbox);
-    lv_obj_remove_flag(close_hitbox, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(close_hitbox, 40, 40);
-    lv_obj_align(close_hitbox, LV_ALIGN_TOP_LEFT, 20, 18);
-    lv_obj_add_event_cb(close_hitbox, climate_close_clicked, LV_EVENT_CLICKED, (void *)context);
 
     page->dial = climate_dial_create(root);
     page->steps = climate_step_buttons_create(page->dial);

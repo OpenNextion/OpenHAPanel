@@ -1,7 +1,6 @@
 {
     "app": {
-        "name": "OpenNextion",
-        "subtitle": "Bảng điều khiển thiết bị"
+        "name": "OpenHAPanel"
     },
     "firmwareUpdate": {
         "operationBlocked": "Thiết bị đang cập nhật và tạm thời không khả dụng."
@@ -98,11 +97,19 @@
             "entity": "Thực thể",
             "interactions": "Tương tác",
             "features": "Tính năng",
+            "featuresPosition": "Vị trí tính năng",
+            "featuresPositionBottom": "Bên dưới",
+            "featuresPositionBottomHint": "Hiển thị các tính năng xếp chồng",
+            "featuresPositionInline": "Cùng hàng",
+            "featuresPositionInlineHint": "Hiển thị tính năng thành hai cột, bắt đầu cạnh tên",
             "tapBehavior": "Hành động khi chạm",
             "iconTapBehavior": "Hành động khi chạm biểu tượng",
             "longPressBehavior": "Hành động khi nhấn giữ",
             "actionMoreInfo": "Thông tin thêm",
             "actionToggle": "Bật/tắt",
+            "actionButton": "Nút hành động",
+            "actionActivate": "Kích hoạt",
+            "actionPress": "Nhấn",
             "actionNothing": "Không làm gì",
             "actionDefault": "Mặc định",
             "config": "Cấu hình",
@@ -115,8 +122,8 @@
             "entityNotSupported": "Thực thể này chưa được hỗ trợ",
             "connectHaFirst": "Hãy kết nối Home Assistant trước.",
             "connectHa": "Kết nối Home Assistant",
-            "connectHaHint": "Thiết lập HA trong bảng điều khiển web",
-            "noContent": "Chưa có nội dung. Thêm thực thể trong Bảng điều khiển web > Quản lý màn hình",
+            "connectHaHint": "Hoàn tất kết nối Home Assistant trong bảng điều khiển web.",
+            "noContent": "Chưa có thực thể nào. Vào Bảng điều khiển web > Cấu hình màn hình để chọn thực thể muốn điều khiển.",
             "addSplit": "Thêm màn hình",
             "splitNamePlaceholder": "Nhập tên màn hình",
             "addBadgeTitle": "Bạn muốn thêm huy hiệu nào?",
@@ -165,7 +172,7 @@
         "connected": "Đã kết nối",
         "disconnected": "Đã ngắt kết nối",
         "internetConnection": "Kết nối Internet",
-        "apHint": "Có thể bật hoặc tắt điểm phát AP khi Nextion được kết nối với Wi-Fi.",
+        "apHint": "Có thể bật hoặc tắt điểm phát AP khi Nextion được kết nối với một mạng Wi-Fi.",
         "apInUseTitle": "AP đang được sử dụng",
         "apInUseConfirm": "AP hiện đang được sử dụng. Thay đổi cài đặt có thể ngắt kết nối các thiết bị đang dùng. Tiếp tục?",
         "changePassword": "Đổi mật khẩu",
@@ -215,7 +222,7 @@
         "passwordLetterNumberRequired": "Mật khẩu phải gồm 8 ký tự kết hợp chữ và số.",
         "setupTitle": "Kết nối Wi-Fi",
         "setupSubtitle": "Chọn mạng Wi-Fi 2,4 GHz để kết nối. Chỉ hỗ trợ mạng Wi-Fi 2,4 GHz.",
-        "joinWifi": "Tham gia \"Wi-Fi {ssid}\"",
+        "joinWifi": "Tham gia Wi-Fi \"{ssid}\"",
         "addWifiManually": "Thêm Wi-Fi thủ công"
     },
     "settingsDetail": {
@@ -223,7 +230,7 @@
         "mdnsRestartHint": "Thiết bị sẽ khởi động lại để áp dụng thay đổi.",
         "dateTime": "Ngày và giờ",
         "timezone": "Múi giờ",
-        "autoDetect": "Tự động xác định vị trí",
+        "autoDetect": "Đặt tự động",
         "ntp1": "Máy chủ NTP 1",
         "ntp2": "Máy chủ NTP 2",
         "ntpInvalid": "Vui lòng nhập tên miền hợp lệ",
@@ -242,6 +249,8 @@
         "to": "Đến",
         "followSystem": "Theo hệ thống",
         "followHint": "Theo cài đặt chế độ sáng hoặc tối của hệ thống.",
+        "webConsole": "Bảng điều khiển Web",
+        "screenDevice": "Màn hình thiết bị",
         "lightMode": "Chế độ sáng",
         "darkMode": "Chế độ tối",
         "restartConfirmTitle": "Khởi động lại thiết bị?",

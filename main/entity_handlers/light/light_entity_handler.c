@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "light_entity_handler.h"
 
@@ -13,6 +14,7 @@
 #include "components/light_assumed_power_buttons.h"
 #include "components/light_brightness_slider.h"
 #include "components/light_color_temp_slider.h"
+#include "components/light_detail_theme.h"
 #include "components/light_effect_selector.h"
 #include "components/light_mode_bar.h"
 #include "components/light_power_toggle.h"
@@ -23,6 +25,7 @@
 #include "light_favorite_colors_store.h"
 #include "light_feature_handler.h"
 #include "screen/components/ha_relative_time_label.h"
+#include "screen_theme.h"
 
 #define LIGHT_EFFECT_MAX_COUNT 16
 #define LIGHT_EFFECT_NAME_MAX  48
@@ -43,6 +46,10 @@
 #define LIGHT_LANDSCAPE_PAGE_HEIGHT 248
 #define LIGHT_LANDSCAPE_CONTROL_TOP 61
 #define LIGHT_LANDSCAPE_CONTROL_HEIGHT 170
+#define LIGHT_TILE_ICON_OFF 0x9E9E9E
+#define LIGHT_TILE_ICON_ON 0xFFC107
+#define LIGHT_TILE_ICON_UNAVAILABLE_DARK 0x6F6F6F
+#define LIGHT_TILE_ICON_UNAVAILABLE_LIGHT 0xBDBDBD
 #define LIGHT_LANDSCAPE_POWER_KNOB_HEIGHT 80
 #define LIGHT_LANDSCAPE_MODE_X 364
 #define LIGHT_LANDSCAPE_DOTS_X 228
@@ -996,14 +1003,6 @@ static void light_page_delete_cb(lv_event_t *event)
     lv_free(page);
 }
 
-static void light_more_info_close_event_cb(lv_event_t *event)
-{
-    light_more_info_page_t *page = lv_event_get_user_data(event);
-    if (page && page->close) {
-        page->close(page->close_user_data);
-    }
-}
-
 static lv_obj_t *light_create_clear_container(lv_obj_t *parent,
                                               int32_t x,
                                               int32_t y,
@@ -1039,63 +1038,6 @@ static void light_enable_control_overflow(lv_obj_t *obj)
                         LV_EVENT_REFR_EXT_DRAW_SIZE,
                         NULL);
     lv_obj_refresh_ext_draw_size(obj);
-}
-
-static void light_build_header(lv_obj_t *root,
-                               lv_obj_t *overlay,
-                               const entity_more_info_context_t *context,
-                               light_more_info_page_t *page)
-{
-    lv_obj_t *header = lv_obj_create(root);
-    lv_obj_remove_style_all(header);
-    lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(header, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(header, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(header,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(header, 20, 0);
-    lv_obj_set_style_pad_ver(header,
-                             page->landscape
-                                 ? LIGHT_LANDSCAPE_HEADER_PAD_VER
-                                 : 12,
-                             0);
-    lv_obj_set_style_pad_gap(header, 10, 0);
-
-    lv_obj_t *close_button = lv_image_create(header);
-    lv_img_set_src(close_button, &close_50);
-    lv_obj_add_flag(close_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(close_button,
-                        light_more_info_close_event_cb,
-                        LV_EVENT_CLICKED,
-                        page);
-
-    lv_obj_t *title = lv_label_create(header);
-    lv_obj_set_flex_grow(title, 1);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    ui_i18n_label_set_text(title,
-                      context->snapshot.friendly_name[0]
-                          ? context->snapshot.friendly_name
-                          : context->snapshot.entity_id);
-    lv_obj_set_style_text_font(title, &ha_font_misan_medium_24, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_height(title,
-                      lv_font_get_line_height(&ha_font_misan_medium_24));
-
-    lv_obj_t *close_hitbox = light_create_clear_container(overlay,
-                                                          20,
-                                                          page->landscape
-                                                              ? LIGHT_LANDSCAPE_HEADER_PAD_VER
-                                                              : 12,
-                                                          50,
-                                                          50);
-    lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(close_hitbox,
-                        light_more_info_close_event_cb,
-                        LV_EVENT_CLICKED,
-                        page);
 }
 
 static int32_t light_landscape_primary_width(
@@ -1135,8 +1077,13 @@ static void light_build_state_block(lv_obj_t *parent,
 
     page->state_label = lv_label_create(state_block);
     lv_obj_set_size(page->state_label, 280, 28);
-    lv_obj_set_style_text_font(page->state_label, &ha_font_misan_medium_20, 0);
-    lv_obj_set_style_text_color(page->state_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(page->state_label, ha_ui_font_medium(20), 0);
+    lv_obj_set_style_text_color(
+        page->state_label,
+        lv_color_hex(light_detail_theme_color(
+            0xFFFFFF,
+            LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)),
+        0);
     lv_obj_set_style_text_align(page->state_label, LV_TEXT_ALIGN_CENTER, 0);
     light_page_set_state_text(page, NULL);
 
@@ -1150,8 +1097,13 @@ static void light_build_state_block(lv_obj_t *parent,
     lv_obj_t *time_label = lv_label_create(state_block);
     lv_obj_set_size(time_label, 280, 24);
     ui_i18n_label_set_text(time_label, time_text);
-    lv_obj_set_style_text_font(time_label, &ha_font_misan_regular_16, 0);
-    lv_obj_set_style_text_color(time_label, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_font(time_label, ha_ui_font_regular(16), 0);
+    lv_obj_set_style_text_color(
+        time_label,
+        lv_color_hex(light_detail_theme_color(
+            0x666666,
+            LIGHT_DETAIL_LIGHT_TEXT_SECONDARY)),
+        0);
     lv_obj_set_style_text_align(time_label, LV_TEXT_ALIGN_CENTER, 0);
     time_t changed_time = 0;
     if (context->snapshot.last_changed[0] &&
@@ -1248,9 +1200,16 @@ static void light_update_dots(light_more_info_page_t *page)
             continue;
         }
         const bool selected = active == page->tileview_pages[i];
+        const uint32_t dot_color =
+            selected
+                ? light_detail_theme_color(
+                      0xE1E1E1,
+                      LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)
+                : light_detail_theme_color(
+                      0x5C5C5C,
+                      LIGHT_DETAIL_LIGHT_DISABLED);
         lv_obj_set_style_bg_color(page->page_dots[i],
-                                  lv_color_hex(selected ? 0xE1E1E1
-                                                        : 0x5C5C5C),
+                                  lv_color_hex(dot_color),
                                   0);
         lv_obj_set_style_bg_opa(page->page_dots[i], LV_OPA_COVER, 0);
         if (selected && page->session) {
@@ -1680,14 +1639,39 @@ lv_color_t light_entity_active_color(ha_entity_store_t *store,
     return default_color;
 }
 
-static lv_color_t light_tile_icon_circle_color(lv_color_t active_color)
+static lv_color_t light_tile_contrast_color(lv_color_t input)
 {
-    /* Preserve the existing dark-circle treatment while tinting it with the
-     * current light color. Yellow 0xFFC107 resolves to approximately the
-     * previous 0x493D17 circle color. */
-    return lv_color_mix(active_color,
-                        lv_color_hex(0x1C1C1C),
-                        LV_OPA_20);
+    const uint32_t value = lv_color_to_u32(input) & 0x00FFFFFFU;
+    float channels[] = {
+        (float)((value >> 16) & 0xFF),
+        (float)((value >> 8) & 0xFF),
+        (float)(value & 0xFF),
+    };
+    const float high = LV_MAX(channels[0],
+                              LV_MAX(channels[1], channels[2]));
+    const float low = LV_MIN(channels[0],
+                             LV_MIN(channels[1], channels[2]));
+    const float saturation = high > 0.0f ? (high - low) / high : 0.0f;
+
+    /* Match hui-tile-card: near-white RGB colors are darkened to value 225;
+     * other low-saturation colors keep their hue and use saturation 0.4. */
+    if (saturation < 0.1f) {
+        for (size_t i = 0; i < 3; ++i) {
+            channels[i] = high > 0.0f ? channels[i] * 225.0f / high
+                                      : 225.0f;
+        }
+    }
+    else if (saturation < 0.4f) {
+        for (size_t i = 0; i < 3; ++i) {
+            channels[i] = high -
+                          (high - channels[i]) * 0.4f / saturation;
+        }
+    }
+
+    return lv_color_make(
+        (uint8_t)LV_CLAMP(0, (int32_t)lroundf(channels[0]), 255),
+        (uint8_t)LV_CLAMP(0, (int32_t)lroundf(channels[1]), 255),
+        (uint8_t)LV_CLAMP(0, (int32_t)lroundf(channels[2]), 255));
 }
 
 static void light_tileview_event_cb(lv_event_t *event)
@@ -1904,10 +1888,17 @@ static void light_build_second_page(lv_obj_t *parent,
 static esp_err_t light_render_more_info(
     const entity_more_info_context_t *context)
 {
-    if (!context || !context->screen || !context->overlay ||
-        !context->store || !context->close) {
+    if (!context || !context->screen || !context->body || !context->store) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    lv_obj_set_style_bg_color(
+        context->screen,
+        lv_color_hex(light_detail_theme_color(
+            0x010203,
+            LIGHT_DETAIL_LIGHT_BG)),
+        0);
+    lv_obj_set_style_bg_opa(context->screen, LV_OPA_COVER, 0);
 
     light_more_info_page_t *page = lv_calloc(1, sizeof(*page));
     if (!page) {
@@ -1935,31 +1926,16 @@ static esp_err_t light_render_more_info(
         page->session->active_mode_initialized = true;
     }
 
-    lv_obj_t *screen = context->screen;
-    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x010203), 0);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(screen, 0, 0);
-    lv_obj_set_style_pad_all(screen, 0, 0);
-
-    lv_display_t *display = lv_obj_get_display(screen);
-    const int32_t screen_width = display
-                                     ? lv_display_get_horizontal_resolution(display)
-                                     : (page->landscape ? 480 : 320);
-    const int32_t screen_height = display
-                                      ? lv_display_get_vertical_resolution(display)
-                                      : (page->landscape ? 320 : 480);
-    lv_obj_t *root = light_create_clear_container(screen,
+    lv_obj_t *root = light_create_clear_container(context->body,
                                                    0,
                                                    0,
-                                                   screen_width,
-                                                   screen_height);
+                                                   LV_PCT(100),
+                                                   LV_PCT(100));
     if (!root) {
         lv_free(page);
         return ESP_ERR_NO_MEM;
     }
     lv_obj_add_event_cb(root, light_page_delete_cb, LV_EVENT_DELETE, page);
-    /* Container S: the complete More Info content. */
     lv_obj_set_layout(root, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(root,
@@ -1969,10 +1945,7 @@ static esp_err_t light_render_more_info(
     lv_obj_set_style_pad_all(root, 0, 0);
     lv_obj_set_style_pad_gap(root, 0, 0);
 
-    /* Container A: header. */
-    light_build_header(root, context->overlay, context, page);
-
-    /* Container B: state, controls, mode bar and page dots. */
+    /* Container A: state, controls, mode bar and page dots. */
     lv_obj_t *content = light_create_clear_container(root,
                                                       0,
                                                       0,
@@ -2110,6 +2083,29 @@ static bool light_handle_action(const entity_action_context_t *context)
     return true;
 }
 
+static bool light_tile_icon_color_near_white(lv_color_t color)
+{
+    const uint32_t value = lv_color_to_u32(color) & 0x00FFFFFFU;
+    const uint8_t r = (uint8_t)((value >> 16) & 0xFF);
+    const uint8_t g = (uint8_t)((value >> 8) & 0xFF);
+    const uint8_t b = (uint8_t)(value & 0xFF);
+    const uint8_t min_ch = LV_MIN(LV_MIN(r, g), b);
+    const uint8_t max_ch = LV_MAX(LV_MAX(r, g), b);
+    return min_ch >= 200 && (max_ch - min_ch) <= 60;
+}
+
+static lv_color_t light_tile_icon_color_for_light_theme(lv_color_t color)
+{
+    if (light_tile_icon_color_near_white(color)) {
+        const uint32_t value = lv_color_to_u32(color) & 0x00FFFFFFU;
+        const uint8_t r = (uint8_t)(((value >> 16) & 0xFF) * 165 / 255);
+        const uint8_t g = (uint8_t)(((value >> 8) & 0xFF) * 165 / 255);
+        const uint8_t b = (uint8_t)((value & 0xFF) * 165 / 255);
+        return lv_color_make(r, g, b);
+    }
+    return color;
+}
+
 static esp_err_t light_render_tile(ha_entity_store_t *store,
                                    const ha_entity_snapshot_t *snapshot,
                                    entity_display_model_t *model)
@@ -2117,8 +2113,10 @@ static esp_err_t light_render_tile(ha_entity_store_t *store,
     entity_handler_apply_friendly_name(snapshot, model);
     model->icon = MDI_SYMBOL_LIGHTBULB_OFF;
     model->background_color = lv_color_hex(0x1E2228);
-    model->icon_color = lv_color_hex(0x9e9e9e);
-    model->icon_circle_background_color = lv_color_hex(0x363636);
+    model->icon_color = lv_color_hex(LIGHT_TILE_ICON_OFF);
+    model->icon_circle_background_color = model->icon_color;
+    model->icon_circle_background_color_light = model->icon_color;
+    model->icon_circle_background_opa = LV_OPA_20;
     model->title_color = lv_color_hex(0xFFFFFF);
     model->state_color = lv_color_hex(0x666666);
 
@@ -2127,15 +2125,37 @@ static esp_err_t light_render_tile(ha_entity_store_t *store,
                                            sizeof(model->state_text),
                                            snapshot);
         model->icon = MDI_SYMBOL_LIGHTBULB;
+        const uint32_t unavailable_color =
+            screen_theme_get() == SCREEN_THEME_LIGHT
+                ? LIGHT_TILE_ICON_UNAVAILABLE_LIGHT
+                : LIGHT_TILE_ICON_UNAVAILABLE_DARK;
+        model->icon_color = lv_color_hex(unavailable_color);
+        model->icon_circle_background_color = model->icon_color;
+        model->icon_circle_background_color_light = lv_color_hex(LIGHT_TILE_ICON_UNAVAILABLE_LIGHT);
         return ESP_OK;
+    }
+
+    lv_color_t rgb_color;
+    const bool has_rgb_color = light_tile_read_rgb_color(store,
+                                                         snapshot->entity_id,
+                                                         &rgb_color);
+    if (has_rgb_color) {
+        model->icon_color = light_tile_contrast_color(rgb_color);
+        model->icon_circle_background_color = model->icon_color;
+        if (screen_theme_get() == SCREEN_THEME_LIGHT) {
+            model->icon_color =
+                light_tile_icon_color_for_light_theme(model->icon_color);
+        }
+        model->icon_circle_background_color_light = model->icon_color;
     }
 
     if (strcmp(snapshot->state, "on") == 0) {
         model->icon = MDI_SYMBOL_LIGHTBULB;
-        model->icon_color = light_entity_active_color(store,
-                                                     snapshot->entity_id);
-        model->icon_circle_background_color =
-            light_tile_icon_circle_color(model->icon_color);
+        if (!has_rgb_color) {
+            model->icon_color = lv_color_hex(LIGHT_TILE_ICON_ON);
+            model->icon_circle_background_color = model->icon_color;
+            model->icon_circle_background_color_light = model->icon_color;
+        }
 
         double brightness = 0;
         if (ha_entity_store_get_attr_number(store,

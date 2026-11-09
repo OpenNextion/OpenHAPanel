@@ -22,6 +22,8 @@ bool more_info_screen_refresh_entity(ha_entity_store_t *store,
 bool more_info_screen_is_open(void);
 /** Refresh translated content with the LVGL lock held; false asks for retry. */
 bool more_info_screen_refresh_language(void);
+/** Apply the selected theme and rebuild the visible entity content. */
+bool more_info_screen_refresh_theme(void);
 /**
  * Remove the complete visible More Info layout before the display resolution
  * changes. Call with the LVGL lock held.

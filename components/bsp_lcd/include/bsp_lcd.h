@@ -38,6 +38,11 @@ typedef enum {
 } bsp_lcd_orientation_t;
 
 esp_err_t bsp_lcd_init(void);
+/** Draw the startup page directly on the panel before LVGL is initialized. */
+esp_err_t bsp_lcd_boot_screen_show(void);
+/** True until the application has presented its first normal frame. */
+bool bsp_lcd_boot_screen_active(void);
+void bsp_lcd_boot_screen_finish(void);
 esp_err_t bsp_lcd_br_set(uint8_t br);
 /** Last brightness successfully written to the backlight PWM (0-100). */
 uint8_t bsp_lcd_br_get(void);

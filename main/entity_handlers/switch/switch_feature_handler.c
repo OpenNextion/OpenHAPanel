@@ -12,13 +12,25 @@ static const char *TAG = "switch_feature_handler";
 #define SWITCH_GLYPH_SIZE   14
 #define SWITCH_GLYPH_STROKE 2
 
+/* Light-mode toggle colours matching the switch detail page. */
+#if LV_COLOR_DEPTH < 24
+#define SWITCH_TOGGLE_TRACK_OFF_LIGHT      0xE3E3E3
+#else
+#define SWITCH_TOGGLE_TRACK_OFF_LIGHT      0xECECEC
+#endif
+#define SWITCH_TOGGLE_TRACK_ON_LIGHT       0xFFF3CD
+#define SWITCH_TOGGLE_KNOB_OFF_LIGHT       0x9E9E9E
+#define SWITCH_TOGGLE_KNOB_ON_LIGHT        0xFFC107
+#define SWITCH_TOGGLE_DISABLED_TRACK_LIGHT 0xE2E4E8
+#define SWITCH_TOGGLE_DISABLED_KNOB_LIGHT  0xCECECE
+
 static bool switch_feature_supports(ha_entity_store_t *store,
                                     const char *entity_id,
                                     screen_feature_type_t type)
 {
     (void)store;
     (void)entity_id;
-    return type == SCREEN_FEATURE_SWITCH_TOGGLE;
+    return type == SCREEN_FEATURE_TOGGLE;
 }
 
 static void toggle_changed(bool on, void *user_data)
@@ -104,13 +116,21 @@ static esp_err_t switch_feature_create(entity_feature_instance_t *instance)
 {
     if (!instance || !instance->host || !instance->entity_id ||
         !instance->config ||
-        instance->config->type != SCREEN_FEATURE_SWITCH_TOGGLE) {
+        instance->config->type != SCREEN_FEATURE_TOGGLE) {
         return ESP_ERR_INVALID_ARG;
     }
     instance->control = ha_control_toggle_create(instance->host);
     if (!instance->control) {
         return ESP_ERR_NO_MEM;
     }
+    ha_control_toggle_set_light_colors(
+        instance->control,
+        lv_color_hex(SWITCH_TOGGLE_TRACK_OFF_LIGHT),
+        lv_color_hex(SWITCH_TOGGLE_TRACK_ON_LIGHT),
+        lv_color_hex(SWITCH_TOGGLE_KNOB_OFF_LIGHT),
+        lv_color_hex(SWITCH_TOGGLE_KNOB_ON_LIGHT),
+        lv_color_hex(SWITCH_TOGGLE_DISABLED_TRACK_LIGHT),
+        lv_color_hex(SWITCH_TOGGLE_DISABLED_KNOB_LIGHT));
     ha_control_toggle_set_disabled(instance->control, true);
     ha_control_toggle_set_change_cb(instance->control, toggle_changed,
                                     instance);
@@ -129,14 +149,22 @@ static void switch_feature_update(entity_feature_instance_t *instance,
                            !entity_handler_snapshot_is_unavailable(snapshot);
     const bool on = available && strcmp(snapshot->state, "on") == 0;
     ha_control_toggle_set_active_color(instance->control,
-                                       lv_color_hex(0xF9C000));
+                                       lv_color_hex(0xFFC107));
     ha_control_toggle_set_value(instance->control, on, LV_ANIM_ON);
     ha_control_toggle_set_disabled(instance->control, !available);
     rebuild_icon(instance->control, on);
+}
+
+static void switch_feature_apply_theme(entity_feature_instance_t *instance)
+{
+    if (instance && instance->control) {
+        ha_control_toggle_refresh_theme(instance->control);
+    }
 }
 
 const entity_feature_handler_t switch_feature_handler = {
     .supports = switch_feature_supports,
     .create = switch_feature_create,
     .update = switch_feature_update,
+    .apply_theme = switch_feature_apply_theme,
 };

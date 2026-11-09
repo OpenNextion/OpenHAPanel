@@ -1,9 +1,11 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "climate_dial.h"
 #include "assets/ha_ui_assets.h"
 #include "climate_big_number.h"
 #include "climate_control_circular_slider.h"
+#include "climate_detail_theme.h"
 #include <math.h>
 #include <string.h>
 
@@ -50,12 +52,32 @@ static void refresh(climate_dial_t *dial)
         int high_width = lv_obj_get_width(dial->high_number);
         lv_obj_align(dial->low_number, LV_ALIGN_CENTER, -(high_width + 16) / 2, 0);
         lv_obj_align(dial->high_number, LV_ALIGN_CENTER, (low_width + 16) / 2, 0);
-        climate_big_number_set_text_color(dial->low_number, lv_color_hex(dial->selected_low ? 0xE1E1E1 : 0x9B9B9B));
-        climate_big_number_set_text_color(dial->high_number, lv_color_hex(dial->selected_low ? 0x9B9B9B : 0xE1E1E1));
+        climate_big_number_set_text_color(
+            dial->low_number,
+            lv_color_hex(dial->selected_low
+                             ? climate_detail_theme_color(
+                                   0xE1E1E1,
+                                   CLIMATE_DETAIL_LIGHT_TEXT_PRIMARY)
+                             : climate_detail_theme_color(
+                                   0x9B9B9B,
+                                   CLIMATE_DETAIL_LIGHT_INACTIVE)));
+        climate_big_number_set_text_color(
+            dial->high_number,
+            lv_color_hex(dial->selected_low
+                             ? climate_detail_theme_color(
+                                   0x9B9B9B,
+                                   CLIMATE_DETAIL_LIGHT_INACTIVE)
+                             : climate_detail_theme_color(
+                                   0xE1E1E1,
+                                   CLIMATE_DETAIL_LIGHT_TEXT_PRIMARY)));
     } else {
         lv_obj_add_flag(dial->high_number, LV_OBJ_FLAG_HIDDEN);
         lv_obj_align(dial->low_number, LV_ALIGN_CENTER, 0, 0);
-        climate_big_number_set_text_color(dial->low_number, lv_color_hex(0xE1E1E1));
+        climate_big_number_set_text_color(
+            dial->low_number,
+            lv_color_hex(climate_detail_theme_color(
+                0xE1E1E1,
+                CLIMATE_DETAIL_LIGHT_TEXT_PRIMARY)));
     }
 }
 
@@ -95,9 +117,9 @@ static lv_obj_t *make_number(lv_obj_t *parent)
     lv_obj_t *number = climate_big_number_create(parent);
     if (!number) return NULL;
     climate_big_number_set_unit_position(number, UNIT_POSITION_DEF_CLIMATE_BIG_NUMBER_UNIT_TOP);
-    climate_big_number_set_integer_label_text_font(number, &ha_font_misan_medium_36);
-    climate_big_number_set_decimal_label_text_font(number, &ha_font_misan_medium_16);
-    climate_big_number_set_unit_label_text_font(number, &ha_font_misan_medium_12);
+    climate_big_number_set_integer_label_text_font(number, ha_ui_font_medium(36));
+    climate_big_number_set_decimal_label_text_font(number, ha_ui_font_medium(16));
+    climate_big_number_set_unit_label_text_font(number, ha_ui_font_medium(12));
     climate_big_number_set_unit(number, "°C");
     lv_obj_add_flag(number, LV_OBJ_FLAG_CLICKABLE);
     return number;
@@ -141,8 +163,13 @@ lv_obj_t *climate_dial_create(lv_obj_t *parent)
     for (size_t i = 0; i < 2; ++i) {
         lv_obj_set_width(currents[i], 136);
         lv_obj_set_style_text_align(currents[i], LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_font(currents[i], &ha_font_misan_regular_12, 0);
-        lv_obj_set_style_text_color(currents[i], lv_color_white(), 0);
+        lv_obj_set_style_text_font(currents[i], ha_ui_font_regular(12), 0);
+        lv_obj_set_style_text_color(
+            currents[i],
+            lv_color_hex(climate_detail_theme_color(
+                0xFFFFFF,
+                CLIMATE_DETAIL_LIGHT_TEXT_SECONDARY)),
+            0);
         ui_i18n_label_set_text(currents[i], "");
     }
     lv_obj_add_flag(dial->current_humidity, LV_OBJ_FLAG_HIDDEN);
@@ -150,6 +177,12 @@ lv_obj_t *climate_dial_create(lv_obj_t *parent)
     dial->slider = climate_control_circular_slider_create(root);
     if (!dial->slider) { lv_obj_delete(root); return NULL; }
     climate_control_circular_slider_set_size(dial->slider, 210);
+    if (climate_detail_is_light_theme()) {
+        climate_control_circular_slider_set_background_track(
+            dial->slider,
+            lv_color_hex(CLIMATE_DETAIL_LIGHT_NEUTRAL),
+            LV_OPA_30);
+    }
     lv_obj_add_event_cb(dial->slider, slider_event, LV_EVENT_VALUE_CHANGED, dial);
     lv_obj_add_event_cb(dial->slider, slider_event, LV_EVENT_RELEASED, dial);
     dial->action = lv_label_create(dial->slider);
@@ -157,8 +190,13 @@ lv_obj_t *climate_dial_create(lv_obj_t *parent)
     lv_obj_set_width(dial->action, 190);
     lv_label_set_long_mode(dial->action, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_align(dial->action, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(dial->action, &ha_font_misan_regular_12, 0);
-    lv_obj_set_style_text_color(dial->action, lv_color_white(), 0);
+    lv_obj_set_style_text_font(dial->action, ha_ui_font_regular(12), 0);
+    lv_obj_set_style_text_color(
+        dial->action,
+        lv_color_hex(climate_detail_theme_color(
+            0xFFFFFF,
+            CLIMATE_DETAIL_LIGHT_TEXT_SECONDARY)),
+        0);
     lv_obj_align(dial->action, LV_ALIGN_CENTER, 0, -39);
     ui_i18n_label_set_text(dial->action, "");
     dial->number_area = lv_obj_create(dial->slider);
@@ -178,7 +216,7 @@ lv_obj_t *climate_dial_create(lv_obj_t *parent)
     lv_obj_set_width(dial->unavailable_label, 190);
     lv_label_set_long_mode(dial->unavailable_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_align(dial->unavailable_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(dial->unavailable_label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(dial->unavailable_label, ha_ui_font_medium(20), 0);
     lv_obj_set_style_text_color(dial->unavailable_label, lv_color_hex(0x9B9B9B), 0);
     lv_obj_align(dial->unavailable_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(dial->unavailable_label, LV_OBJ_FLAG_HIDDEN);

@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "ha_history_list.h"
 
@@ -7,6 +8,7 @@
 #include <string.h>
 
 #include "assets/ha_ui_assets.h"
+#include "entity_handlers/light/components/light_detail_theme.h"
 #include "sys_time_api.h"
 #include "bsp_lcd.h"
 
@@ -28,7 +30,7 @@ static lv_obj_t *history_list_create_root(lv_obj_t *parent,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(0x1E2228), 0);
+    lv_obj_set_style_bg_color(root, lv_color_hex(light_detail_theme_color(0x1E2228, LIGHT_DETAIL_LIGHT_SURFACE)), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(root, 8, 0);
 
@@ -44,9 +46,9 @@ static lv_obj_t *history_list_create_root(lv_obj_t *parent,
     lv_obj_t *title_label = lv_label_create(header);
     lv_obj_set_width(title_label, LV_PCT(100));
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_font(title_label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(title_label, ha_ui_font_medium(20), 0);
     ui_i18n_label_set_text(title_label, title && title[0] ? title : i18n_get(I18N_HISTORY_TITLE));
-    lv_obj_set_style_text_color(title_label, lv_color_white(), 0);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(light_detail_theme_color(0xFFFFFF, LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)), 0);
     return root;
 }
 
@@ -73,7 +75,7 @@ static void history_list_render_message(lv_obj_t *parent, const char *text)
     lv_obj_set_width(label, LV_PCT(100));
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     ui_i18n_label_set_text(label, text ? text : "");
-    lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(label, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_color(label, lv_color_hex(0x666666), 0);
 }
 
@@ -95,8 +97,8 @@ static lv_obj_t *history_list_create_day_group(lv_obj_t *parent,
     lv_obj_set_width(date, LV_PCT(100));
     lv_label_set_long_mode(date, LV_LABEL_LONG_WRAP);
     ui_i18n_label_set_text(date, date_text);
-    lv_obj_set_style_text_font(date, &ha_font_misan_regular_16, 0);
-    lv_obj_set_style_text_color(date, lv_color_white(), 0);
+    lv_obj_set_style_text_font(date, ha_ui_font_regular(16), 0);
+    lv_obj_set_style_text_color(date, lv_color_hex(light_detail_theme_color(0xFFFFFF, LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)), 0);
 
     lv_obj_t *records = lv_obj_create(group);
     lv_obj_remove_style_all(records);
@@ -131,7 +133,7 @@ static void history_list_create_record(lv_obj_t *parent,
     lv_obj_t *event = lv_label_create(row);
     ui_i18n_label_set_text(event, text ? text : "");
     lv_obj_set_flex_grow(event, 1);
-    lv_obj_set_style_text_font(event, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(event, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_color(event, lv_color_hex(0x666666), 0);
 
     lv_obj_t *time_label = lv_label_create(row);

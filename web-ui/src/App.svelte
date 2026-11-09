@@ -126,7 +126,7 @@
     });
 </script>
 
-<svelte:head><title>{$_('app.name')} · {$_('app.subtitle')}</title></svelte:head>
+<svelte:head><title>{$_('app.name')}</title></svelte:head>
 {#if hasTopTips}
     <div class:with-sidebar={($authStore.loggedIn && !showWifiSetup) || sidebarOpen} class="app-top-tips"><TopTips /></div>
 {/if}

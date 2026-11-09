@@ -152,7 +152,7 @@ static esp_err_t validate_badges(const cJSON *screen)
 
 static esp_err_t validate_feature(const cJSON *feature)
 {
-    const char *allowed[] = {"light-brightness", "light-color-temp", "cover-open-close", "cover-position", "switch-toggle", "siren-toggle", "scene-press", "button-press"};
+    const char *allowed[] = {"light-brightness", "light-color-temp", "cover-open-close", "cover-position", "toggle", "button", "trend-graph", "climate-hvac-modes", "climate-fan-modes", "climate-preset-modes", "climate-swing-modes", "climate-swing-horizontal-modes"};
     if (!cJSON_IsObject(feature)) {
         ESP_LOGE(TAG, "Invalid feature");
         return ESP_FAIL;
@@ -168,6 +168,27 @@ static esp_err_t validate_feature(const cJSON *feature)
     if (!is_optional_null(data) && !cJSON_IsObject(data)) {
         ESP_LOGE(TAG, "Invalid feature data");
         return ESP_FAIL;
+    }
+
+    if (strncmp(type->valuestring, "climate-", 8) == 0 && cJSON_IsObject(data)) {
+        const cJSON *style = cJSON_GetObjectItemCaseSensitive(data, "style");
+        if (!is_optional_null(style) &&
+            (!is_string_value(style) ||
+             (strcmp(style->valuestring, "icons") != 0 &&
+              strcmp(style->valuestring, "dropdown") != 0))) {
+            ESP_LOGE(TAG, "Invalid climate feature style");
+            return ESP_FAIL;
+        }
+    }
+
+    if (strcmp(type->valuestring, "trend-graph") == 0 && cJSON_IsObject(data)) {
+        const cJSON *hours = cJSON_GetObjectItemCaseSensitive(data, "hours");
+        if (hours && !cJSON_IsNull(hours) &&
+            (!cJSON_IsNumber(hours) || hours->valuedouble != (double)hours->valueint ||
+             hours->valueint < 1 || hours->valueint > 168)) {
+            ESP_LOGE(TAG, "Invalid trend-graph hours");
+            return ESP_FAIL;
+        }
     }
 
     return ESP_OK;
@@ -216,7 +237,9 @@ static esp_err_t validate_tile_card_data(const cJSON *data)
 
     const cJSON *position = cJSON_GetObjectItemCaseSensitive(data, "features_position");
     if (!is_optional_null(position) &&
-        (!is_string_value(position) || strcmp(position->valuestring, "bottom") != 0)) {
+        (!is_string_value(position) ||
+         (strcmp(position->valuestring, "bottom") != 0 &&
+          strcmp(position->valuestring, "inline") != 0))) {
         ESP_LOGE(TAG, "Invalid features_position");
         return ESP_FAIL;
     }

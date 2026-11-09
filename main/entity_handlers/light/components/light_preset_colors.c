@@ -1,4 +1,6 @@
 #include "light_preset_colors.h"
+#include "light_detail_theme.h"
+#include "screen_theme.h"
 
 #define LIGHT_PRESET_COLOR_COUNT  8
 #define LIGHT_PRESET_COLUMNS      4
@@ -58,11 +60,21 @@ static void light_preset_colors_set_button_geometry(lv_obj_t *button,
     lv_obj_set_size(button, size, size);
 }
 
+static bool light_preset_color_needs_border(light_rgb_t color)
+{
+    const uint8_t min_ch = LV_MIN(color.red,
+                                   LV_MIN(color.green, color.blue));
+    const uint8_t max_ch = LV_MAX(color.red,
+                                   LV_MAX(color.green, color.blue));
+    return min_ch >= 200 && (max_ch - min_ch) <= 60;
+}
+
 static void light_preset_colors_refresh(light_preset_colors_context_t *context)
 {
     if (!context) {
         return;
     }
+    const bool light_theme = light_detail_is_light_theme();
     for (size_t i = 0; i < LIGHT_PRESET_COLOR_COUNT; i++) {
         lv_obj_t *button = context->buttons[i];
         if (i < context->count) {
@@ -73,11 +85,34 @@ static void light_preset_colors_refresh(light_preset_colors_context_t *context)
                               context->colors[i].display_rgb.green,
                               context->colors[i].display_rgb.blue),
                 0);
+            if (light_theme &&
+                light_preset_color_needs_border(
+                    context->colors[i].display_rgb)) {
+                const light_rgb_t c = context->colors[i].display_rgb;
+                const lv_color_t border_color =
+                    lv_color_make((uint8_t)((uint16_t)c.red * 224 / 255),
+                                  (uint8_t)((uint16_t)c.green * 224 / 255),
+                                  (uint8_t)((uint16_t)c.blue * 224 / 255));
+                lv_obj_set_style_border_width(button, 2, 0);
+                lv_obj_set_style_border_color(button, border_color, 0);
+                lv_obj_set_style_border_opa(button, LV_OPA_COVER, 0);
+                lv_obj_set_style_border_width(button, 2,
+                                              LV_STATE_PRESSED);
+                lv_obj_set_style_border_color(button, border_color,
+                                              LV_STATE_PRESSED);
+                lv_obj_set_style_border_opa(button, LV_OPA_COVER,
+                                            LV_STATE_PRESSED);
+            }
+            else {
+                lv_obj_set_style_border_width(button, 0, 0);
+                lv_obj_set_style_border_width(button, 0,
+                                              LV_STATE_PRESSED);
+            }
         }
         else {
             lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_border_width(button, 0, 0);
         }
-        lv_obj_set_style_border_width(button, 0, 0);
         if (context->disabled) {
             lv_obj_add_state(button, LV_STATE_DISABLED);
         }

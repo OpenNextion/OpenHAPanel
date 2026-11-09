@@ -1,7 +1,8 @@
 import { cloneDeep } from 'lodash-es';
 import { writable } from 'svelte/store';
 import { HASS_ENTITY_SUPPORT_CONFIG } from '@/constant';
-import type { IHassScreenActionConfig, IHassScreenConfigBadge, IHassScreenConfigCard, IHassScreenConfigItem } from '@/types/screenConfig';
+import { normalizeTileFeaturePosition, type TTileFeaturePosition } from '@/constant/tileFeaturePosition';
+import type { IHassScreenActionConfig, IHassScreenConfigBadge, IHassScreenConfigCard, IHassScreenConfigFeature, IHassScreenConfigItem } from '@/types/screenConfig';
 
 interface IScreenConfigStore {
     screens: IHassScreenConfigItem[];
@@ -25,7 +26,7 @@ function normalizeScreens(screens: IHassScreenConfigItem[]) {
     return screens.map((screen) => ({
         ...screen,
         columns: Number.isInteger(screen.columns) && screen.columns > 0 ? screen.columns : 1,
-        cards: screen.cards?.map((card) => ({ ...card, data: { ...card.data, full_width: card.data.full_width ?? true } })),
+        cards: screen.cards?.map((card) => ({ ...card, data: normalizeTileFeaturePosition({ ...card.data, full_width: card.data.full_width ?? true }) })),
     }));
 }
 
@@ -151,7 +152,7 @@ export function updateScreenCardActionConfig(index: number, entityId: string, ac
     }));
 }
 
-export function updateScreenCard(index: number, currentEntityId: string, entityId: string, actionConfig: IHassScreenActionConfig, fullWidth?: boolean) {
+export function updateScreenCard(index: number, currentEntityId: string, entityId: string, actionConfig: IHassScreenActionConfig, fullWidth?: boolean, features?: IHassScreenConfigFeature[], featuresPosition?: TTileFeaturePosition) {
     screenConfigStore.update((store) => ({
         ...store,
         screens: store.screens.map((screen) =>
@@ -167,6 +168,8 @@ export function updateScreenCard(index: number, currentEntityId: string, entityI
                                         entity: entityId,
                                         actionConfig: cloneDeep(actionConfig),
                                         ...(fullWidth === undefined ? {} : { full_width: fullWidth }),
+                                        ...(features === undefined ? {} : { features: cloneDeep(features) }),
+                                        ...(featuresPosition === undefined ? {} : { features_position: featuresPosition === 'inline' ? 'inline' as const : undefined }),
                                     },
                                 }
                               : card,

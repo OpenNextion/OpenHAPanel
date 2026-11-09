@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "screen_device_info.h"
 
@@ -569,7 +570,7 @@ static void screen_device_info_apply_clear_style(lv_obj_t *obj)
 static void screen_device_info_apply_bold_text(lv_obj_t *label, lv_color_t color)
 {
     lv_obj_set_style_text_color(label, color, 0);
-    lv_obj_set_style_text_font(label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(label, ha_ui_font_medium(20), 0);
 }
 
 static lv_obj_t *screen_device_info_create_info_card(lv_obj_t *parent,
@@ -620,22 +621,22 @@ static lv_obj_t *screen_device_info_create_info_card(lv_obj_t *parent,
     lv_obj_t *value_label = lv_label_create(values);
     lv_obj_set_size(value_label,
                     LV_PCT(100),
-                    lv_font_get_line_height(&ha_font_misan_regular_16));
+                    lv_font_get_line_height(ha_ui_font_regular(16)));
     lv_label_set_long_mode(value_label, LV_LABEL_LONG_DOT);
     ui_i18n_label_set_text(value_label, value ? value : "");
     lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_style_text_color(value_label, lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR), 0);
-    lv_obj_set_style_text_font(value_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(value_label, ha_ui_font_regular(16), 0);
 
     lv_obj_t *detail_label = lv_label_create(values);
     lv_obj_set_size(detail_label,
                     LV_PCT(100),
-                    lv_font_get_line_height(&ha_font_misan_regular_16));
+                    lv_font_get_line_height(ha_ui_font_regular(16)));
     lv_label_set_long_mode(detail_label, LV_LABEL_LONG_DOT);
     ui_i18n_label_set_text(detail_label, detail ? detail : "");
     lv_obj_set_style_text_align(detail_label, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_style_text_color(detail_label, lv_color_hex(SCREEN_DEVICE_INFO_SECONDARY_COLOR), 0);
-    lv_obj_set_style_text_font(detail_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(detail_label, ha_ui_font_regular(16), 0);
 
     if (title_label_out) {
         *title_label_out = label_obj;
@@ -699,7 +700,7 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
     lv_obj_set_style_text_color(view->version_value_label,
                                 lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR),
                                 0);
-    lv_obj_set_style_text_font(view->version_value_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(view->version_value_label, ha_ui_font_regular(16), 0);
 
     view->update_result_row = lv_obj_create(card);
     screen_device_info_apply_clear_style(view->update_result_row);
@@ -719,7 +720,7 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
                                 lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR),
                                 0);
     lv_obj_set_style_text_font(view->up_to_date_label,
-                               &ha_font_misan_regular_16,
+                               ha_ui_font_regular(16),
                                0);
     lv_obj_align(view->up_to_date_label, LV_ALIGN_LEFT_MID, 32, 0);
 
@@ -739,7 +740,7 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
                                 lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR),
                                 0);
     lv_obj_set_style_text_font(view->available_version_label,
-                               &ha_font_misan_regular_16,
+                               ha_ui_font_regular(16),
                                0);
     lv_obj_align(view->available_version_label, LV_ALIGN_LEFT_MID, 14, 0);
 
@@ -751,7 +752,7 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
                                 lv_color_hex(SCREEN_DEVICE_INFO_BUTTON_COLOR),
                                 0);
     lv_obj_set_style_text_font(view->upgrade_label,
-                               &ha_font_misan_regular_16,
+                               ha_ui_font_regular(16),
                                0);
     lv_obj_align(view->upgrade_label, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_add_flag(view->upgrade_label, LV_OBJ_FLAG_CLICKABLE);
@@ -773,7 +774,7 @@ static void screen_device_info_create_version_card(screen_device_info_t *view,
                                 lv_color_hex(SCREEN_DEVICE_INFO_PRIMARY_COLOR),
                                 0);
     lv_obj_set_style_text_font(view->check_failed_label,
-                               &ha_font_misan_regular_16,
+                               ha_ui_font_regular(16),
                                0);
     lv_obj_align(view->check_failed_label, LV_ALIGN_LEFT_MID, 32, 0);
 

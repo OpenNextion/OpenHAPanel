@@ -1,6 +1,7 @@
 #include <inttypes.h>
 
 #include "driver/i2c_master.h"
+#include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "driver/spi_common.h"
 #include "esp_check.h"
@@ -16,6 +17,8 @@
 #include "esp_lvgl_port.h"
 #include "esp_lvgl_port_disp.h"
 #include "esp_lvgl_port_touch.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "bsp_lcd.h"
 #include "exio_pcf8574.h"
 #include "lcd_st7796u.h"
@@ -24,6 +27,11 @@
 #define LVGL_TASK_STACK_SIZE (12 * 1024)
 #define LVGL_EXTRA_MEMORY_POOL_COUNT 2U
 #define LVGL_EXTRA_MEMORY_POOL_SIZE  (256U * 1024U)
+#define BOOT_TEXT_SCALE 3
+#define BOOT_GLYPH_WIDTH 5
+#define BOOT_GLYPH_HEIGHT 7
+#define BOOT_GLYPH_ADVANCE 6
+#define BOOT_TEXT_LENGTH 11
 
 static esp_err_t bsp_lcd_i2c_init(void);
 static esp_err_t bsp_lcd_spi_init(void);
@@ -54,18 +62,119 @@ static lv_indev_t *s_lvgl_touch = NULL;
 
 static void *s_lvgl_extra_memory_pools[LVGL_EXTRA_MEMORY_POOL_COUNT];
 static bool s_lcd_flush_faulted;
+static bool s_lcd_hardware_ready;
+static bool s_boot_screen_active;
+
+/* 5x7 bitmap for "OpenHAPanel"; independent of LVGL and the TTF file. */
+static const uint8_t s_boot_text[BOOT_TEXT_LENGTH][BOOT_GLYPH_HEIGHT] = {
+    {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E}, /* O */
+    {0x00, 0x00, 0x1E, 0x11, 0x1E, 0x10, 0x10}, /* p */
+    {0x00, 0x00, 0x0E, 0x11, 0x1F, 0x10, 0x0E}, /* e */
+    {0x00, 0x00, 0x1E, 0x11, 0x11, 0x11, 0x11}, /* n */
+    {0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}, /* H */
+    {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}, /* A */
+    {0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10}, /* P */
+    {0x00, 0x00, 0x0E, 0x01, 0x0F, 0x11, 0x0F}, /* a */
+    {0x00, 0x00, 0x1E, 0x11, 0x11, 0x11, 0x11}, /* n */
+    {0x00, 0x00, 0x0E, 0x11, 0x1F, 0x10, 0x0E}, /* e */
+    {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x0E}, /* l */
+};
+
+static esp_err_t bsp_lcd_boot_screen_draw(void)
+{
+    const size_t pixel_count = LCD_H_RES * LCD_FLUSH_LINES;
+    uint16_t *pixels = heap_caps_aligned_alloc(64, pixel_count * sizeof(*pixels),
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+    if (!pixels) return ESP_ERR_NO_MEM;
+
+    const int text_width = (BOOT_TEXT_LENGTH * BOOT_GLYPH_ADVANCE - 1) * BOOT_TEXT_SCALE;
+    const int text_height = BOOT_GLYPH_HEIGHT * BOOT_TEXT_SCALE;
+    const int text_x = (LCD_H_RES - text_width) / 2;
+    const int text_y = (LCD_V_RES - text_height) / 2;
+    /* RGB565 rounds 0x010203 to black on this 16-bit panel. */
+    const uint16_t background = 0x0000;
+    const uint16_t foreground = 0xFFFF;
+    esp_err_t err = ESP_OK;
+
+    for (int top = 0; top < LCD_V_RES; top += LCD_FLUSH_LINES) {
+        for (int row = 0; row < LCD_FLUSH_LINES; ++row) {
+            const int y = top + row - text_y;
+            for (int x = 0; x < LCD_H_RES; ++x) {
+                bool text_pixel = false;
+                const int tx = x - text_x;
+                if (y >= 0 && y < text_height && tx >= 0 && tx < text_width) {
+                    const int glyph = tx / (BOOT_GLYPH_ADVANCE * BOOT_TEXT_SCALE);
+                    const int column = (tx / BOOT_TEXT_SCALE) % BOOT_GLYPH_ADVANCE;
+                    if (column < BOOT_GLYPH_WIDTH) {
+                        text_pixel = (s_boot_text[glyph][y / BOOT_TEXT_SCALE] &
+                                      (1U << (BOOT_GLYPH_WIDTH - 1 - column))) != 0;
+                    }
+                }
+                pixels[row * LCD_H_RES + x] = text_pixel ? foreground : background;
+            }
+        }
+        err = esp_lcd_panel_draw_bitmap(s_lcd_panel_handle, 0, top,
+                                        LCD_H_RES, top + LCD_FLUSH_LINES, pixels);
+        if (err != ESP_OK) break;
+        /* draw_bitmap queues DMA. Wait before rewriting this shared strip. */
+        err = esp_lcd_panel_io_tx_param(s_lcd_io_handle, -1, NULL, 0);
+        if (err != ESP_OK) break;
+    }
+    /* Also drain a transaction if a strip failed after being queued. */
+    esp_err_t wait_err = esp_lcd_panel_io_tx_param(s_lcd_io_handle, -1, NULL, 0);
+    if (err == ESP_OK) err = wait_err;
+    heap_caps_free(pixels);
+    return err;
+}
+
+esp_err_t bsp_lcd_boot_screen_show(void)
+{
+    /* The panel may retain its old GRAM contents across an ESP reset. Drive
+     * the backlight low before any slower peripheral initialization. */
+    ESP_RETURN_ON_ERROR(gpio_set_level(LCD_BL_PIN, 0), TAG, "Set backlight low failed");
+    ESP_RETURN_ON_ERROR(gpio_set_direction(LCD_BL_PIN, GPIO_MODE_OUTPUT),
+                        TAG, "Disable backlight GPIO failed");
+    if (!s_lcd_hardware_ready) {
+        ESP_RETURN_ON_ERROR(bsp_lcd_i2c_init(), TAG, "Init boot screen I2C failed");
+        ESP_RETURN_ON_ERROR(exio_pcf8574_init(), TAG, "Init boot screen IO expander failed");
+        ESP_RETURN_ON_ERROR(bsp_lcd_br_init(), TAG, "Init boot screen backlight failed");
+        ESP_RETURN_ON_ERROR(bsp_lcd_br_set(0), TAG, "Disable boot screen backlight failed");
+        ESP_RETURN_ON_ERROR(bsp_lcd_spi_init(), TAG, "Init boot screen LCD failed");
+        s_lcd_hardware_ready = true;
+    }
+    ESP_RETURN_ON_ERROR(bsp_lcd_boot_screen_draw(), TAG, "Draw boot screen failed");
+    /* SPI completion does not mean the panel has scanned the new GRAM data.
+     * Match the settle time used before enabling the backlight on master. */
+    vTaskDelay(pdMS_TO_TICKS(50));
+    ESP_RETURN_ON_ERROR(bsp_lcd_br_set(50), TAG, "Enable boot screen backlight failed");
+    s_boot_screen_active = true;
+    return ESP_OK;
+}
+
+bool bsp_lcd_boot_screen_active(void)
+{
+    return s_boot_screen_active;
+}
+
+void bsp_lcd_boot_screen_finish(void)
+{
+    s_boot_screen_active = false;
+}
 
 esp_err_t bsp_lcd_init(void)
 {
-    ESP_ERROR_CHECK(bsp_lcd_i2c_init());
-    ESP_ERROR_CHECK(exio_pcf8574_init());
-    ESP_ERROR_CHECK(bsp_lcd_br_init());
-    ESP_ERROR_CHECK(bsp_lcd_br_set(0));
-    ESP_ERROR_CHECK(bsp_lcd_spi_init());
+    if (!s_lcd_hardware_ready) {
+        ESP_ERROR_CHECK(bsp_lcd_i2c_init());
+        ESP_ERROR_CHECK(exio_pcf8574_init());
+        ESP_ERROR_CHECK(bsp_lcd_br_init());
+        ESP_ERROR_CHECK(bsp_lcd_br_set(0));
+        ESP_ERROR_CHECK(bsp_lcd_spi_init());
+        s_lcd_hardware_ready = true;
+    }
     ESP_ERROR_CHECK(bsp_lcd_touch_init());
     ESP_ERROR_CHECK(bsp_lcd_lvgl_init());
 
-    /* Keep the backlight off until the application has rendered its first frame. */
+    /* The native boot screen keeps the backlight on until the first UI frame. */
 
     ESP_LOGI(TAG, "Init BSP LCD success");
     return ESP_OK;
@@ -208,6 +317,10 @@ static esp_err_t bsp_lcd_spi_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_lcd_panel_handle), TAG, "Init LCD panel failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_invert_color(s_lcd_panel_handle, false), TAG, "Invert LCD panel color failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_lcd_panel_handle, true), TAG, "Turn LCD panel ON failed");
+    /* Match the LVGL display's initial mirror setting before the native boot
+     * frame is drawn, so the text is not reflected on the physical panel. */
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_lcd_panel_handle, true, false),
+                        TAG, "Set initial LCD mirror failed");
 
     return ESP_OK;
 }
@@ -296,7 +409,19 @@ static esp_err_t bsp_lcd_lvgl_init(void)
 {
     lvgl_port_cfg_t port_conf = ESP_LVGL_PORT_INIT_CONFIG();
     port_conf.task_stack = LVGL_TASK_STACK_SIZE;
-    ESP_RETURN_ON_ERROR(lvgl_port_init(&port_conf), TAG, "Init LVGL port failed");
+    /* LVGL event handlers can write NVS/flash. Their stack must stay in
+     * internal RAM while the flash cache is disabled. */
+    port_conf.task_stack_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    esp_err_t err = lvgl_port_init(&port_conf);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LVGL task init failed: %s; internal free=%u largest=%u, PSRAM free=%u largest=%u",
+                 esp_err_to_name(err),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        return err;
+    }
     ESP_RETURN_ON_ERROR(bsp_lcd_lvgl_add_extra_memory_pool(),
                         TAG,
                         "Add LVGL PSRAM memory pool failed");
@@ -322,8 +447,14 @@ static esp_err_t bsp_lcd_lvgl_init(void)
             .swap_bytes = true,
         },
     };
+    /* add_disp creates a default white screen. Hold the recursive LVGL lock
+     * through callback replacement so its task cannot flush that screen. */
+    if (!lvgl_port_lock(0)) {
+        return ESP_ERR_TIMEOUT;
+    }
     s_lvgl_display = lvgl_port_add_disp(&disp_conf);
     if (s_lvgl_display == NULL) {
+        lvgl_port_unlock();
         ESP_LOGE(TAG, "Init LCD LVGL display failed");
         return ESP_FAIL;
     }
@@ -333,9 +464,6 @@ static esp_err_t bsp_lcd_lvgl_init(void)
      * not guaranteed to release the current LVGL flush and taskLVGL can remain
      * in wait_for_flushing() until the watchdog fires. Keep the port's normal
      * transfer-complete callback, but use a checked flush callback here. */
-    if (!lvgl_port_lock(0)) {
-        return ESP_ERR_TIMEOUT;
-    }
     lv_display_set_flush_cb(s_lvgl_display, bsp_lcd_lvgl_flush_cb);
     lvgl_port_unlock();
 
@@ -360,6 +488,13 @@ static void bsp_lcd_lvgl_flush_cb(lv_display_t *display,
         if (display) {
             lv_display_flush_ready(display);
         }
+        return;
+    }
+
+    /* Keep the native startup frame visible until the application has built
+     * its first normal LVGL page. */
+    if (s_boot_screen_active) {
+        lv_display_flush_ready(display);
         return;
     }
 

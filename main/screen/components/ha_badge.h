@@ -18,12 +18,13 @@ void ha_badge_set_icon(lv_obj_t *obj, const char *icon);
 void ha_badge_set_text(lv_obj_t *obj, const char *text);
 void ha_badge_set_icon_color(lv_obj_t *obj, lv_color_t color);
 void ha_badge_set_text_color(lv_obj_t *obj, lv_color_t color);
+void ha_badge_set_unavailable(lv_obj_t *obj, bool unavailable);
+void ha_badge_apply_theme(lv_obj_t *obj);
 void ha_badge_set_body_clickable(lv_obj_t *obj, bool clickable);
 void ha_badge_set_body_click_cb(lv_obj_t *obj, ha_badge_action_cb_t callback,
                                 void *user_data);
 void ha_badge_set_body_hold_cb(lv_obj_t *obj, ha_badge_action_cb_t callback,
                                void *user_data);
-void ha_badge_stop_ripple(lv_obj_t *obj);
 
 #ifdef __cplusplus
 }

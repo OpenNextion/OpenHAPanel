@@ -16,7 +16,8 @@ import {
     updateScreenCard,
 } from '@/stores/screenConfig';
 import type { IHassRegistryTreeArea, IHassRegistryTreeDevice, IHassRegistryTreeEntity } from '@/types/haRegistry';
-import type { IHassScreenActionConfig, THassScreenAction } from '@/types/screenConfig';
+import type { IHassScreenActionConfig, IHassScreenConfigFeature, THassScreenAction } from '@/types/screenConfig';
+import type { TTileFeaturePosition } from '@/constant/tileFeaturePosition';
 
 export type TEntityPickerMode = 'badge' | 'entity';
 export type TActionSelection = THassActionSelection;
@@ -60,7 +61,7 @@ function toScreenActionItem(action: TActionSelection) {
     return resolvedAction ? { action: resolvedAction } : undefined;
 }
 
-export function addEntityToScreen(screenIndex: number, mode: TEntityPickerMode, entity: IHassRegistryTreeEntity) {
+export function addEntityToScreen(screenIndex: number, mode: TEntityPickerMode, entity: IHassRegistryTreeEntity, features: IHassScreenConfigFeature[] = []) {
     if (mode === 'badge') {
         addScreenBadge(screenIndex, {
             type: 'entity',
@@ -72,8 +73,9 @@ export function addEntityToScreen(screenIndex: number, mode: TEntityPickerMode, 
         type: 'tile',
         data: {
             entity: entity.id,
-            full_width: false,
+            full_width: get(deviceStore).screenRotation.rotation !== 90,
             actionConfig: createDefaultScreenActionConfig(),
+            ...(features.length ? { features } : {}),
         },
     });
 }
@@ -88,6 +90,8 @@ export function saveScreenEntitySettings(
     hold: TActionSelection,
     iconTap: TActionSelection,
     fullWidth?: boolean,
+    features?: IHassScreenConfigFeature[],
+    featuresPosition?: TTileFeaturePosition,
 ) {
     const actionConfig = {
         tap_action: toScreenActionItem(tap),
@@ -98,7 +102,7 @@ export function saveScreenEntitySettings(
         updateScreenBadge(screenIndex, currentEntityId, entityId, name, actionConfig);
         return;
     }
-    updateScreenCard(screenIndex, currentEntityId, entityId, actionConfig, fullWidth);
+    updateScreenCard(screenIndex, currentEntityId, entityId, actionConfig, fullWidth, features, featuresPosition);
 }
 
 export function deleteScreenEntity(mode: TEntityPickerMode, screenIndex: number, entityId: string) {

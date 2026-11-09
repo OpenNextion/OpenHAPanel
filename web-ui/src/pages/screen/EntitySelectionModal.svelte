@@ -5,6 +5,8 @@
     import Modal from '@/component/Modal/Modal.svelte';
     import { addEntityToScreen, searchScreenEntities, type TEntityPickerMode } from '@/hooks/useScreenConfiguration';
     import { getHassEntityPresentation } from '@/hooks/useHassEntity';
+    import { getTileFeatureSuggestions } from '@/constant/tileFeatureRules';
+    import type { IHassScreenConfigFeature } from '@/types/screenConfig';
     import { haRegistryStore, haRegistryTreeStore } from '@/stores/haRegistry';
     import { homeAssistantStore } from '@/stores/homeassistant';
     import { isHomeAssistantAvailable } from '@/hooks/useHomeAssistant.svelte';
@@ -27,6 +29,7 @@
     });
     const selectedEntityPresentation = $derived(selectedEntity ? getHassEntityPresentation(selectedEntity.id, $haRegistryStore, { variant: mode }) : null);
     const selectedEntitySupported = $derived(selectedEntityPresentation?.supported ?? false);
+    const selectedEntitySuggestions = $derived(selectedEntity ? getTileFeatureSuggestions(selectedEntity.id, $haRegistryStore.statesById.get(selectedEntity.id)) : []);
 
     $effect(() => {
         if (visible && !wasVisible) {
@@ -42,10 +45,10 @@
         wasVisible = visible;
     });
 
-    function addSelected() {
+    function addSelected(features: IHassScreenConfigFeature[] = []) {
         if (screenIndex === null || !selectedEntity) return;
         if (!selectedEntitySupported) return;
-        addEntityToScreen(screenIndex, mode, selectedEntity);
+        addEntityToScreen(screenIndex, mode, selectedEntity, features);
         onclose();
     }
 
@@ -204,16 +207,31 @@
                     {#if selectedEntity}<span class="preview-title">{$_('page.screen.suggestions')}</span>{/if}
                     <div
                         class:badge-preview={mode === 'badge'}
+                        class:multiple-tile-previews={mode === 'entity' && selectedEntitySuggestions.length > 1}
                         class:unsupported-preview={selectedEntity !== null && !selectedEntitySupported}
                         class="preview-surface"
                     >
-                        {#if selectedEntity && selectedEntitySupported}<div class="entity-detail-preview">
-                                <HassEntityRow
-                                    variant={mode}
-                                    entityId={selectedEntity.id}
-                                    onclick={addSelected}
-                                />
-                            </div>
+                        {#if selectedEntity && selectedEntitySupported}
+                            {#if mode === 'entity' && selectedEntitySuggestions.length > 1}
+                                <div class="tile-suggestions">
+                                    {#each selectedEntitySuggestions as suggestion (suggestion.id)}
+                                        <div class="tile-suggestion">
+                                            <span class="tile-suggestion-title">Tile{suggestion.labelKey ? ` - ${$_(suggestion.labelKey)}` : ''}</span>
+                                            <HassEntityRow
+                                                entityId={selectedEntity.id}
+                                                features={suggestion.features}
+                                                onclick={() => addSelected(suggestion.features)}
+                                                onFeatureToggle={() => addSelected(suggestion.features)}
+                                                onFeatureActivate={() => addSelected(suggestion.features)}
+                                            />
+                                        </div>
+                                    {/each}
+                                </div>
+                            {:else}
+                                <div class:single-tile-preview={mode === 'entity'} class="entity-detail-preview">
+                                    <HassEntityRow variant={mode} entityId={selectedEntity.id} onclick={() => addSelected()} />
+                                </div>
+                            {/if}
                         {:else if selectedEntity}
                             <div class="unsupported-entity"><strong>{$_('page.screen.entityNotSupported')}</strong></div>
                         {:else}<span class="pick-entity-placeholder">{$_('page.screen.pickEntityHint')}</span>{/if}
@@ -228,7 +246,6 @@
     .entity-picker {
         --entity-selection-bg: var(--body-inner-level-2);
         --selected-preview-bg: rgba(250, 250, 250, 1);
-        --modal-badge-bg: rgb(47, 47, 47);
         --unsupported-preview-bg: #f8f8f8;
         --picker-mobile-section-bg: rgb(241, 241, 241);
         --picker-text: var(--bs-body-color);
@@ -241,7 +258,7 @@
         --picker-caption-size: 0.75rem;
         box-sizing: border-box;
         display: flex;
-        width: min(50rem, calc(100vw - 2rem));
+        width: min(62.5rem, calc(100vw - 2rem));
         height: min(39.1875rem, calc(100dvh - 2rem));
         overflow: hidden;
         flex-direction: column;
@@ -252,7 +269,7 @@
     }
     :global([data-bs-theme='dark']) .entity-picker {
         --entity-selection-bg: #454545;
-        --selected-preview-bg: rgba(28, 28, 28, 1);
+        --selected-preview-bg: rgba(17, 17, 17, 1);
         --unsupported-preview-bg: #1d1d1d;
         --picker-mobile-section-bg: transparent;
         --body-inner-level-2: #303132;
@@ -294,7 +311,7 @@
         display: grid;
         min-height: 0;
         flex: 1 1 auto;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: 350px 650px;
     }
     aside {
         display: flex;
@@ -507,15 +524,41 @@
         min-height: 5.25rem;
         padding-block: 1.6875rem;
     }
-    .preview-surface :global(.hass-entity-row:not(.badge)) {
-        border: 0;
-        background: #1e2329;
+    .has-selection .preview-surface.multiple-tile-previews {
+        padding: 0;
+        background: transparent;
+    }
+    .tile-suggestions {
+        display: grid;
+        width: 100%;
+        min-width: 0;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+    .tile-suggestion {
+        display: flex;
+        min-width: 0;
+        min-height: 10rem;
+        padding: 0.75rem;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        border: 0.0625rem solid var(--picker-border);
+        border-radius: 0.75rem;
+        background: var(--selected-preview-bg);
+    }
+    .tile-suggestion-title {
+        color: var(--picker-text);
+        text-align: center;
+    }
+    .tile-suggestion :global(.hass-entity-row) {
+        width: 100%;
     }
     .preview-surface :global(.hass-entity-row.badge) {
         min-height: 1.875rem;
         padding: 0.1875rem 0.5rem;
         border-radius: 1rem;
-        background: var(--modal-badge-bg);
     }
     .preview-surface :global(.badge-value) {
         font-size: 0.875rem;
@@ -530,6 +573,14 @@
         width: 100%;
         min-width: 0;
         justify-content: center;
+    }
+    .entity-detail-preview.single-tile-preview {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .entity-detail-preview.single-tile-preview :global(.hass-entity-row) {
+        width: 100%;
+        margin-inline: 0;
     }
     .mobile-selected-title,
     .mobile-selected-entity,
@@ -548,9 +599,24 @@
         color: var(--bs-warning);
         font-size: 2rem;
     }
+    @media (max-width: 64.5rem) {
+        .entity-picker-body {
+            grid-template-columns: minmax(0, 7fr) minmax(0, 13fr);
+        }
+    }
     @media (max-width: 43.75rem) {
+        .entity-detail-preview.single-tile-preview {
+            grid-template-columns: minmax(0, 1fr);
+        }
+        .entity-detail-preview.single-tile-preview :global(.hass-entity-row) {
+            width: min(100%, 17.5rem);
+            margin-inline: auto;
+        }
+        .tile-suggestions {
+            grid-template-columns: minmax(0, 1fr);
+        }
         .entity-picker {
-            width: 100vw;
+            width: 100%;
             max-width: 100%;
             height: min(42.875rem, calc(100dvh - 1rem));
             border-radius: 1.25rem 1.25rem 0 0;
@@ -559,6 +625,8 @@
             padding-inline: 0.75rem;
         }
         .entity-picker-body {
+            width: 100%;
+            min-width: 0;
             grid-template-columns: minmax(0, 1fr);
         }
         .entity-search {

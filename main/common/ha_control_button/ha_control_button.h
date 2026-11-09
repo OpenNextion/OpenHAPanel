@@ -12,5 +12,6 @@ void ha_control_button_set_disabled(lv_obj_t *obj, bool disabled);
 void ha_control_button_set_press_cb(lv_obj_t *obj,
                                     ha_control_button_press_cb_t callback,
                                     void *user_data);
+void ha_control_button_refresh_theme(lv_obj_t *obj);
 
 #endif

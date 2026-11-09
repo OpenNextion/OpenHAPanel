@@ -1,7 +1,6 @@
 {
     "app": {
-        "name": "OpenNextion",
-        "subtitle": "기기 콘솔"
+        "name": "OpenHAPanel"
     },
     "firmwareUpdate": {
         "operationBlocked": "기기 업데이트 중에는 일시적으로 사용할 수 없습니다."
@@ -98,11 +97,19 @@
             "entity": "엔티티",
             "interactions": "상호 작용",
             "features": "기능",
+            "featuresPosition": "기능 위치",
+            "featuresPositionBottom": "아래",
+            "featuresPositionBottomHint": "모든 기능을 아래로 쌓아 표시합니다",
+            "featuresPositionInline": "나란히",
+            "featuresPositionInlineHint": "이름 옆부터 기능을 두 열로 표시합니다",
             "tapBehavior": "탭 동작",
             "iconTapBehavior": "아이콘 탭 동작",
             "longPressBehavior": "길게 누르기 동작",
             "actionMoreInfo": "자세한 정보",
             "actionToggle": "전환",
+            "actionButton": "동작 버튼",
+            "actionActivate": "활성화",
+            "actionPress": "누르기",
             "actionNothing": "동작 없음",
             "actionDefault": "기본값",
             "config": "구성",
@@ -114,9 +121,9 @@
             "comingSoon": "곧 제공 예정",
             "entityNotSupported": "이 엔티티는 아직 지원되지 않습니다",
             "connectHaFirst": "먼저 Home Assistant에 연결하세요.",
-            "connectHa": "Home Assistant에 연결",
-            "connectHaHint": "웹 콘솔에서 HA를 설정하세요",
-            "noContent": "콘텐츠가 없습니다. 웹 콘솔 > 화면 관리에서 엔티티를 추가하세요",
+            "connectHa": "Home Assistant 연결",
+            "connectHaHint": "웹 콘솔에서 Home Assistant 연결을 완료하세요.",
+            "noContent": "추가된 엔티티가 없습니다. 제어할 엔티티를 선택하려면 웹 콘솔 > 화면 설정으로 이동하세요.",
             "addSplit": "화면 추가",
             "splitNamePlaceholder": "화면 이름을 입력하세요",
             "addBadgeTitle": "어떤 배지를 추가하시겠습니까?",
@@ -165,7 +172,7 @@
         "connected": "연결됨",
         "disconnected": "연결 끊김",
         "internetConnection": "인터넷 연결",
-        "apHint": "Nextion이 Wi-Fi에 연결되어 있을 때 AP 핫스팟을 켜거나 끌 수 있습니다.",
+        "apHint": "Nextion이 Wi-Fi 네트워크에 연결되어 있을 때 AP 핫스팟을 켜거나 끌 수 있습니다.",
         "apInUseTitle": "AP 사용 중",
         "apInUseConfirm": "현재 AP를 사용 중입니다. 설정을 변경하면 연결된 기기의 연결이 끊어질 수 있습니다. 계속할까요?",
         "changePassword": "비밀번호 변경",
@@ -215,7 +222,7 @@
         "passwordLetterNumberRequired": "비밀번호는 영문자와 숫자를 조합한 8자여야 합니다.",
         "setupTitle": "Wi-Fi에 연결",
         "setupSubtitle": "연결할 2.4GHz Wi-Fi 네트워크를 선택하세요. 2.4GHz Wi-Fi 네트워크만 지원합니다.",
-        "joinWifi": "\"Wi-Fi {ssid}\"에 연결",
+        "joinWifi": "Wi-Fi \"{ssid}\"에 연결",
         "addWifiManually": "Wi-Fi 수동 추가"
     },
     "settingsDetail": {
@@ -223,7 +230,7 @@
         "mdnsRestartHint": "변경 사항을 적용하기 위해 기기가 다시 시작됩니다.",
         "dateTime": "날짜 및 시간",
         "timezone": "시간대",
-        "autoDetect": "위치 자동 감지",
+        "autoDetect": "자동으로 설정",
         "ntp1": "NTP 서버 1",
         "ntp2": "NTP 서버 2",
         "ntpInvalid": "올바른 도메인 이름을 입력하세요",
@@ -242,6 +249,8 @@
         "to": "종료",
         "followSystem": "시스템 설정 따르기",
         "followHint": "시스템의 라이트 모드 또는 다크 모드 설정에 맞춥니다.",
+        "webConsole": "웹 콘솔",
+        "screenDevice": "기기 화면",
         "lightMode": "라이트 모드",
         "darkMode": "다크 모드",
         "restartConfirmTitle": "기기를 다시 시작할까요?",

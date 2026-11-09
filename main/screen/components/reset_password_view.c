@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "reset_password_view.h"
 
@@ -84,7 +85,7 @@ lv_obj_t *reset_password_view_create(lv_obj_t *parent)
     ui_i18n_label_set_text(title, i18n_get(I18N_PASSWORD_TITLE));
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(title, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(title, ha_ui_font_medium(20), 0);
 
     lv_obj_t *instructions = lv_label_create(root);
     ctx->instructions = instructions;
@@ -93,7 +94,7 @@ lv_obj_t *reset_password_view_create(lv_obj_t *parent)
                       i18n_get(I18N_PASSWORD_RESET_HELP));
     lv_obj_set_style_text_align(instructions, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(instructions, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(instructions, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(instructions, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_line_space(instructions, 2, 0);
 
     lv_obj_t *countdown_card = lv_obj_create(root);
@@ -123,7 +124,7 @@ lv_obj_t *reset_password_view_create(lv_obj_t *parent)
     ctx->countdown_label = countdown_label;
     lv_label_set_text_fmt(countdown_label, i18n_get(I18N_PASSWORD_SECONDS), (unsigned long)RESET_PASSWORD_TIMEOUT_SECONDS);
     lv_obj_set_style_text_color(countdown_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(countdown_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(countdown_label, ha_ui_font_regular(16), 0);
 
     ctx->started_at_ms = lv_tick_get();
     ctx->timer = lv_timer_create(reset_password_view_timer_cb,

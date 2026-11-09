@@ -18,3 +18,4 @@ dependencies:
   espressif/mdns: '*'
   espressif/esp_lcd_touch: ^1.2.1
   espressif/esp_lvgl_port: ^2.9.0
+  espressif/freetype: ^2.14.3

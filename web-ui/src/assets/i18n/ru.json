@@ -1,7 +1,6 @@
 {
     "app": {
-        "name": "OpenNextion",
-        "subtitle": "Панель управления устройством"
+        "name": "OpenHAPanel"
     },
     "firmwareUpdate": {
         "operationBlocked": "Устройство обновляется и временно недоступно."
@@ -98,11 +97,19 @@
             "entity": "Объект",
             "interactions": "Взаимодействия",
             "features": "Функции",
+            "featuresPosition": "Расположение функций",
+            "featuresPositionBottom": "Снизу",
+            "featuresPositionBottomHint": "Показывает все функции друг под другом",
+            "featuresPositionInline": "Рядом",
+            "featuresPositionInlineHint": "Показывает функции в двух столбцах, начиная рядом с названием",
             "tapBehavior": "Действие при касании",
             "iconTapBehavior": "Действие при касании значка",
             "longPressBehavior": "Действие при удержании",
             "actionMoreInfo": "Подробнее",
             "actionToggle": "Переключить",
+            "actionButton": "Кнопка действия",
+            "actionActivate": "Активировать",
+            "actionPress": "Нажать",
             "actionNothing": "Ничего",
             "actionDefault": "По умолчанию",
             "config": "Настройка",
@@ -115,8 +122,8 @@
             "entityNotSupported": "Этот объект пока не поддерживается",
             "connectHaFirst": "Сначала подключите Home Assistant.",
             "connectHa": "Подключить Home Assistant",
-            "connectHaHint": "Настройте HA в веб-консоли",
-            "noContent": "Нет содержимого. Добавьте объекты в Веб-консоль > Управление экранами",
+            "connectHaHint": "Завершите подключение Home Assistant в веб-консоли.",
+            "noContent": "Сущности еще не добавлены. Перейдите в Веб-консоль > Конфигурация экрана, чтобы выбрать объекты.",
             "addSplit": "Добавить экран",
             "splitNamePlaceholder": "Введите название экрана",
             "addBadgeTitle": "Какой значок добавить?",
@@ -165,7 +172,7 @@
         "connected": "Подключено",
         "disconnected": "Отключено",
         "internetConnection": "Подключение к интернету",
-        "apHint": "Точку доступа AP можно включать и выключать, когда Nextion подключён к Wi-Fi.",
+        "apHint": "Точку доступа AP можно включать и выключать, когда Nextion подключён к сети Wi-Fi.",
         "apInUseTitle": "Точка доступа используется",
         "apInUseConfirm": "Точка доступа сейчас используется. Изменение настроек может отключить клиентов. Продолжить?",
         "changePassword": "Изменить пароль",
@@ -215,7 +222,7 @@
         "passwordLetterNumberRequired": "Пароль должен состоять ровно из 8 букв и цифр.",
         "setupTitle": "Подключение к Wi-Fi",
         "setupSubtitle": "Выберите сеть Wi-Fi 2,4 ГГц для подключения. Поддерживаются только сети 2,4 ГГц.",
-        "joinWifi": "Подключиться к \"Wi-Fi {ssid}\"",
+        "joinWifi": "Подключиться к Wi-Fi \"{ssid}\"",
         "addWifiManually": "Добавить Wi-Fi вручную"
     },
     "settingsDetail": {
@@ -223,7 +230,7 @@
         "mdnsRestartHint": "Устройство перезапустится, чтобы применить изменения.",
         "dateTime": "Дата и время",
         "timezone": "Часовой пояс",
-        "autoDetect": "Определять местоположение автоматически",
+        "autoDetect": "Устанавливать автоматически",
         "ntp1": "Сервер NTP 1",
         "ntp2": "Сервер NTP 2",
         "ntpInvalid": "Введите допустимое доменное имя",
@@ -242,6 +249,8 @@
         "to": "До",
         "followSystem": "Как в системе",
         "followHint": "Использовать светлую или тёмную тему согласно настройке системы.",
+        "webConsole": "Веб-консоль",
+        "screenDevice": "Экран устройства",
         "lightMode": "Светлая тема",
         "darkMode": "Тёмная тема",
         "restartConfirmTitle": "Перезапустить устройство?",

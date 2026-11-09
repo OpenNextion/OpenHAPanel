@@ -1,7 +1,6 @@
 {
     "app": {
-        "name": "OpenNextion",
-        "subtitle": "Cihaz Konsolu"
+        "name": "OpenHAPanel"
     },
     "firmwareUpdate": {
         "operationBlocked": "Cihaz güncelleniyor ve geçici olarak kullanılamıyor."
@@ -98,11 +97,19 @@
             "entity": "Varlık",
             "interactions": "Etkileşimler",
             "features": "Özellikler",
+            "featuresPosition": "Özellik konumu",
+            "featuresPositionBottom": "Altta",
+            "featuresPositionBottomHint": "Tüm özellikleri alt alta gösterir",
+            "featuresPositionInline": "Yan yana",
+            "featuresPositionInlineHint": "Özellikleri adın yanından başlayarak iki sütunda gösterir",
             "tapBehavior": "Dokunma davranışı",
             "iconTapBehavior": "Simgeye dokunma davranışı",
             "longPressBehavior": "Uzun basma davranışı",
             "actionMoreInfo": "Daha fazla bilgi",
             "actionToggle": "Aç/kapat",
+            "actionButton": "Eylem düğmesi",
+            "actionActivate": "Etkinleştir",
+            "actionPress": "Bas",
             "actionNothing": "İşlem yok",
             "actionDefault": "Varsayılan",
             "config": "Yapılandırma",
@@ -114,9 +121,9 @@
             "comingSoon": "Yakında",
             "entityNotSupported": "Bu varlık henüz desteklenmiyor",
             "connectHaFirst": "Önce Home Assistant'a bağlanın.",
-            "connectHa": "Home Assistant'a bağlan",
-            "connectHaHint": "HA'yı Web Konsolunda kurun",
-            "noContent": "İçerik yok. Web Konsolu > Ekran Yönetimi bölümünden varlık ekleyin",
+            "connectHa": "Home Assistant'a Bağlan",
+            "connectHaHint": "Web konsolunda Home Assistant bağlantısını tamamlayın.",
+            "noContent": "Varlık eklenmedi. Kontrol edilecek varlıkları seçmek için Web Konsolu > Ekran Yapılandırması'na gidin.",
             "addSplit": "Ekran Ekle",
             "splitNamePlaceholder": "Ekran adı girin",
             "addBadgeTitle": "Hangi rozeti eklemek istersiniz?",
@@ -165,7 +172,7 @@
         "connected": "Bağlı",
         "disconnected": "Bağlantı kesildi",
         "internetConnection": "İnternet bağlantısı",
-        "apHint": "Nextion Wi-Fi'ye bağlıyken AP erişim noktası açılıp kapatılabilir.",
+        "apHint": "Nextion bir Wi-Fi ağına bağlıyken AP erişim noktası açılıp kapatılabilir.",
         "apInUseTitle": "AP kullanımda",
         "apInUseConfirm": "AP şu anda kullanılıyor. Ayarların değiştirilmesi bağlı istemcilerin bağlantısını kesebilir. Devam edilsin mi?",
         "changePassword": "Parolayı değiştir",
@@ -215,7 +222,7 @@
         "passwordLetterNumberRequired": "Parola, harf ve rakamlardan oluşan 8 karakter içermelidir.",
         "setupTitle": "Wi-Fi'ye Bağlan",
         "setupSubtitle": "Bağlanmak istediğiniz 2,4 GHz Wi-Fi ağını seçin. Yalnızca 2,4 GHz Wi-Fi ağları desteklenir.",
-        "joinWifi": "\"Wi-Fi {ssid}\" ağına katıl",
+        "joinWifi": "Wi-Fi \"{ssid}\" ağına katıl",
         "addWifiManually": "Elle Wi-Fi ekle"
     },
     "settingsDetail": {
@@ -223,7 +230,7 @@
         "mdnsRestartHint": "Değişiklikleri uygulamak için cihaz yeniden başlatılacak.",
         "dateTime": "Tarih ve Saat",
         "timezone": "Saat Dilimi",
-        "autoDetect": "Konumu Otomatik Algıla",
+        "autoDetect": "Otomatik ayarla",
         "ntp1": "NTP Sunucusu 1",
         "ntp2": "NTP Sunucusu 2",
         "ntpInvalid": "Geçerli bir alan adı girin",
@@ -242,6 +249,8 @@
         "to": "Bitiş",
         "followSystem": "Sistemi İzle",
         "followHint": "Sistemin açık veya koyu mod ayarına uyun.",
+        "webConsole": "Web Konsolu",
+        "screenDevice": "Cihaz Ekranı",
         "lightMode": "Açık Mod",
         "darkMode": "Koyu Mod",
         "restartConfirmTitle": "Cihaz yeniden başlatılsın mı?",

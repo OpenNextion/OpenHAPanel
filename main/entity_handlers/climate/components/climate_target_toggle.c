@@ -2,6 +2,7 @@
 
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "climate_detail_theme.h"
 
 typedef struct {
     lv_obj_t *buttons[2];
@@ -35,7 +36,12 @@ lv_obj_t *climate_target_toggle_create(lv_obj_t *parent)
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, 96, 48);
     lv_obj_set_style_radius(root, 24, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(0x222222), 0);
+    lv_obj_set_style_bg_color(
+        root,
+        lv_color_hex(climate_detail_theme_color(
+            0x222222,
+            CLIMATE_DETAIL_LIGHT_CONTROL_BG)),
+        0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_set_user_data(root, context);
     lv_obj_add_event_cb(root, target_delete_cb, LV_EVENT_DELETE, NULL);
@@ -51,7 +57,12 @@ lv_obj_t *climate_target_toggle_create(lv_obj_t *parent)
         lv_obj_t *icon = lv_label_create(button);
         lv_label_set_text(icon, i ? MDI_SYMBOL_WATER_PERCENT : MDI_SYMBOL_THERMOMETER);
         lv_obj_set_style_text_font(icon, &ha_font_mdi_20, 0);
-        lv_obj_set_style_text_color(icon, lv_color_white(), 0);
+        lv_obj_set_style_text_color(
+            icon,
+            lv_color_hex(climate_detail_theme_color(
+                0xFFFFFF,
+                CLIMATE_DETAIL_LIGHT_TEXT_PRIMARY)),
+            0);
         lv_obj_center(icon);
     }
     climate_target_toggle_set_selected(root, false);
@@ -63,10 +74,25 @@ void climate_target_toggle_set_selected(lv_obj_t *obj, bool humidity)
     climate_target_toggle_t *context = obj ? lv_obj_get_user_data(obj) : NULL;
     if (!context) return;
     for (int i = 0; i < 2; ++i) {
-        lv_obj_set_style_bg_color(context->buttons[i], lv_color_hex(0xEEEEEE), 0);
+        lv_obj_set_style_bg_color(
+            context->buttons[i],
+            lv_color_hex(climate_detail_theme_color(
+                0xEEEEEE,
+                CLIMATE_DETAIL_LIGHT_TEXT_PRIMARY)),
+            0);
         lv_obj_set_style_bg_opa(context->buttons[i], (i == (int)humidity) ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
         lv_obj_t *icon = lv_obj_get_child(context->buttons[i], 0);
-        lv_obj_set_style_text_color(icon, i == (int)humidity ? lv_color_black() : lv_color_white(), 0);
+        lv_obj_set_style_text_color(
+            icon,
+            lv_color_hex(
+                i == (int)humidity
+                    ? climate_detail_theme_color(
+                          0x000000,
+                          CLIMATE_DETAIL_LIGHT_BG)
+                    : climate_detail_theme_color(
+                          0xFFFFFF,
+                          CLIMATE_DETAIL_LIGHT_TEXT_PRIMARY)),
+            0);
     }
 }
 

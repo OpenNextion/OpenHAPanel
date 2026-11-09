@@ -1,4 +1,5 @@
 #include "light_color_temp_slider.h"
+#include "ha_ui_font.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -538,7 +539,7 @@ lv_obj_t *light_color_temp_slider_create(lv_obj_t *parent)
         lv_obj_set_style_bg_opa(context->tip, LV_OPA_COVER, 0);
         context->tip_label = lv_label_create(context->tip);
         if (context->tip_label) {
-            lv_obj_set_style_text_font(context->tip_label, &ha_font_misan_regular_14, 0);
+            lv_obj_set_style_text_font(context->tip_label, ha_ui_font_regular(14), 0);
             lv_obj_set_style_text_color(context->tip_label,
                                         lv_color_white(),
                                         0);

@@ -568,6 +568,19 @@ void climate_control_circular_slider_set_size(lv_obj_t * climate_control_circula
     lv_obj_set_ext_click_area(root->touch_arc, ext_click);
 }
 
+void climate_control_circular_slider_set_background_track(
+    lv_obj_t * climate_control_circular_slider,
+    lv_color_t color,
+    lv_opa_t opacity)
+{
+    climate_control_circular_slider_t * root =
+        (climate_control_circular_slider_t *)climate_control_circular_slider;
+    if(root == NULL || root->bg_arc == NULL) return;
+
+    lv_obj_set_style_arc_color(root->bg_arc, color, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(root->bg_arc, opacity, LV_PART_MAIN);
+}
+
 
 void climate_control_circular_slider_set_low_color(lv_obj_t * climate_control_circular_slider, lv_color_t color)
 {

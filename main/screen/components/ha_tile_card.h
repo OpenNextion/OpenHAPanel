@@ -19,6 +19,8 @@ typedef void (*ha_tile_card_body_hold_cb_t)(lv_obj_t *tile_card, void *user_data
 
 /** Create an HA tile card owned by parent. Delete it with lv_obj_delete(). */
 lv_obj_t *ha_tile_card_create(lv_obj_t *parent);
+/** Reapply theme-dependent card surface and text colors. */
+void ha_tile_card_apply_theme(lv_obj_t *obj);
 
 void ha_tile_card_set_title(lv_obj_t *obj, const char *title);
 /** Set static state text and remove any previous relative-time binding. */
@@ -54,15 +56,21 @@ void ha_tile_card_set_body_hold_cb(lv_obj_t *obj,
 void ha_tile_card_set_background_color(lv_obj_t *obj, lv_color_t color);
 void ha_tile_card_set_icon_color(lv_obj_t *obj, lv_color_t color);
 void ha_tile_card_set_icon_circle_background_color(lv_obj_t *obj, lv_color_t color);
+void ha_tile_card_set_icon_circle_background_color_light(lv_obj_t *obj, lv_color_t color);
+void ha_tile_card_set_icon_circle_background_opa(lv_obj_t *obj, lv_opa_t opa);
 void ha_tile_card_set_title_color(lv_obj_t *obj, lv_color_t color);
 void ha_tile_card_set_state_color(lv_obj_t *obj, lv_color_t color);
 /** Set the optional icon displayed immediately before the state text. */
 void ha_tile_card_set_state_icon(lv_obj_t *obj, const char *icon);
 /** Show or hide the optional state icon without changing its configured text. */
 void ha_tile_card_set_state_icon_visible(lv_obj_t *obj, bool visible);
-/** Lazily create a 56px bottom Feature row. The returned object belongs to the card. */
-lv_obj_t *ha_tile_card_add_feature_host(lv_obj_t *obj);
+/** Create a 56px Feature host in the title row or below it. */
+lv_obj_t *ha_tile_card_add_feature_host(lv_obj_t *obj, bool inline_feature);
 void ha_tile_card_remove_feature_host(lv_obj_t *obj, lv_obj_t *host);
+/** Reflow visible bottom hosts into one or two columns. */
+void ha_tile_card_update_feature_layout(lv_obj_t *obj, bool inline_features);
+/** Number of rows occupied by features below the tile's main row. */
+size_t ha_tile_card_get_feature_row_count(lv_obj_t *obj);
 
 #ifdef __cplusplus
 }

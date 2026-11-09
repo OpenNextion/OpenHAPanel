@@ -3,7 +3,7 @@ import { updateDeviceField, updateDeviceInfo } from '@/stores/device';
 import { applyDeviceLanguage } from '@/stores/language';
 import { registerTimer } from '@/stores/timer';
 import ETimerType from '@/types/timer';
-import type { IDeviceInfoNotify, ILanguageNotify, IScreenRotationNotify } from '@/types/device';
+import type { IDeviceInfoNotify, IScreenRotationNotify, IScreenThemeNotify, ILanguageNotify } from '@/types/device';
 import type { IResponse } from '@/types/websocket';
 import { get, has } from 'lodash-es';
 import { get as getSvelteStoreValue } from 'svelte/store';
@@ -48,4 +48,9 @@ export async function handleLanguageNotify(params: IResponse<ILanguageNotify>) {
     if (typeof language !== 'string') return;
     updateDeviceField('language', language);
     applyDeviceLanguage(language);
+}
+export async function handleScreenThemeNotify(params: IResponse<IScreenThemeNotify>) {
+    const theme = params.data?.theme;
+    if (theme !== 'light' && theme !== 'dark') return;
+    updateDeviceField('screenTheme', theme);
 }

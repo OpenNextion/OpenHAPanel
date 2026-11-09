@@ -13,13 +13,19 @@
 #include "webserver_api.h"
 #include "webserver_method_api.h"
 #include "webserver_config_api.h"
+#include "webserver_client_node.h"
 
 static const char *TAG = "mdns_api";
 
+extern webserver_client_node_t *webserver_node_clients;
+extern SemaphoreHandle_t webserver_clients_mutex;
+
 extern char mdns_current_ip[MDNS_IP_LEN];
 extern char mdns_custom_hostname[HOSTNAME_MAX_LEN];
-extern mdns_scan_result *mdns_prev_scan_results;
-extern int16_t mdns_prev_count;
+extern mdns_scan_result *mdns_prev_sta_results;
+extern int16_t mdns_prev_sta_count;
+extern mdns_scan_result *mdns_prev_ap_results;
+extern int16_t mdns_prev_ap_count;
 static char mac_id[8] = {0};
 /* Legacy mdns.conf with hostname "nextion" denotes the automatic default. */
 static bool s_mdns_hostname_explicit = false;
@@ -409,48 +415,90 @@ static cJSON *create_mdns_device_item(const char *id, const char *name, const ch
  */
 static void webserver_cur_mdns_scan_result_notify_internal(int socket_fd)
 {
-    if (!mdns_prev_scan_results && mdns_prev_count == 0) {
+    if ((!mdns_prev_sta_results && mdns_prev_sta_count == 0) &&
+        (!mdns_prev_ap_results && mdns_prev_ap_count == 0)) {
         ESP_LOGW(TAG, "No scan results to upload");
     }
 
-    cJSON *data = cJSON_CreateObject();
-    cJSON *devices = cJSON_CreateArray();
+    NetworkState *net = network_get_state();
+    bool has_ap = (net && net->ap_config.active);
+    bool has_sta = (net && (net->sta_connected_flag || net->eth_connected));
 
-    /* add this device information */
+    char sta_ip[MDNS_IP_LEN] = {0};
+    char ap_ip[MDNS_IP_LEN] = {0};
+    if (has_ap) {
+        esp_ip4_addr_t ap_addr;
+        ap_addr.addr = net->current_ap_ip.gateway;
+        sprintf(ap_ip, IPSTR, IP2STR(&ap_addr));
+    }
+    strncpy(sta_ip, mdns_current_ip, MDNS_IP_LEN - 1);
+
     char hostname[MDNS_NAME_BUF_LEN] = {0};
     mdns_hostname_get(hostname);
     device_info_t *device_info = webserver_config_get_device_info();
     snprintf(mac_id, sizeof(mac_id), "%04X", (unsigned int)get_mac_address());
 
-    char self_ip[MDNS_IP_LEN] = {0};
-    NetworkState *net = network_get_state();
-    if (net && !net->sta_connected_flag && !net->eth_connected && net->ap_config.active) {
-        esp_ip4_addr_t ap_addr;
-        ap_addr.addr = net->current_ap_ip.gateway;
-        sprintf(self_ip, IPSTR, IP2STR(&ap_addr));
-        ESP_LOGI(TAG, "Provisioning phase, using AP IP: %s", self_ip);
-    } else {
-        strncpy(self_ip, mdns_current_ip, MDNS_IP_LEN - 1);
-    }
-
-    cJSON *self_device = create_mdns_device_item(mac_id, device_info->product_name, hostname,
-                                                 self_ip);
-    cJSON_AddItemToArray(devices, self_device);
-
-    /* add the scanned device information */
-    for (int i = 0; i < mdns_prev_count; ++i) {
-        cJSON *device =
-            create_mdns_device_item(mdns_prev_scan_results[i].txt_id, mdns_prev_scan_results[i].txt_username,
-                                    mdns_prev_scan_results[i].hostname, mdns_prev_scan_results[i].ip_addr);
-        cJSON_AddItemToArray(devices, device);
-    }
-
-    cJSON_AddItemToObject(data, "devices", devices);
     if (socket_fd >= 0) {
+        bool is_ap_client = false;
+        webserver_client_node_t client;
+        if (webserver_client_find_copy(socket_fd, &client)) {
+            is_ap_client = client.is_ap;
+        }
+        const char *self_ip = (has_ap && is_ap_client) ? ap_ip : sta_ip;
+        mdns_scan_result *results = (has_ap && is_ap_client) ? mdns_prev_ap_results : mdns_prev_sta_results;
+        int16_t count = (has_ap && is_ap_client) ? mdns_prev_ap_count : mdns_prev_sta_count;
+
+        cJSON *data = cJSON_CreateObject();
+        cJSON *devices = cJSON_CreateArray();
+        cJSON_AddItemToArray(devices,
+            create_mdns_device_item(mac_id, device_info->product_name, hostname, self_ip));
+        for (int i = 0; i < count; ++i) {
+            cJSON_AddItemToArray(devices,
+                create_mdns_device_item(results[i].txt_id, results[i].txt_username,
+                    results[i].hostname, results[i].ip_addr));
+        }
+        cJSON_AddItemToObject(data, "devices", devices);
         webserver_data_response_to_special_client(
             data, WEB_API_METHOD_MDNS_NOTIFY, 0, socket_fd);
+        return;
     }
-    else {
+
+    if (has_ap && has_sta) {
+        if (xSemaphoreTake(webserver_clients_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            for (webserver_client_node_t *cur = webserver_node_clients; cur; cur = cur->next) {
+                if (!cur->auth) continue;
+                const char *ip = cur->is_ap ? ap_ip : sta_ip;
+                mdns_scan_result *results = cur->is_ap ? mdns_prev_ap_results : mdns_prev_sta_results;
+                int16_t count = cur->is_ap ? mdns_prev_ap_count : mdns_prev_sta_count;
+                cJSON *data = cJSON_CreateObject();
+                cJSON *devices = cJSON_CreateArray();
+                cJSON_AddItemToArray(devices,
+                    create_mdns_device_item(mac_id, device_info->product_name, hostname, ip));
+                for (int i = 0; i < count; ++i) {
+                    cJSON_AddItemToArray(devices,
+                        create_mdns_device_item(results[i].txt_id, results[i].txt_username,
+                            results[i].hostname, results[i].ip_addr));
+                }
+                cJSON_AddItemToObject(data, "devices", devices);
+                webserver_data_response_to_special_client(
+                    data, WEB_API_METHOD_MDNS_NOTIFY, 0, cur->sock_fd);
+            }
+            xSemaphoreGive(webserver_clients_mutex);
+        }
+    } else {
+        const char *self_ip = has_ap ? ap_ip : sta_ip;
+        mdns_scan_result *results = has_ap ? mdns_prev_ap_results : mdns_prev_sta_results;
+        int16_t count = has_ap ? mdns_prev_ap_count : mdns_prev_sta_count;
+        cJSON *data = cJSON_CreateObject();
+        cJSON *devices = cJSON_CreateArray();
+        cJSON_AddItemToArray(devices,
+            create_mdns_device_item(mac_id, device_info->product_name, hostname, self_ip));
+        for (int i = 0; i < count; ++i) {
+            cJSON_AddItemToArray(devices,
+                create_mdns_device_item(results[i].txt_id, results[i].txt_username,
+                    results[i].hostname, results[i].ip_addr));
+        }
+        cJSON_AddItemToObject(data, "devices", devices);
         webserver_data_response_to_authenticated_clients(
             data, WEB_API_METHOD_MDNS_NOTIFY, 0);
     }

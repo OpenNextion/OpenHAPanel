@@ -9,6 +9,7 @@
 #include "app.h"
 #include "assets/mdi_symbol_def.h"
 #include "climate_more_info.h"
+#include "climate_feature_handler.h"
 #include "esp_log.h"
 
 static const char *TAG = "climate_entity_handler";
@@ -109,7 +110,9 @@ static esp_err_t climate_render_tile(ha_entity_store_t *store,
     model->icon = MDI_SYMBOL_THERMOSTAT;
     model->background_color = lv_color_hex(0x1E2228);
     model->icon_color = lv_color_hex(0x44739e);
-    model->icon_circle_background_color = lv_color_hex(0x242d36);
+    model->icon_circle_background_color = model->icon_color;
+    model->icon_circle_background_color_light = model->icon_color;
+    model->icon_circle_background_opa = LV_OPA_20;
     model->title_color = lv_color_hex(0xFFFFFF);
     model->state_color = lv_color_hex(0x666666);
 
@@ -118,17 +121,19 @@ static esp_err_t climate_render_tile(ha_entity_store_t *store,
                                            sizeof(model->state_text),
                                            snapshot);
         model->icon_color = lv_color_hex(0x6f6f6f);
-        model->icon_circle_background_color = lv_color_hex(0x2c2c2c);
+        model->icon_circle_background_color = model->icon_color;
+        model->icon_circle_background_color_light = lv_color_hex(0xCDD0D6);
         return ESP_OK;
     }
 
     if (strcmp(snapshot->state, "off") == 0) {
         model->icon_color = lv_color_hex(0x6E6E6E);
-        model->icon_circle_background_color = lv_color_hex(0x2C2C2C);
+        model->icon_circle_background_color = model->icon_color;
+        model->icon_circle_background_color_light = model->icon_color;
     } else {
         model->icon_color = lv_color_hex(climate_mode_color(snapshot->state));
-        model->icon_circle_background_color =
-            lv_color_mix(model->icon_color, model->background_color, LV_OPA_20);
+        model->icon_circle_background_color = model->icon_color;
+        model->icon_circle_background_color_light = model->icon_color;
     }
 
     char hvac_action[HA_ENTITY_STORE_STATE_MAX] = "";
@@ -185,4 +190,5 @@ const entity_handler_t climate_entity_handler = {
     .render_tile = climate_render_tile,
     .render_more_info = climate_more_info_render,
     .update_more_info = climate_more_info_update,
+    .feature_handler = &climate_feature_handler,
 };

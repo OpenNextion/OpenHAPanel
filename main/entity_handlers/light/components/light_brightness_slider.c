@@ -1,10 +1,12 @@
 #include "light_brightness_slider.h"
+#include "ha_ui_font.h"
 
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 
 #include "../../../assets/ha_ui_assets.h"
+#include "light_detail_theme.h"
 
 #define BRIGHTNESS_SLIDER_WIDTH          88
 #define BRIGHTNESS_SLIDER_HEIGHT         230
@@ -225,19 +227,25 @@ static void draw_slider(lv_layer_t *layer,
                         void *user_data)
 {
     light_brightness_slider_context_t *context = user_data;
+    const bool light = light_detail_is_light_theme();
     const lv_opa_t opacity = context->disabled ? LV_OPA_40 : LV_OPA_COVER;
     const bool effective_on = context->dragging
                                   ? context->visual_value > 0
                                   : context->power_on;
     const lv_color_t fill_color = context->display_color;
-    const lv_color_t track_color = effective_on
-                                       ? active_track_color(fill_color)
-                                       : lv_color_hex(
-                                             BRIGHTNESS_OFF_TRACK_COLOR);
+    const lv_color_t track_color =
+        light
+            ? (effective_on
+                   ? fill_color
+                   : lv_color_hex(LIGHT_DETAIL_LIGHT_INACTIVE))
+            : (effective_on
+                   ? active_track_color(fill_color)
+                   : lv_color_hex(BRIGHTNESS_OFF_TRACK_COLOR));
     draw_rect(layer,
               area,
               track_color,
-              opacity,
+              light ? (context->disabled ? LV_OPA_10 : LV_OPA_20)
+                    : opacity,
               BRIGHTNESS_SLIDER_RADIUS);
     if (!effective_on || context->visual_value <= 0) {
         return;
@@ -558,7 +566,7 @@ lv_obj_t *light_brightness_slider_create(lv_obj_t *parent)
         lv_obj_set_style_bg_opa(context->tip, LV_OPA_COVER, 0);
         context->tip_label = lv_label_create(context->tip);
         if (context->tip_label) {
-            lv_obj_set_style_text_font(context->tip_label, &ha_font_misan_regular_14, 0);
+            lv_obj_set_style_text_font(context->tip_label, ha_ui_font_regular(14), 0);
             lv_obj_set_style_text_color(context->tip_label,
                                         lv_color_white(),
                                         0);

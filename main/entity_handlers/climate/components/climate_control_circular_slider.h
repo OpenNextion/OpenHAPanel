@@ -41,6 +41,10 @@ void climate_control_circular_slider_set_range(lv_obj_t * climate_control_circul
 void climate_control_circular_slider_set_disabled(lv_obj_t * climate_control_circular_slider, bool disabled);
 void climate_control_circular_slider_set_touch_width(lv_obj_t * climate_control_circular_slider,
                                                      int32_t width);
+void climate_control_circular_slider_set_background_track(
+    lv_obj_t * climate_control_circular_slider,
+    lv_color_t color,
+    lv_opa_t opacity);
 
 /**********************
  *      MACROS

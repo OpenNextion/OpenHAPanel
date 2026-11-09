@@ -38,6 +38,12 @@ export interface IScreenRotationNotify {
     height: number;
 }
 
+export type TScreenTheme = 'light' | 'dark';
+
+export interface IScreenThemeNotify {
+    theme: TScreenTheme;
+}
+
 export interface NtpServers {
     server1: string;
     server2: string;

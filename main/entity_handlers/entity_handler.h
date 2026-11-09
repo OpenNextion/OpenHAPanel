@@ -55,6 +55,7 @@ typedef void (*entity_more_info_close_cb_t)(void *user_data);
 typedef struct {
     lv_obj_t *screen;
     lv_obj_t *overlay;
+    lv_obj_t *body;
     ha_entity_store_t *store;
     ha_entity_snapshot_t snapshot;
     const screen_tile_card_data_t *tile_config;
@@ -78,10 +79,14 @@ typedef struct entity_feature_instance {
 typedef struct {
     bool (*supports)(ha_entity_store_t *store, const char *entity_id,
                      screen_feature_type_t type);
+    /** Optional configuration gate before creating a feature host. */
+    bool (*supports_config)(const screen_feature_config_t *config);
     esp_err_t (*create)(entity_feature_instance_t *instance);
     void (*update)(entity_feature_instance_t *instance,
                    ha_entity_store_t *store,
                    const ha_entity_snapshot_t *snapshot);
+    /** Refresh an existing control after the screen theme changes. */
+    void (*apply_theme)(entity_feature_instance_t *instance);
 } entity_feature_handler_t;
 
 /** Strategy implemented by one Home Assistant entity domain. */

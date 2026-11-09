@@ -4,6 +4,7 @@
 
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "light_detail_theme.h"
 
 #define MODE_BAR_BUTTON_SIZE 40
 #define MODE_BAR_HEIGHT      48
@@ -85,10 +86,13 @@ static lv_obj_t *add_button(lv_obj_t *parent,
     lv_obj_set_size(button, MODE_BAR_BUTTON_SIZE, MODE_BAR_BUTTON_SIZE);
     lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(button,
-                              lv_color_hex(MODE_SELECTED_COLOR),
+                              lv_color_hex(light_detail_theme_color(
+                                  MODE_SELECTED_COLOR,
+                                  LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)),
                               LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(button,
-                            LV_OPA_20,
+                            light_detail_is_light_theme() ? LV_OPA_10
+                                                          : LV_OPA_20,
                             LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_add_event_cb(button, button_cb, LV_EVENT_CLICKED, context);
     return button;
@@ -102,7 +106,12 @@ static lv_obj_t *add_mdi_icon(lv_obj_t *parent, const char *symbol)
     }
     lv_label_set_text(icon, symbol);
     lv_obj_set_style_text_font(icon, &ha_font_mdi_24, 0);
-    lv_obj_set_style_text_color(icon, lv_color_hex(MODE_ICON_COLOR), 0);
+    lv_obj_set_style_text_color(
+        icon,
+        lv_color_hex(light_detail_theme_color(
+            MODE_ICON_COLOR,
+            LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)),
+        0);
     lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(icon);
     return icon;
@@ -166,6 +175,9 @@ static void refresh(light_mode_bar_context_t *context)
 
         const bool selected = visible[i] &&
                               context->active_mode == (light_mode_t)i;
+        const uint32_t selected_color = light_detail_theme_color(
+            MODE_SELECTED_COLOR,
+            LIGHT_DETAIL_LIGHT_TEXT_PRIMARY);
         lv_obj_set_style_bg_opa(
             button,
             i == LIGHT_MODE_BRIGHTNESS && selected
@@ -173,14 +185,14 @@ static void refresh(light_mode_bar_context_t *context)
                 : LV_OPA_TRANSP,
             LV_PART_MAIN);
         lv_obj_set_style_bg_color(button,
-                                  lv_color_hex(MODE_SELECTED_COLOR),
+                                  lv_color_hex(selected_color),
                                   LV_PART_MAIN);
         lv_obj_set_style_border_width(
             button,
             i != LIGHT_MODE_BRIGHTNESS && selected ? 2 : 0,
             LV_PART_MAIN);
         lv_obj_set_style_border_color(button,
-                                      lv_color_hex(MODE_SELECTED_COLOR),
+                                      lv_color_hex(selected_color),
                                       LV_PART_MAIN);
         lv_obj_set_style_border_opa(button, LV_OPA_COVER, LV_PART_MAIN);
         set_button_disabled(button, context->disabled);
@@ -191,8 +203,20 @@ static void refresh(light_mode_bar_context_t *context)
             context->mode_icons[LIGHT_MODE_BRIGHTNESS],
             lv_color_hex(context->active_mode == LIGHT_MODE_BRIGHTNESS &&
                                  visible[LIGHT_MODE_BRIGHTNESS]
-                             ? MODE_SELECTED_ICON
-                             : MODE_ICON_COLOR),
+                             ? light_detail_theme_color(
+                                   MODE_SELECTED_ICON,
+                                   LIGHT_DETAIL_LIGHT_BG)
+                             : light_detail_theme_color(
+                                   MODE_ICON_COLOR,
+                                   LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)),
+            0);
+    }
+    if (context->power_icon) {
+        lv_obj_set_style_text_color(
+            context->power_icon,
+            lv_color_hex(light_detail_theme_color(
+                MODE_ICON_COLOR,
+                LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)),
             0);
     }
     if (context->separator) {
@@ -260,8 +284,16 @@ lv_obj_t *light_mode_bar_create(lv_obj_t *parent)
     lv_obj_set_style_pad_ver(root, MODE_BAR_PAD, 0);
     lv_obj_set_style_pad_gap(root, MODE_BAR_GAP, 0);
     lv_obj_set_style_radius(root, 30, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(MODE_BAR_COLOR), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(
+        root,
+        lv_color_hex(light_detail_theme_color(
+            MODE_BAR_COLOR,
+            LIGHT_DETAIL_LIGHT_NEUTRAL)),
+        0);
+    lv_obj_set_style_bg_opa(root,
+                            light_detail_is_light_theme() ? LV_OPA_10
+                                                          : LV_OPA_COVER,
+                            0);
 
     context->power_button = add_button(root, context);
     if (context->power_button) {
@@ -276,9 +308,14 @@ lv_obj_t *light_mode_bar_create(lv_obj_t *parent)
                         MODE_BAR_SEPARATOR_W,
                         MODE_BAR_SEPARATOR_H);
         lv_obj_set_style_bg_color(context->separator,
-                                  lv_color_hex(MODE_SEPARATOR_COLOR),
+                                  lv_color_hex(light_detail_theme_color(
+                                      MODE_SEPARATOR_COLOR,
+                                      LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)),
                                   0);
-        lv_obj_set_style_bg_opa(context->separator, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_opa(
+            context->separator,
+            light_detail_is_light_theme() ? LV_OPA_20 : LV_OPA_COVER,
+            0);
         lv_obj_remove_flag(context->separator,
                            LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     }

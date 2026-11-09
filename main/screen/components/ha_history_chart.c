@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "ha_history_chart.h"
 
@@ -9,6 +10,7 @@
 #include <string.h>
 
 #include "assets/ha_ui_assets.h"
+#include "entity_handlers/light/components/light_detail_theme.h"
 #include "sys_time_api.h"
 #include "bsp_lcd.h"
 
@@ -17,7 +19,7 @@
 #define HA_HISTORY_CHART_Y_PORT 57
 #define HA_HISTORY_CHART_Y_LAND 37
 #define HA_HISTORY_CHART_RIGHT 12
-#define HA_HISTORY_PLOT_HEIGHT_PORT 219
+#define HA_HISTORY_PLOT_HEIGHT_PORT 217
 #define HA_HISTORY_PLOT_HEIGHT_LAND 103
 
 static inline int32_t history_chart_y(void)
@@ -183,7 +185,7 @@ static int32_t history_chart_create_y_axis_labels(lv_obj_t *root,
 
         lv_obj_t *label = lv_label_create(root);
         ui_i18n_label_set_text(label, value_text);
-        lv_obj_set_style_text_font(label, &ha_font_misan_regular_12, 0);
+        lv_obj_set_style_text_font(label, ha_ui_font_regular(12), 0);
         lv_obj_set_style_text_color(label, lv_color_hex(0x666666), 0);
         lv_obj_update_layout(label);
         labels[i] = label;
@@ -211,7 +213,7 @@ static void history_chart_render_message(lv_obj_t *root, const char *text)
     lv_obj_set_width(label, chart_width - 24);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     ui_i18n_label_set_text(label, text ? text : "");
-    lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(label, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_color(label, lv_color_hex(0x666666), 0);
     lv_obj_set_pos(label, 12, 72);
 }
@@ -244,7 +246,7 @@ static void history_chart_create_time_labels(
 
         lv_obj_t *label = lv_label_create(root);
         ui_i18n_label_set_text(label, time_text);
-        lv_obj_set_style_text_font(label, &ha_font_misan_regular_12, 0);
+        lv_obj_set_style_text_font(label, ha_ui_font_regular(12), 0);
         lv_obj_set_style_text_color(label, lv_color_hex(0x666666), 0);
         lv_obj_update_layout(label);
         const int32_t center_x = plot_start +
@@ -269,7 +271,7 @@ static void history_chart_draw_points(lv_event_t *event,
     lv_obj_get_coords(history->chart, &chart_coords);
     lv_draw_rect_dsc_t point_dsc;
     lv_draw_rect_dsc_init(&point_dsc);
-    point_dsc.bg_color = lv_color_white();
+    point_dsc.bg_color = lv_color_hex(light_detail_theme_color(0xFFFFFF, LIGHT_DETAIL_LIGHT_TEXT_PRIMARY));
     point_dsc.bg_opa = LV_OPA_COVER;
     point_dsc.radius = LV_RADIUS_CIRCLE;
 
@@ -415,16 +417,16 @@ static lv_obj_t *history_chart_create_root(lv_obj_t *parent,
                     chart_default_height);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(0x1E2228), 0);
+    lv_obj_set_style_bg_color(root, lv_color_hex(light_detail_theme_color(0x1E2228, LIGHT_DETAIL_LIGHT_SURFACE)), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(root, 12, 0);
 
     lv_obj_t *title_label = lv_label_create(root);
     lv_obj_set_width(title_label, chart_default_width - 24);
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_font(title_label, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(title_label, ha_ui_font_medium(20), 0);
     ui_i18n_label_set_text(title_label, title ? title : i18n_get(I18N_HISTORY_TITLE));
-    lv_obj_set_style_text_color(title_label, lv_color_white(), 0);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(light_detail_theme_color(0xFFFFFF, LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)), 0);
     lv_obj_set_pos(title_label, 12, 16);
     return root;
 }
@@ -511,7 +513,7 @@ lv_obj_t *ha_history_chart_create(
 
     lv_obj_t *unit_label = lv_label_create(root);
     ui_i18n_label_set_text(unit_label, history->unit);
-    lv_obj_set_style_text_font(unit_label, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(unit_label, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_color(unit_label, lv_color_hex(0x666666), 0);
     lv_obj_update_layout(unit_label);
     lv_obj_set_pos(unit_label,
@@ -529,7 +531,7 @@ lv_obj_t *ha_history_chart_create(
                     history_plot_height());
     lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(chart, 2, 0);
-    lv_obj_set_style_border_color(chart, lv_color_hex(0x4D5157), 0);
+    lv_obj_set_style_border_color(chart, lv_color_hex(light_detail_theme_color(0x4D5157, LIGHT_DETAIL_LIGHT_NEUTRAL)), 0);
     lv_obj_set_style_border_opa(chart, LV_OPA_COVER, 0);
     lv_obj_set_style_border_side(
         chart,
@@ -566,12 +568,16 @@ lv_obj_t *ha_history_chart_create(
 
     history->series = lv_chart_add_series(
         chart,
-        lv_color_hex(0x696D73),
+        lv_color_hex(light_detail_theme_color(0x696D73, LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)),
         (lv_chart_axis_t)(LV_CHART_AXIS_PRIMARY_Y |
                           LV_CHART_AXIS_PRIMARY_X));
     if (!history->series) {
         lv_obj_delete(root);
         return NULL;
+    }
+
+    if (light_detail_is_light_theme()) {
+        lv_obj_set_style_line_opa(chart, LV_OPA_30, LV_PART_ITEMS);
     }
 
     for (size_t i = 0; i < config->point_count; i++) {
@@ -585,7 +591,7 @@ lv_obj_t *ha_history_chart_create(
     }
 
     history->cursor = lv_chart_add_cursor(chart,
-                                          lv_color_hex(0x454A51),
+                                          lv_color_hex(light_detail_theme_color(0x454A51, LIGHT_DETAIL_LIGHT_NEUTRAL)),
                                           LV_DIR_VER);
     if (!history->cursor) {
         lv_obj_delete(root);
@@ -596,10 +602,10 @@ lv_obj_t *ha_history_chart_create(
     ui_i18n_label_set_text(history->tooltip, "");
     lv_obj_set_size(history->tooltip, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_style_text_font(history->tooltip,
-                               &ha_font_misan_regular_16,
+                               ha_ui_font_regular(16),
                                0);
-    lv_obj_set_style_text_color(history->tooltip, lv_color_white(), 0);
-    lv_obj_set_style_bg_color(history->tooltip, lv_color_hex(0x6B6B6B), 0);
+    lv_obj_set_style_text_color(history->tooltip, lv_color_hex(light_detail_theme_color(0xFFFFFF, LIGHT_DETAIL_LIGHT_TEXT_PRIMARY)), 0);
+    lv_obj_set_style_bg_color(history->tooltip, lv_color_hex(light_detail_theme_color(0x6B6B6B, LIGHT_DETAIL_LIGHT_BG)), 0);
     lv_obj_set_style_bg_opa(history->tooltip, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(history->tooltip, 8, 0);
     lv_obj_set_style_pad_hor(history->tooltip, 6, 0);

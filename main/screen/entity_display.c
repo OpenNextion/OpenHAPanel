@@ -45,6 +45,8 @@ void entity_display_model_init(const char *entity_id,
     out_model->background_color = lv_color_hex(0x262626);
     out_model->icon_color = lv_color_hex(0x4B5058);
     out_model->icon_circle_background_color = lv_color_hex(0xECEFF1);
+    out_model->icon_circle_background_color_light = lv_color_hex(0xECEFF1);
+    out_model->icon_circle_background_opa = LV_OPA_COVER;
     out_model->title_color = lv_color_hex(0xFFFFFF);
     out_model->state_color = lv_color_hex(0xA8A8A8);
 }

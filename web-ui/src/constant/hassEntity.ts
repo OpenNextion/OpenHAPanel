@@ -26,7 +26,7 @@ export type THassEntityDisplayMode = 'badge' | 'entity';
 export type THassEntityStateFormat =
     | 'toggle' | 'light' | 'light-badge' | 'cover' | 'cover-position' | 'cover-badge' | 'sensor' | 'binary-sensor'
     | 'climate' | 'climate-temperature' | 'climate-badge' | 'relative-time' | 'event' | 'fan' | 'fan-badge'
-    | 'date' | 'date-short' | 'datetime' | 'enum' | 'name';
+    | 'raw' | 'date-short' | 'enum' | 'name';
 
 export interface IHassEntityDeviceClassDisplayConfig {
     entity?: THassEntityStateFormat;
@@ -180,9 +180,9 @@ export const HASS_ENTITY_SUPPORT_CONFIG: Readonly<Record<string, IHassEntitySupp
             entity: 'sensor',
             badge: 'sensor',
             byDeviceClass: {
-                date: { entity: 'date', badge: 'date-short' },
+                date: { entity: 'raw', badge: 'date-short' },
                 enum: { entity: 'enum' },
-                timestamp: { entity: 'datetime', badge: 'date-short' },
+                timestamp: { entity: 'relative-time', badge: 'date-short' },
                 uptime: { entity: 'relative-time' },
             },
         },
@@ -204,7 +204,7 @@ export const HASS_ENTITY_SUPPORT_CONFIG: Readonly<Record<string, IHassEntitySupp
                 door: { on: 'open', off: 'closed' },
                 garage_door: { on: 'open', off: 'closed' },
                 gas: { on: 'detected', off: 'clear' },
-                glass_break: { on: 'detected', off: 'clear' },
+                glass_break: { on: 'glassBreakDetached', off: 'clear' },
                 heat: { on: 'hot', off: 'normal' },
                 light: { on: 'lightDetected', off: 'noLight' },
                 lock: { on: 'unlocked', off: 'locked' },

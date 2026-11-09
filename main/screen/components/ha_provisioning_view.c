@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "ha_provisioning_view.h"
 
@@ -78,7 +79,7 @@ lv_obj_t *ha_provisioning_view_create(
     ctx->title = title;
     ui_i18n_label_set_text(title, i18n_get(I18N_PROVISION_HA_TITLE));
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(title, &ha_font_misan_medium_20, 0);
+    lv_obj_set_style_text_font(title, ha_ui_font_medium(20), 0);
 
     lv_obj_t *instructions = lv_label_create(root);
     ctx->instructions = instructions;
@@ -86,7 +87,7 @@ lv_obj_t *ha_provisioning_view_create(
     ui_i18n_label_set_text(instructions,
                       i18n_get(I18N_PROVISION_HA_HELP));
     lv_obj_set_style_text_align(instructions, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(instructions, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(instructions, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_line_space(instructions, 2, 0);
 
     if (config) {
@@ -180,7 +181,7 @@ static void ha_view_timer_cb(lv_timer_t *timer)
     ctx->overlay_message = message;
     ui_i18n_label_set_text(message, i18n_get(I18N_PROVISION_SWIPE_HINT));
     lv_obj_add_flag(message, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_set_style_text_font(message, &ha_font_misan_regular_16, 0);
+    lv_obj_set_style_text_font(message, ha_ui_font_regular(16), 0);
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_line_space(message, 2, 0);
     lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);

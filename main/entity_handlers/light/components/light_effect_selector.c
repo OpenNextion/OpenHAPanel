@@ -1,4 +1,5 @@
 #include "ui_i18n.h"
+#include "ha_ui_font.h"
 #include "i18n.h"
 #include "light_effect_selector.h"
 
@@ -7,6 +8,7 @@
 
 #include "assets/ha_ui_assets.h"
 #include "assets/mdi_symbol_def.h"
+#include "light_detail_theme.h"
 #include <lvgl_private.h>
 
 #define LIGHT_EFFECT_MAX_OPTIONS 16
@@ -41,6 +43,12 @@
 #define LIGHT_EFFECT_MENU_BORDER   0x44474C
 #define LIGHT_EFFECT_TEXT_COLOR    0xFFFFFF
 #define LIGHT_EFFECT_ROW_PRESS     0x34373D
+
+static uint32_t effect_text_color(void)
+{
+    return light_detail_theme_color(LIGHT_EFFECT_TEXT_COLOR,
+                                    LIGHT_DETAIL_LIGHT_TEXT_PRIMARY);
+}
 
 typedef struct light_effect_selector_context light_effect_selector_context_t;
 
@@ -201,7 +209,7 @@ static void refresh_rows(light_effect_selector_context_t *context)
         lv_obj_t *label = lv_obj_get_child(row, 0);
         if (label) {
             lv_obj_set_style_text_color(label,
-                                        lv_color_hex(LIGHT_EFFECT_TEXT_COLOR),
+                                        lv_color_hex(effect_text_color()),
                                         0);
         }
     }
@@ -267,7 +275,9 @@ static lv_obj_t *create_menu_row(light_effect_selector_context_t *context,
     const bool edge = index == 0 || index + 1 == context->option_count;
     lv_obj_set_style_radius(row, edge ? LIGHT_EFFECT_RADIUS : 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(row,
-                              lv_color_hex(LIGHT_EFFECT_ROW_PRESS),
+                              lv_color_hex(light_detail_theme_color(
+                                  LIGHT_EFFECT_ROW_PRESS,
+                                  LIGHT_DETAIL_LIGHT_SURFACE_PRESS)),
                               LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(row,
                             LV_OPA_COVER,
@@ -284,8 +294,8 @@ static lv_obj_t *create_menu_row(light_effect_selector_context_t *context,
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     lv_obj_set_pos(label, 30, 10);
     lv_obj_set_size(label, LV_MAX(1, width - 38), 20);
-    lv_obj_set_style_text_font(label, &ha_font_misan_regular_16, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(LIGHT_EFFECT_TEXT_COLOR), 0);
+    lv_obj_set_style_text_font(label, ha_ui_font_regular(16), 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(effect_text_color()), 0);
 
     lv_obj_t *icon = lv_label_create(row);
     if (icon) {
@@ -293,7 +303,7 @@ static lv_obj_t *create_menu_row(light_effect_selector_context_t *context,
         lv_obj_set_pos(icon, 6, 10);
         lv_obj_set_size(icon, 20, 20);
         lv_obj_set_style_text_font(icon, &ha_font_mdi_20, 0);
-        lv_obj_set_style_text_color(icon, lv_color_hex(LIGHT_EFFECT_TEXT_COLOR), 0);
+        lv_obj_set_style_text_color(icon, lv_color_hex(effect_text_color()), 0);
     }
     return row;
 }
@@ -354,7 +364,7 @@ static void open_popup(light_effect_selector_context_t *context)
         char text[LIGHT_EFFECT_NAME_MAX];
         display_effect(context->options[i], text, sizeof(text));
         int32_t tw = lv_text_get_width(text, strlen(text),
-                                       &ha_font_misan_regular_16, &text_attr);
+                                       ha_ui_font_regular(16), &text_attr);
         int32_t row_w = tw + 38;
         if (row_w > max_text_w) max_text_w = row_w;
     }
@@ -383,12 +393,16 @@ static void open_popup(light_effect_selector_context_t *context)
     lv_obj_set_size(menu, menu_width, menu_height);
     lv_obj_set_style_radius(menu, LIGHT_EFFECT_RADIUS, LV_PART_MAIN);
     lv_obj_set_style_bg_color(menu,
-                              lv_color_hex(LIGHT_EFFECT_MENU_COLOR),
+                              lv_color_hex(light_detail_theme_color(
+                                  LIGHT_EFFECT_MENU_COLOR,
+                                  0xFFFFFF)),
                               LV_PART_MAIN);
     lv_obj_set_style_bg_opa(menu, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(menu, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(menu,
-                                  lv_color_hex(LIGHT_EFFECT_MENU_BORDER),
+                                  lv_color_hex(light_detail_theme_color(
+                                      LIGHT_EFFECT_MENU_BORDER,
+                                      LIGHT_DETAIL_LIGHT_DIVIDER)),
                                   LV_PART_MAIN);
     lv_obj_set_style_border_opa(menu, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(menu, 12, LV_PART_MAIN);
@@ -415,7 +429,9 @@ static void open_popup(light_effect_selector_context_t *context)
                                 LV_PART_SCROLLBAR);
     lv_obj_set_style_pad_right(menu, 2, LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_color(menu,
-                              lv_color_hex(LIGHT_EFFECT_MENU_BORDER),
+                              lv_color_hex(light_detail_theme_color(
+                                  LIGHT_EFFECT_MENU_BORDER,
+                                  LIGHT_DETAIL_LIGHT_DISABLED)),
                               LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(menu, LV_OPA_COVER, LV_PART_SCROLLBAR);
 
@@ -472,11 +488,15 @@ lv_obj_t *light_effect_selector_create(lv_obj_t *parent)
     lv_obj_set_size(root, LIGHT_EFFECT_BUTTON_W, LIGHT_EFFECT_BUTTON_H);
     lv_obj_set_style_radius(root, LIGHT_EFFECT_RADIUS, LV_PART_MAIN);
     lv_obj_set_style_bg_color(root,
-                              lv_color_hex(LIGHT_EFFECT_BUTTON_COLOR),
+                              lv_color_hex(light_detail_theme_color(
+                                  LIGHT_EFFECT_BUTTON_COLOR,
+                                  LIGHT_DETAIL_LIGHT_SURFACE)),
                               LV_PART_MAIN);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(root,
-                              lv_color_hex(LIGHT_EFFECT_BUTTON_PRESS),
+                              lv_color_hex(light_detail_theme_color(
+                                  LIGHT_EFFECT_BUTTON_PRESS,
+                                  LIGHT_DETAIL_LIGHT_SURFACE_PRESS)),
                               LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(root,
                             LV_OPA_COVER,
@@ -488,7 +508,7 @@ lv_obj_t *light_effect_selector_create(lv_obj_t *parent)
     ui_i18n_label_set_text(context->icon_label, MDI_SYMBOL_CREATION);
     lv_obj_set_style_text_font(context->icon_label, &ha_font_mdi_20, 0);
     lv_obj_set_style_text_color(context->icon_label,
-                                lv_color_hex(LIGHT_EFFECT_TEXT_COLOR),
+                                lv_color_hex(effect_text_color()),
                                 0);
     lv_obj_set_size(context->icon_label,
                     LIGHT_EFFECT_ICON_SIZE,
@@ -506,10 +526,10 @@ lv_obj_t *light_effect_selector_create(lv_obj_t *parent)
                    LIGHT_EFFECT_TITLE_Y);
     lv_obj_set_size(context->title_label, LIGHT_EFFECT_TEXT_W, 18);
     lv_obj_set_style_text_font(context->title_label,
-                               &ha_font_misan_regular_12,
+                               ha_ui_font_regular(12),
                                0);
     lv_obj_set_style_text_color(context->title_label,
-                                lv_color_hex(LIGHT_EFFECT_TEXT_COLOR),
+                                lv_color_hex(effect_text_color()),
                                 0);
 
     context->value_label = lv_label_create(root);
@@ -520,10 +540,10 @@ lv_obj_t *light_effect_selector_create(lv_obj_t *parent)
                    LIGHT_EFFECT_VALUE_Y);
     lv_obj_set_size(context->value_label, LIGHT_EFFECT_TEXT_W, 20);
     lv_obj_set_style_text_font(context->value_label,
-                               &ha_font_misan_regular_16,
+                               ha_ui_font_regular(16),
                                0);
     lv_obj_set_style_text_color(context->value_label,
-                                lv_color_hex(LIGHT_EFFECT_TEXT_COLOR),
+                                lv_color_hex(effect_text_color()),
                                 0);
     lv_obj_add_flag(context->value_label, LV_OBJ_FLAG_HIDDEN);
     return root;

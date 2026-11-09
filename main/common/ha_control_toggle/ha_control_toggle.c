@@ -3,18 +3,28 @@
 #include <stddef.h>
 
 #include "assets/ha_ui_assets.h"
+#include "screen_theme.h"
 
 #define TOGGLE_HEIGHT          56
 #define TOGGLE_TRACK_RADIUS    20
 #define TOGGLE_KNOB_RADIUS     20
 
-#define TOGGLE_TRACK_OPA        71
-#define TOGGLE_TRACK_OPA_PRESS 102
-#define TOGGLE_TRACK_OFF       0x999999
-#define TOGGLE_KNOB_OFF        0x888888
+#define TOGGLE_TRACK_OPA        51
+#define TOGGLE_TRACK_OFF       0x9E9E9E
+#define TOGGLE_KNOB_OFF        0x9E9E9E
 #define TOGGLE_DISABLED_TRACK  0x101112
 #define TOGGLE_DISABLED_KNOB   0x454545
-#define TOGGLE_DISABLED_PRESS  0x1A1C1E
+
+#define TOGGLE_TRACK_ON_LIGHT      0xFFF3CD
+#define TOGGLE_KNOB_ON_LIGHT       0xFFC107
+#if LV_COLOR_DEPTH < 24
+#define TOGGLE_TRACK_OFF_LIGHT     0xE3E3E3
+#else
+#define TOGGLE_TRACK_OFF_LIGHT     0xECECEC
+#endif
+#define TOGGLE_KNOB_OFF_LIGHT      0x9E9E9E
+#define TOGGLE_DISABLED_TRACK_LIGHT 0xE2E4E8
+#define TOGGLE_DISABLED_KNOB_LIGHT 0xDEDEDE
 
 typedef struct {
     lv_obj_t *track;
@@ -23,6 +33,12 @@ typedef struct {
     bool on;
     bool disabled;
     lv_color_t active_color;
+    lv_color_t track_off_light;
+    lv_color_t track_on_light;
+    lv_color_t knob_off_light;
+    lv_color_t knob_on_light;
+    lv_color_t disabled_track_light;
+    lv_color_t disabled_knob_light;
     ha_control_toggle_change_cb_t callback;
     void *user_data;
 } ha_control_toggle_context_t;
@@ -63,31 +79,48 @@ static void animate_knob_x(lv_obj_t *knob, int32_t from, int32_t to)
 static void apply_track_style(ha_control_toggle_context_t *ctx)
 {
     lv_obj_t *track = ctx->track;
+    const bool light = (screen_theme_get() == SCREEN_THEME_LIGHT);
+
     if (ctx->disabled) {
-        lv_obj_set_style_bg_color(track, lv_color_hex(TOGGLE_DISABLED_TRACK), 0);
+        lv_obj_set_style_bg_color(track,
+            light ? ctx->disabled_track_light
+                  : lv_color_hex(TOGGLE_DISABLED_TRACK),
+            0);
         lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
         return;
     }
     if (ctx->on) {
-        lv_obj_set_style_bg_color(track, ctx->active_color, 0);
-        lv_obj_set_style_bg_opa(track, TOGGLE_TRACK_OPA, 0);
+        lv_obj_set_style_bg_color(track,
+            light ? ctx->track_on_light : ctx->active_color,
+            0);
+        lv_obj_set_style_bg_opa(track, light ? LV_OPA_COVER : TOGGLE_TRACK_OPA,
+                                0);
     } else {
-        lv_obj_set_style_bg_color(track, lv_color_hex(TOGGLE_TRACK_OFF), 0);
-        lv_obj_set_style_bg_opa(track, TOGGLE_TRACK_OPA, 0);
+        lv_obj_set_style_bg_color(track,
+            light ? ctx->track_off_light : lv_color_hex(TOGGLE_TRACK_OFF),
+            0);
+        lv_obj_set_style_bg_opa(track, light ? LV_OPA_COVER : TOGGLE_TRACK_OPA,
+                                0);
     }
 }
 
 static void apply_knob_style(ha_control_toggle_context_t *ctx)
 {
     lv_obj_t *knob = ctx->knob;
+    const bool light = (screen_theme_get() == SCREEN_THEME_LIGHT);
+
     if (ctx->disabled) {
-        lv_obj_set_style_bg_color(knob, lv_color_hex(TOGGLE_DISABLED_KNOB), 0);
+        lv_obj_set_style_bg_color(knob,
+            light ? ctx->disabled_knob_light
+                  : lv_color_hex(TOGGLE_DISABLED_KNOB),
+            0);
         return;
     }
     lv_obj_set_style_bg_color(knob,
-                              ctx->on ? ctx->active_color
-                                      : lv_color_hex(TOGGLE_KNOB_OFF),
-                              0);
+        ctx->on ? (light ? ctx->knob_on_light : ctx->active_color)
+                : (light ? ctx->knob_off_light
+                         : lv_color_hex(TOGGLE_KNOB_OFF)),
+        0);
 }
 
 static void event_cb(lv_event_t *event)
@@ -138,7 +171,13 @@ lv_obj_t *ha_control_toggle_create(lv_obj_t *parent)
     if (!ctx) {
         return NULL;
     }
-    ctx->active_color = lv_color_hex(0xF9C000);
+    ctx->active_color = lv_color_hex(0xFFC107);
+    ctx->track_off_light = lv_color_hex(TOGGLE_TRACK_OFF_LIGHT);
+    ctx->track_on_light = lv_color_hex(TOGGLE_TRACK_ON_LIGHT);
+    ctx->knob_off_light = lv_color_hex(TOGGLE_KNOB_OFF_LIGHT);
+    ctx->knob_on_light = lv_color_hex(TOGGLE_KNOB_ON_LIGHT);
+    ctx->disabled_track_light = lv_color_hex(TOGGLE_DISABLED_TRACK_LIGHT);
+    ctx->disabled_knob_light = lv_color_hex(TOGGLE_DISABLED_KNOB_LIGHT);
 
     lv_obj_t *track = lv_obj_create(parent);
     if (!track) {
@@ -247,4 +286,35 @@ void ha_control_toggle_set_icon_text(lv_obj_t *obj, const char *text)
     if (ctx && ctx->icon_label) {
         lv_label_set_text(ctx->icon_label, text ? text : "");
     }
+}
+
+void ha_control_toggle_refresh_theme(lv_obj_t *obj)
+{
+    ha_control_toggle_context_t *ctx = get_context(obj);
+    if (!ctx) {
+        return;
+    }
+    apply_track_style(ctx);
+    apply_knob_style(ctx);
+}
+
+void ha_control_toggle_set_light_colors(lv_obj_t *obj,
+                                        lv_color_t track_off,
+                                        lv_color_t track_on,
+                                        lv_color_t knob_off,
+                                        lv_color_t knob_on,
+                                        lv_color_t disabled_track,
+                                        lv_color_t disabled_knob)
+{
+    ha_control_toggle_context_t *ctx = get_context(obj);
+    if (!ctx) {
+        return;
+    }
+    ctx->track_off_light = track_off;
+    ctx->track_on_light = track_on;
+    ctx->knob_off_light = knob_off;
+    ctx->knob_on_light = knob_on;
+    ctx->disabled_track_light = disabled_track;
+    ctx->disabled_knob_light = disabled_knob;
+    ha_control_toggle_refresh_theme(obj);
 }
