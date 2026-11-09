@@ -71,7 +71,7 @@
         <SettingRow titleCol={10} contentCol={2}>
             {#snippet titleSnippet()}
                 <div class="theme-follow-copy">
-                    <span>{$_('page.settings.darkMode')}</span>
+                    <span>{$_('settingsDetail.followSystem')}</span>
                     <small>{$_('settingsDetail.followHint')}</small>
                 </div>
             {/snippet}
