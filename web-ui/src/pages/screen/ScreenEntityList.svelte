@@ -99,8 +99,6 @@
                             showIconBackground={shouldShowScreenEntityIconBackground(card.data.entity, card.data.actionConfig)}
                             features={card.data.features ?? []}
                             featuresPosition={getTileFeaturePosition(card.data.features_position)}
-                            onFeatureToggle={editing ? () => onSettings(card.data.entity) : undefined}
-                            onFeatureActivate={editing ? () => onSettings(card.data.entity) : undefined}
                             interactiveElement="div"
                             onclick={editing ? () => onSettings(card.data.entity) : undefined}
                         />

@@ -4,6 +4,7 @@
     import SettingPageHeader from '@/component/PageHeader/PageHeader.svelte';
     import Button from '@/component/Button/Button.svelte';
     import TimePicker from '@/component/TimePicker/TimePicker.svelte';
+    import SettingSwitch from '@/component/SettingSwitch/SettingSwitch.svelte';
     import { ROUTES_PATH } from '@/constant';
     import { EMessageType, sendMessage } from '@/stores/message';
     import { deviceStore, updateDeviceField } from '@/stores/device';
@@ -61,15 +62,12 @@
                 <h2>{$_('settingsDetail.enableNight')}</h2>
                 <p>{$_('settingsDetail.nightHint')}</p>
             </div>
-            <span class="form-check form-switch">
-                <input
-                    class="form-check-input"
-                    type="checkbox"
-                    role="switch"
-                    bind:checked={enable}
-                    disabled={loading}
-                />
-            </span>
+            <SettingSwitch
+                ariaLabel={$_('settingsDetail.enableNight')}
+                checked={enable}
+                disabled={loading}
+                onchange={(event) => (enable = event.currentTarget.checked)}
+            />
         </header>
 
         {#if enable}
@@ -126,16 +124,6 @@
         color: var(--body-text-color-grey);
         font-size: 0.75rem;
         line-height: 1.5;
-    }
-    .night-mode-heading .form-check {
-        margin: 0;
-        padding: 0;
-        flex: 0 0 auto;
-    }
-    .night-mode-heading .form-check-input {
-        float: none;
-        margin: 0;
-        cursor: pointer;
     }
     .night-mode-brightness {
         position: relative;

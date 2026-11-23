@@ -102,7 +102,6 @@ static const char *TAG = "switch_entity_handler";
 #define SWITCH_TILE_ICON_UNAVAILABLE_DARK  0x6F6F6F
 #define SWITCH_TILE_ICON_UNAVAILABLE_LIGHT 0xBDBDBD
 #define SWITCH_TILE_TITLE           0xFFFFFF
-#define SWITCH_TILE_STATE           0x666666
 #define SWITCH_TILE_DISABLED_BG    0x242424
 #define SWITCH_TILE_DISABLED_CIRCLE 0x3A3A3A
 #define SWITCH_TILE_DISABLED_ICON  0x8A8A8A
@@ -640,7 +639,6 @@ static esp_err_t switch_render_tile(ha_entity_store_t *store,
     model->icon_circle_background_color_light = lv_color_hex(icon_color);
     model->icon_circle_background_opa = LV_OPA_20;
     model->title_color = lv_color_hex(SWITCH_TILE_TITLE);
-    model->state_color = lv_color_hex(SWITCH_TILE_STATE);
 
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,

@@ -15,7 +15,7 @@
 
 <footer class:with-sidebar={withSidebar} class="w-100 text-center copyright">
     <p>Copyright © 2026 ITEAD Intelligent Systems Co.,Ltd</p>
-    <div class="d-flex justify-content-center icon-container-wrapper">
+    <div class="icon-container-wrapper">
         {#each medias as item (item.href)}
             <span class="icon-container" class:grey={item.color === 'grey'}>
                 <a href={item.href} target="_blank" rel="noreferrer">
@@ -35,27 +35,45 @@
     z-index: 1020;
     display: flex;
     height: var(--footer-height);
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
     justify-content: center;
+    gap: 1rem;
     padding: 0.5rem 1rem;
-    background: color-mix(in srgb, var(--bs-body-bg) 92%, transparent);
+    background: var(--web-translucent-surface-92);
     backdrop-filter: blur(14px);
     p {
-        margin-bottom: 0.75rem;
+        margin: 0;
         color: var(--body-text-color-highlight);
         font-size: 0.75rem;
         line-height: 1.06rem;
     }
+    .icon-container-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.94rem;
+    }
     .icon-container {
-        margin-right: 0.94rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         > a {
+            display: flex;
+            align-items: center;
+            justify-content: center;
             color: unset;
         }
-        &:last-of-type { margin-right: 0; }
         &.grey {
             color: var(--overview-footer-icon-color, var(--body-text-color-grey));
         }
+    }
+}
+
+@media (max-width: 767.98px) {
+    .copyright {
+        flex-direction: column;
+        gap: 0.5rem;
     }
 }
 

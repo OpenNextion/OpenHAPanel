@@ -5,7 +5,11 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include "draw/lv_draw_image.h"
+#include "draw/lv_draw_mask.h"
+
 #include "assets/ha_ui_assets.h"
+#include "screen_theme.h"
 
 #define BRIGHTNESS_SLIDER_HEIGHT         56
 #define BRIGHTNESS_DEFAULT_RADIUS        12
@@ -19,17 +23,32 @@
 #define BRIGHTNESS_TRANSITION_MS         180
 #define BRIGHTNESS_MIN_ACTIVE_PERCENT    1
 #define BRIGHTNESS_EXT_DRAW_SIZE          48
-#define BRIGHTNESS_OFF_TRACK_OPACITY     32
+#define BRIGHTNESS_OFF_TRACK_OPACITY     LV_OPA_100
 #define BRIGHTNESS_ACTIVE_TRACK_OPACITY  51
+#define COLOR_TEMP_GRADIENT_SEGMENTS    10
+#define COLOR_TEMP_GRADIENT_STOP_COUNT  11
+#define COLOR_TEMP_CURSOR_WIDTH         22
+#define COLOR_TEMP_CURSOR_RADIUS        4
+#define COLOR_TEMP_CURSOR_LINE_X        9
+#define COLOR_TEMP_CURSOR_LINE_RADIUS   2
+#define COLOR_TEMP_CURSOR_LINE_DARK     0x666666
+#define COLOR_TEMP_CURSOR_LINE_LIGHT    0x333333
+#define COLOR_TRACK                     0xE3E3E3
+#define COLOR_TRACK_DARK                0x9E9E9E
 
 typedef struct {
     lv_obj_t *slider;
+    lv_obj_t *track;
+    lv_obj_t *fill;
+    lv_obj_t *handle;
     lv_obj_t *tip;
     lv_obj_t *tip_label;
     uint8_t committed_value;
     int32_t visual_value;
     lv_color_t display_color;
     lv_color_t background_color;
+    lv_color_t off_track_color;
+    lv_opa_t off_track_opa;
     int32_t radius;
     lv_point_t press_origin;
     uint32_t press_tick;
@@ -39,7 +58,13 @@ typedef struct {
     bool suppress_callback;
     bool disabled;
     bool custom_background_color;
+    bool custom_off_track_style;
+    bool linear_fill;
     ha_control_slider_change_cb_t callback;
+    uint16_t min_kelvin;
+    uint16_t max_kelvin;
+    uint32_t gradient_stops[COLOR_TEMP_GRADIENT_STOP_COUNT];
+    bool color_temp_mode;
     void *user_data;
 } ha_control_slider_context_t;
 
@@ -114,6 +139,108 @@ static int32_t fill_right(const lv_area_t *area, int32_t value)
     return area->x1 + BRIGHTNESS_END_CAP * 2 + normalized * travel / 99;
 }
 
+/* Drive the track/fill/handle object tree for the ordinary brightness mode.
+ * The color-temperature mode keeps its custom gradient rendering instead. */
+static void update_visual(ha_control_slider_context_t *context)
+{
+    if (!context || !context->slider) {
+        return;
+    }
+    if (context->color_temp_mode) {
+        lv_obj_add_flag(context->track, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(context->fill, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(context->handle, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_invalidate(context->slider);
+        return;
+    }
+
+    lv_obj_remove_flag(context->track, LV_OBJ_FLAG_HIDDEN);
+    const lv_opa_t opacity = context->disabled ? LV_OPA_40 : LV_OPA_COVER;
+    const bool effective_on = context->dragging
+                                  ? context->visual_value > 0
+                                  : context->power_on;
+    const lv_color_t fill_color = context->display_color;
+    if (!effective_on) {
+        if (context->custom_off_track_style) {
+            lv_obj_set_style_bg_color(context->track,
+                                      context->off_track_color, 0);
+            lv_obj_set_style_bg_opa(context->track,
+                                    context->off_track_opa, 0);
+        } else {
+            const bool light = (screen_theme_get() == SCREEN_THEME_LIGHT);
+            lv_obj_set_style_bg_color(context->track,
+                                      light ? lv_color_hex(COLOR_TRACK)
+                                            : lv_color_hex(COLOR_TRACK_DARK),
+                                      0);
+            lv_obj_set_style_bg_opa(context->track,
+                                    light ? BRIGHTNESS_OFF_TRACK_OPACITY
+                                          : LV_OPA_20,
+                                    0);
+        }
+        lv_obj_add_flag(context->fill, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(context->handle, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    const lv_color_t track_color = context->custom_background_color
+                                       ? context->background_color
+                                       : fill_color;
+    /* Tint the active track over the card surface. */
+    const lv_opa_t base_track_opacity =
+        context->custom_background_color ? LV_OPA_COVER
+                                         : BRIGHTNESS_ACTIVE_TRACK_OPACITY;
+    const lv_opa_t track_opacity =
+        (lv_opa_t)((uint16_t)base_track_opacity * opacity / LV_OPA_COVER);
+    lv_obj_set_style_bg_color(context->track, track_color, 0);
+    lv_obj_set_style_bg_opa(context->track, track_opacity, 0);
+
+    const int32_t width = lv_obj_get_width(context->slider);
+    const int32_t height = lv_obj_get_height(context->slider);
+    lv_area_t local_area = {
+        .x1 = 0,
+        .y1 = 0,
+        .x2 = width - 1,
+        .y2 = height - 1,
+    };
+    int32_t x;
+    int32_t fill_left;
+    if (context->linear_fill) {
+        /* Mirror the fan's original hand-drawn bar: the fill grows strictly
+         * from the track's left inner edge by percentage, so a low value
+         * leaves only a tiny stub instead of a fixed end-cap. */
+        x = context->visual_value > 0
+                ? (int32_t)((int64_t)width * context->visual_value / 100)
+                : -1;
+        fill_left = 0;
+    }
+    else {
+        x = fill_right(&local_area, context->visual_value);
+        fill_left = -context->radius;
+    }
+
+    lv_obj_set_style_bg_color(context->fill, fill_color, 0);
+    lv_obj_set_style_bg_opa(context->fill, LV_OPA_COVER, 0);
+    const int32_t fill_width = x - fill_left + 1;
+    if (fill_width > 0) {
+        lv_obj_set_pos(context->fill, fill_left, 0);
+        lv_obj_set_size(context->fill, fill_width, height);
+        lv_obj_remove_flag(context->fill, LV_OBJ_FLAG_HIDDEN);
+    }
+    else {
+        lv_obj_add_flag(context->fill, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    lv_obj_set_style_bg_opa(context->handle, LV_OPA_COVER, 0);
+    lv_obj_set_pos(context->handle,
+                   x - BRIGHTNESS_HANDLE_X_OFFSET -
+                       BRIGHTNESS_HANDLE_WIDTH + 1,
+                   BRIGHTNESS_HANDLE_INSET);
+    lv_obj_set_size(context->handle,
+                    BRIGHTNESS_HANDLE_WIDTH,
+                    height - BRIGHTNESS_HANDLE_INSET * 2);
+    lv_obj_remove_flag(context->handle, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void draw_rect(lv_layer_t *layer,
                       const lv_area_t *area,
                       lv_color_t color,
@@ -136,81 +263,162 @@ static void draw_rect(lv_layer_t *layer,
     lv_draw_rect(layer, &descriptor, area);
 }
 
-static void finish_draw_batch(lv_layer_t *layer)
-{
-    while (layer->draw_task_head) {
-        lv_draw_dispatch_wait_for_request();
-        lv_draw_dispatch();
-    }
-}
-
-static int32_t rounded_inset(const lv_area_t *area,
-                             int32_t radius,
-                             int32_t x)
-{
-    const int32_t delta =
-        x < area->x1 + radius
-            ? area->x1 + radius - x - 1
-            : x > area->x2 - radius
-                  ? x - (area->x2 - radius) - 1
-                  : -1;
-    return delta >= 0
-               ? radius -
-                     (int32_t)sqrtf((float)(radius * radius - delta * delta))
-               : 0;
-}
-
 typedef void (*rounded_draw_cb_t)(lv_layer_t *layer,
                                   const lv_area_t *area,
                                   void *user_data);
 
+/* Render `area` once into an ARGB8888 off-screen layer and apply a native
+ * anti-aliased rounded-rectangle mask. This replaces the previous per-column
+ * integer inset clipping, whose discrete steps produced jagged left/right
+ * corners. */
 static void draw_with_rounded_clip(lv_layer_t *layer,
                                    const lv_area_t *area,
                                    int32_t radius,
                                    rounded_draw_cb_t callback,
                                    void *user_data)
 {
-    const lv_area_t saved_clip = layer->_clip_area;
-    const lv_area_t clip = {
-        .x1 = LV_MAX(saved_clip.x1, area->x1),
-        .y1 = LV_MAX(saved_clip.y1, area->y1),
-        .x2 = LV_MIN(saved_clip.x2, area->x2),
-        .y2 = LV_MIN(saved_clip.y2, area->y2),
-    };
-    if (clip.x1 > clip.x2 || clip.y1 > clip.y2) {
+    if (area->x2 < area->x1 || area->y2 < area->y1) {
+        return;
+    }
+    const lv_area_t *clip = &layer->_clip_area;
+    if (area->x1 > clip->x2 || area->x2 < clip->x1 ||
+        area->y1 > clip->y2 || area->y2 < clip->y1) {
         return;
     }
     radius = LV_MIN(radius,
                     LV_MIN(lv_area_get_width(area),
                            lv_area_get_height(area)) /
                         2);
-    unsigned batch_callbacks = 0;
-    for (int32_t x = clip.x1; x <= clip.x2;) {
-        const int32_t inset = rounded_inset(area, radius, x);
-        int32_t end = x;
-        while (end < clip.x2 &&
-               rounded_inset(area, radius, end + 1) == inset) {
-            end++;
-        }
-        layer->_clip_area = (lv_area_t) {
-            .x1 = x,
-            .y1 = LV_MAX(clip.y1, area->y1 + inset),
-            .x2 = end,
-            .y2 = LV_MIN(clip.y2, area->y2 - inset),
-        };
-        if (layer->_clip_area.y1 <= layer->_clip_area.y2) {
-            callback(layer, area, user_data);
-            /* A brightness callback creates at most three draw tasks. Drain
-             * every four clipped bands without inspecting LVGL's private
-             * lv_draw_task_t linked-list fields. */
-            if (++batch_callbacks == 4U) {
-                finish_draw_batch(layer);
-                batch_callbacks = 0;
-            }
-        }
-        x = end + 1;
+    if (radius <= 0) {
+        callback(layer, area, user_data);
+        return;
     }
-    layer->_clip_area = saved_clip;
+
+    lv_layer_t *rounded_layer =
+        lv_draw_layer_create(layer, LV_COLOR_FORMAT_ARGB8888, area);
+    if (rounded_layer == NULL) {
+        callback(layer, area, user_data);
+        return;
+    }
+
+    callback(rounded_layer, area, user_data);
+
+    lv_draw_mask_rect_dsc_t mask_dsc;
+    lv_draw_mask_rect_dsc_init(&mask_dsc);
+    mask_dsc.area = *area;
+    mask_dsc.radius = radius;
+    lv_draw_mask_rect(rounded_layer, &mask_dsc);
+
+    lv_draw_image_dsc_t layer_dsc;
+    lv_draw_image_dsc_init(&layer_dsc);
+    layer_dsc.src = rounded_layer;
+    lv_draw_layer(layer, &layer_dsc, area);
+}
+
+/* Same temperature-to-RGB approximation used by the More Info vertical
+ * color-temperature slider. */
+static uint32_t kelvin_color(float kelvin)
+{
+    const float temperature = kelvin / 100.0f;
+    const float red = temperature <= 66.0f
+                          ? 255.0f
+                          : 329.698727446f *
+                                powf(temperature - 60.0f, -0.1332047592f);
+    const float green = temperature <= 66.0f
+                            ? 99.4708025861f * logf(temperature) -
+                                  161.1195681661f
+                            : 288.1221695283f *
+                                  powf(temperature - 60.0f,
+                                       -0.0755148492f);
+    const float blue = temperature >= 66.0f
+                           ? 255.0f
+                           : temperature <= 19.0f
+                                 ? 0.0f
+                                 : 138.5177312231f *
+                                           logf(temperature - 10.0f) -
+                                       305.0447927307f;
+    const uint32_t r = (uint32_t)LV_CLAMP(0, (int32_t)lroundf(red), 255);
+    const uint32_t g = (uint32_t)LV_CLAMP(0, (int32_t)lroundf(green), 255);
+    const uint32_t b = (uint32_t)LV_CLAMP(0, (int32_t)lroundf(blue), 255);
+    return (r << 16) | (g << 8) | b;
+}
+
+/* Match the CSS filter used by Home Assistant's inactive color-temperature
+ * slider: filter: saturate(0.5). */
+static uint32_t css_saturate_half(uint32_t color)
+{
+    const float red = (float)((color >> 16) & 0xFF);
+    const float green = (float)((color >> 8) & 0xFF);
+    const float blue = (float)(color & 0xFF);
+    const float luminance = 0.213f * red + 0.715f * green + 0.072f * blue;
+    const uint32_t muted_red = (uint32_t)LV_CLAMP(
+        0, (int32_t)lroundf(luminance + (red - luminance) * 0.5f), 255);
+    const uint32_t muted_green = (uint32_t)LV_CLAMP(
+        0, (int32_t)lroundf(luminance + (green - luminance) * 0.5f), 255);
+    const uint32_t muted_blue = (uint32_t)LV_CLAMP(
+        0, (int32_t)lroundf(luminance + (blue - luminance) * 0.5f), 255);
+    return rgb_value(muted_red, muted_green, muted_blue);
+}
+
+static void update_gradient_stops(ha_control_slider_context_t *context)
+{
+    const uint32_t span = context->max_kelvin - context->min_kelvin;
+    for (size_t i = 0; i < COLOR_TEMP_GRADIENT_STOP_COUNT; i++) {
+        const float kelvin =
+            context->min_kelvin +
+            span * (float)i / COLOR_TEMP_GRADIENT_SEGMENTS;
+        context->gradient_stops[i] = kelvin_color(kelvin);
+    }
+}
+
+/* Horizontal warm-to-cool gradient: 10 vertical strips stacked left-to-right,
+ * each blending two adjacent stops with LV_GRAD_DIR_HOR. */
+static void draw_gradient_track(lv_layer_t *layer,
+                                const lv_area_t *area,
+                                ha_control_slider_context_t *context,
+                                bool inactive)
+{
+    const int32_t width = lv_area_get_width(area);
+    const lv_opa_t opacity = inactive ? LV_OPA_40 : LV_OPA_COVER;
+    const lv_area_t *clip = &layer->_clip_area;
+    for (size_t i = 0; i < COLOR_TEMP_GRADIENT_SEGMENTS; i++) {
+        lv_area_t band = {
+            .x1 = area->x1 + (int32_t)i * width / COLOR_TEMP_GRADIENT_SEGMENTS,
+            .y1 = area->y1,
+            .x2 = area->x1 + (int32_t)(i + 1) * width /
+                                  COLOR_TEMP_GRADIENT_SEGMENTS - 1,
+            .y2 = area->y2,
+        };
+        if (band.x1 > clip->x2 || band.x2 < clip->x1 ||
+            band.y1 > clip->y2 || band.y2 < clip->y1) {
+            continue;
+        }
+        const uint32_t start_color = inactive
+                                         ? css_saturate_half(
+                                               context->gradient_stops[i])
+                                         : context->gradient_stops[i];
+        const uint32_t end_color = inactive
+                                       ? css_saturate_half(
+                                             context->gradient_stops[i + 1])
+                                       : context->gradient_stops[i + 1];
+        lv_draw_rect_dsc_t gradient;
+        lv_draw_rect_dsc_init(&gradient);
+        gradient.bg_opa = opacity;
+        gradient.bg_color = lv_color_hex(start_color);
+        gradient.bg_grad.dir = LV_GRAD_DIR_HOR;
+        gradient.bg_grad.stops_count = 2;
+        gradient.bg_grad.stops[0] = (lv_grad_stop_t) {
+            .color = lv_color_hex(start_color),
+            .opa = LV_OPA_COVER,
+            .frac = 0,
+        };
+        gradient.bg_grad.stops[1] = (lv_grad_stop_t) {
+            .color = lv_color_hex(end_color),
+            .opa = LV_OPA_COVER,
+            .frac = 255,
+        };
+        lv_draw_rect(layer, &gradient, &band);
+    }
 }
 
 static void draw_slider(lv_layer_t *layer,
@@ -222,66 +430,55 @@ static void draw_slider(lv_layer_t *layer,
     const bool effective_on = context->dragging
                                   ? context->visual_value > 0
                                   : context->power_on;
-    const lv_color_t fill_color = context->display_color;
-    const lv_color_t track_color = context->custom_background_color
-                                       ? context->background_color
-                                       : effective_on
-                                             ? fill_color
-                                             : lv_color_white();
-    /* The original slider premixes 20% light color (or 0x20 white when off)
-     * against black. More Info has a near-black background. Apply those same
-     * tint strengths to the Tile's actual background so both tracks retain
-     * the same contrast against their surrounding surfaces. */
-    const lv_opa_t base_track_opacity = context->custom_background_color
-                                            ? LV_OPA_COVER
-                                            : effective_on
-                                                  ? BRIGHTNESS_ACTIVE_TRACK_OPACITY
-                                                  : BRIGHTNESS_OFF_TRACK_OPACITY;
-    const lv_opa_t track_opacity =
-        (lv_opa_t)((uint16_t)base_track_opacity * opacity / LV_OPA_COVER);
-    draw_rect(layer,
-              area,
-              track_color,
-              track_opacity,
-              context->radius);
-    if (!effective_on || context->visual_value <= 0) {
+    const bool inactive = !context->power_on && !context->disabled;
+    draw_gradient_track(layer, area, context, inactive);
+    if (!effective_on || context->disabled) {
         return;
     }
-
-    const int32_t x = fill_right(area, context->visual_value);
-    lv_area_t fill = {
-        /* Keep the fill's left small-radius corners outside the track. The
-         * outer clip supplies the track's larger left radius. */
-        .x1 = area->x1 - context->radius,
+    /* Mirror the More Info vertical slider's cursor: a full-height white bar
+     * with a centered, theme-aware indicator line. */
+    const int32_t travel =
+        lv_area_get_width(area) - COLOR_TEMP_CURSOR_WIDTH;
+    const int32_t normalized = LV_CLAMP(0, context->visual_value, 100);
+    const int32_t x = travel > 0
+                          ? area->x1 + normalized * travel / 100
+                          : area->x1;
+    lv_area_t cursor = {
+        .x1 = x,
         .y1 = area->y1,
-        .x2 = x,
+        .x2 = x + COLOR_TEMP_CURSOR_WIDTH - 1,
         .y2 = area->y2,
     };
     draw_rect(layer,
-              &fill,
-              fill_color,
+              &cursor,
+              lv_color_white(),
               opacity,
-              BRIGHTNESS_FILL_END_RADIUS);
+              COLOR_TEMP_CURSOR_RADIUS);
 
-    lv_area_t handle = {
-        .x1 = x - BRIGHTNESS_HANDLE_X_OFFSET -
-              BRIGHTNESS_HANDLE_WIDTH + 1,
+    const lv_color_t line_color = lv_color_hex(
+        screen_theme_get() == SCREEN_THEME_LIGHT
+            ? COLOR_TEMP_CURSOR_LINE_LIGHT
+            : COLOR_TEMP_CURSOR_LINE_DARK);
+    /* Match the brightness handle's size: the indicator line spans the same
+     * 4px width and 28px height (14px inset on each side). */
+    lv_area_t line = {
+        .x1 = x + COLOR_TEMP_CURSOR_LINE_X,
         .y1 = area->y1 + BRIGHTNESS_HANDLE_INSET,
-        .x2 = x - BRIGHTNESS_HANDLE_X_OFFSET,
+        .x2 = x + COLOR_TEMP_CURSOR_LINE_X + 3,
         .y2 = area->y2 - BRIGHTNESS_HANDLE_INSET,
     };
     draw_rect(layer,
-              &handle,
-              lv_color_white(),
+              &line,
+              line_color,
               opacity,
-              BRIGHTNESS_HANDLE_WIDTH / 2);
+              COLOR_TEMP_CURSOR_LINE_RADIUS);
 }
 
 static void draw_cb(lv_event_t *event)
 {
     ha_control_slider_context_t *context =
         lv_event_get_user_data(event);
-    if (!context) {
+    if (!context || !context->color_temp_mode) {
         return;
     }
     lv_area_t area;
@@ -335,7 +532,7 @@ static void set_visual_value(ha_control_slider_context_t *context,
 {
     context->visual_value = clamp_percent(value);
     set_native_value(context, context->visual_value);
-    lv_obj_invalidate(context->slider);
+    update_visual(context);
     update_tip(context);
 }
 
@@ -349,6 +546,16 @@ static int32_t pointer_value(ha_control_slider_context_t *context)
     lv_indev_get_point(input, &point);
     lv_area_t area;
     lv_obj_get_coords(context->slider, &area);
+    if (context->linear_fill) {
+        const int32_t width = lv_area_get_width(&area);
+        if (width <= 0) {
+            return context->visual_value;
+        }
+        const float position = (float)(point.x - area.x1);
+        const int32_t value =
+            (int32_t)lroundf(position * 100.0f / width);
+        return clamp_percent(value);
+    }
     const int32_t travel = lv_area_get_width(&area) -
                            BRIGHTNESS_END_CAP * 2 - 1;
     if (travel <= 0) {
@@ -381,7 +588,7 @@ static void visual_anim_cb(void *var, int32_t value)
         return;
     }
     context->visual_value = value;
-    lv_obj_invalidate(context->slider);
+    update_visual(context);
 }
 
 static void animate_visual_to(ha_control_slider_context_t *context,
@@ -389,7 +596,7 @@ static void animate_visual_to(ha_control_slider_context_t *context,
 {
     lv_anim_delete(context, visual_anim_cb);
     if (context->visual_value == value) {
-        lv_obj_invalidate(context->slider);
+        update_visual(context);
         return;
     }
     lv_anim_t animation;
@@ -471,7 +678,7 @@ static void event_cb(lv_event_t *event)
                 lv_slider_get_value(context->slider));
             set_native_value(context, value);
             context->visual_value = value;
-            lv_obj_invalidate(context->slider);
+            update_visual(context);
             if (context->callback) {
                 context->callback((uint8_t)context->visual_value,
                                   HA_CONTROL_SLIDER_PREVIEW,
@@ -495,7 +702,7 @@ static void event_cb(lv_event_t *event)
         context->power_on = context->committed_value > 0;
         update_tip(context);
         if (was_dragging) {
-            lv_obj_invalidate(context->slider);
+            update_visual(context);
         }
         else {
             animate_visual_to(context, value);
@@ -558,6 +765,36 @@ lv_obj_t *ha_control_slider_create(lv_obj_t *parent)
     lv_obj_set_style_shadow_width(slider, 0, LV_PART_KNOB);
     lv_obj_set_style_pad_all(slider, 0, LV_PART_MAIN);
 
+    context->track = lv_obj_create(slider);
+    lv_obj_remove_style_all(context->track);
+    lv_obj_remove_flag(context->track,
+                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(context->track, 0, 0);
+    lv_obj_set_size(context->track, LV_PCT(100), BRIGHTNESS_SLIDER_HEIGHT);
+    lv_obj_set_style_radius(context->track, context->radius, 0);
+    lv_obj_set_style_clip_corner(context->track, true, 0);
+    lv_obj_set_style_border_width(context->track, 0, 0);
+    lv_obj_set_style_pad_all(context->track, 0, 0);
+
+    context->fill = lv_obj_create(context->track);
+    lv_obj_remove_style_all(context->fill);
+    lv_obj_remove_flag(context->fill,
+                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(context->fill, BRIGHTNESS_FILL_END_RADIUS, 0);
+    lv_obj_set_style_border_width(context->fill, 0, 0);
+    lv_obj_set_style_pad_all(context->fill, 0, 0);
+    lv_obj_add_flag(context->fill, LV_OBJ_FLAG_HIDDEN);
+
+    context->handle = lv_obj_create(context->track);
+    lv_obj_remove_style_all(context->handle);
+    lv_obj_remove_flag(context->handle,
+                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(context->handle, BRIGHTNESS_HANDLE_WIDTH / 2, 0);
+    lv_obj_set_style_bg_color(context->handle, lv_color_white(), 0);
+    lv_obj_set_style_border_width(context->handle, 0, 0);
+    lv_obj_set_style_pad_all(context->handle, 0, 0);
+    lv_obj_add_flag(context->handle, LV_OBJ_FLAG_HIDDEN);
+
     context->tip = lv_obj_create(slider);
     if (context->tip) {
         lv_obj_remove_flag(context->tip, LV_OBJ_FLAG_SCROLLABLE);
@@ -581,6 +818,7 @@ lv_obj_t *ha_control_slider_create(lv_obj_t *parent)
 
     lv_obj_add_event_cb(slider, event_cb, LV_EVENT_ALL, context);
     lv_obj_refresh_ext_draw_size(slider);
+    update_visual(context);
     return slider;
 }
 
@@ -592,7 +830,8 @@ void ha_control_slider_set_radius(lv_obj_t *obj, int32_t radius)
     }
     context->radius = LV_CLAMP(0, radius, BRIGHTNESS_SLIDER_HEIGHT / 2);
     lv_obj_set_style_radius(obj, context->radius, LV_PART_MAIN);
-    lv_obj_invalidate(obj);
+    lv_obj_set_style_radius(context->track, context->radius, 0);
+    update_visual(context);
 }
 
 void ha_control_slider_set_value(lv_obj_t *obj,
@@ -617,7 +856,7 @@ void ha_control_slider_set_value(lv_obj_t *obj,
     }
     else {
         context->visual_value = percent;
-        lv_obj_invalidate(obj);
+        update_visual(context);
     }
 }
 
@@ -626,7 +865,28 @@ void ha_control_slider_set_active_color(lv_obj_t *obj, lv_color_t color)
     ha_control_slider_context_t *context = get_context(obj);
     if (context) {
         context->display_color = contrast_color(color);
-        lv_obj_invalidate(obj);
+        update_visual(context);
+    }
+}
+
+void ha_control_slider_set_active_color_raw(lv_obj_t *obj, lv_color_t color)
+{
+    ha_control_slider_context_t *context = get_context(obj);
+    if (context) {
+        context->display_color = color;
+        update_visual(context);
+    }
+}
+
+void ha_control_slider_set_off_track_style(lv_obj_t *obj, lv_color_t color,
+                                           lv_opa_t opacity)
+{
+    ha_control_slider_context_t *context = get_context(obj);
+    if (context) {
+        context->off_track_color = color;
+        context->off_track_opa = opacity;
+        context->custom_off_track_style = true;
+        update_visual(context);
     }
 }
 
@@ -636,7 +896,7 @@ void ha_control_slider_set_background_color(lv_obj_t *obj, lv_color_t color)
     if (context) {
         context->background_color = color;
         context->custom_background_color = true;
-        lv_obj_invalidate(obj);
+        update_visual(context);
     }
 }
 
@@ -645,7 +905,16 @@ void ha_control_slider_use_auto_background(lv_obj_t *obj)
     ha_control_slider_context_t *context = get_context(obj);
     if (context) {
         context->custom_background_color = false;
-        lv_obj_invalidate(obj);
+        update_visual(context);
+    }
+}
+
+void ha_control_slider_set_linear_fill(lv_obj_t *obj, bool linear)
+{
+    ha_control_slider_context_t *context = get_context(obj);
+    if (context) {
+        context->linear_fill = linear;
+        update_visual(context);
     }
 }
 
@@ -659,7 +928,7 @@ void ha_control_slider_set_power(lv_obj_t *obj, bool on)
             context->visual_value = on ? context->committed_value : 0;
             set_native_value(context, context->visual_value);
         }
-        lv_obj_invalidate(obj);
+        update_visual(context);
     }
 }
 
@@ -681,7 +950,7 @@ void ha_control_slider_set_disabled(lv_obj_t *obj, bool disabled)
     if (context->tip) {
         lv_obj_add_flag(context->tip, LV_OBJ_FLAG_HIDDEN);
     }
-    lv_obj_invalidate(obj);
+    update_visual(context);
 }
 
 void ha_control_slider_set_change_cb(
@@ -693,5 +962,33 @@ void ha_control_slider_set_change_cb(
     if (context) {
         context->callback = callback;
         context->user_data = user_data;
+    }
+}
+
+void ha_control_slider_set_color_temp_range(lv_obj_t *obj,
+                                            uint16_t min_kelvin,
+                                            uint16_t max_kelvin)
+{
+    ha_control_slider_context_t *context = get_context(obj);
+    if (!context) {
+        return;
+    }
+    if (max_kelvin < min_kelvin) {
+        max_kelvin = min_kelvin;
+    }
+    context->color_temp_mode = true;
+    context->min_kelvin = min_kelvin;
+    context->max_kelvin = max_kelvin;
+    update_gradient_stops(context);
+    update_visual(context);
+}
+
+void ha_control_slider_refresh_theme(lv_obj_t *obj)
+{
+    /* The color-temperature cursor's indicator line changes shade between the
+     * light and dark themes; re-render it on the next frame. */
+    ha_control_slider_context_t *context = get_context(obj);
+    if (context) {
+        update_visual(context);
     }
 }

@@ -15,6 +15,7 @@ import type {
     IHassEntityRegistryDisplayEntry,
     IHassStateEntry,
 } from '@/types/haRegistry';
+import ELanguage from '@/types/language';
 import type { THassScreenAction } from '@/types/screenConfig';
 
 export type THassActionSelection = 'default' | THassScreenAction;
@@ -34,6 +35,20 @@ interface IHassEntityPresentationOptions {
 }
 
 const FALLBACK_PREVIEW: IHassEntityPreviewConfig = { tone: 'neutral' };
+
+const SENSOR_NUMBER_LOCALES: Record<ELanguage, string> = {
+    [ELanguage.EN_US]: 'en-US',
+    [ELanguage.DE]: 'de-DE',
+    [ELanguage.FR]: 'fr-FR',
+    [ELanguage.RU]: 'ru-RU',
+    [ELanguage.VI]: 'vi-VN',
+    [ELanguage.DA]: 'da-DK',
+    [ELanguage.TR]: 'tr-TR',
+    [ELanguage.ES]: 'es-ES',
+    [ELanguage.IT]: 'it-IT',
+    [ELanguage.PT_BR]: 'pt-BR',
+    [ELanguage.KO]: 'ko-KR',
+};
 
 /** Shared clock: time-based entity rows subscribe only while they are mounted. */
 export const hassEntityRelativeTimeClock = readable(Date.now(), (set) => {
@@ -94,13 +109,12 @@ function getAttributeNumber(attributes: Record<string, unknown> | undefined, key
 
 function formatUnit(value: string, unit: string) {
     if (!unit) return value;
-    return `${value}${unit.startsWith('°') || unit === '%' ? '' : ' '}${unit}`;
+    return `${value}${unit === '°' || unit === '%' ? '' : ' '}${unit}`;
 }
 
 function formatSensorState(state: string, unit: string, displayPrecision?: number) {
-    if (!unit) return state;
     const value = Number(state);
-    if (!Number.isFinite(value)) return formatUnit(state, unit);
+    if (!Number.isFinite(value)) return unit ? formatUnit(state, unit) : state;
 
     // HA uses the registry precision when available; otherwise it keeps the
     // decimal places present in the state string when formatting a number.
@@ -108,13 +122,14 @@ function formatSensorState(state: string, unit: string, displayPrecision?: numbe
         ? displayPrecision
         : state.includes('.') ? state.split('.')[1].length : 0;
     try {
-        const formattedValue = new Intl.NumberFormat(getDisplayLocale(), {
+        const language = getDisplayLocale() as ELanguage;
+        const formattedValue = new Intl.NumberFormat(SENSOR_NUMBER_LOCALES[language] ?? SENSOR_NUMBER_LOCALES[ELanguage.EN_US], {
             minimumFractionDigits: fractionDigits,
             maximumFractionDigits: fractionDigits,
         }).format(value);
-        return formatUnit(formattedValue, unit);
+        return unit ? formatUnit(formattedValue, unit) : formattedValue;
     } catch {
-        return formatUnit(state, unit);
+        return unit ? formatUnit(state, unit) : state;
     }
 }
 
@@ -178,7 +193,25 @@ export function getHassEntityDisplayState(
     const state = stateObject.state.trim();
     const attributes = stateObject.attributes;
     const normalizedState = state.toLowerCase();
-    if (normalizedState === 'unavailable') return translateHassState('unavailable');
+    if (normalizedState === 'unavailable') {
+        const unavailable = translateHassState('unavailable');
+        if (variant === 'entity') {
+            if (entityId.startsWith('fan.')) {
+                const percentage = getAttributeNumber(attributes, 'percentage');
+                if (percentage !== null) return `${Math.round(percentage)}%`;
+            }
+            if (entityId.startsWith('cover.')) {
+                const position = getAttributeNumber(attributes, 'current_position');
+                if (position !== null) return `${unavailable} · ${Math.round(position)}%`;
+            }
+            if (entityId.startsWith('climate.')) {
+                const temperature = getAttributeString(attributes, 'current_temperature');
+                const unit = getAttributeString(attributes, 'temperature_unit') || getAttributeString(attributes, 'unit_of_measurement') || '°C';
+                if (temperature) return `${unavailable} · ${formatUnit(temperature, unit)}`;
+            }
+        }
+        return unavailable;
+    }
     const config = getHassEntitySupportConfig(entityId)?.stateDisplay;
     const deviceClass = getAttributeString(attributes, 'device_class');
     const classConfig = config?.byDeviceClass?.[deviceClass];
@@ -240,35 +273,36 @@ export function getHassEntityDisplayState(
         case 'climate': {
             if (normalizedState === 'off') return translateHassState('off');
             const temperature = getAttributeString(attributes, 'current_temperature');
-            const unit = getAttributeString(attributes, 'temperature_unit') || getAttributeString(attributes, 'unit_of_measurement');
+            const unit = getAttributeString(attributes, 'temperature_unit') || getAttributeString(attributes, 'unit_of_measurement') || '°C';;
             return temperature ? `${prettifyClimateState(state)} ${formatUnit(temperature, unit)}` : prettifyClimateState(state);
         }
         case 'climate-temperature': {
             if (normalizedState === 'off') return translateHassState('off');
             const temperature = getAttributeString(attributes, 'current_temperature');
-            const unit = getAttributeString(attributes, 'temperature_unit') || getAttributeString(attributes, 'unit_of_measurement');
+            const unit = getAttributeString(attributes, 'temperature_unit') || getAttributeString(attributes, 'unit_of_measurement') || '°C';
             return temperature ? formatUnit(temperature, unit) : prettifyClimateState(state);
         }
         case 'climate-badge': {
-            const temperature = getAttributeString(attributes, 'current_temperature') || '--';
-            const unit = getAttributeString(attributes, 'temperature_unit') || getAttributeString(attributes, 'unit_of_measurement');
-            return `${prettifyClimateState(state)}·${formatUnit(temperature, unit)}`;
+            const temperature = getAttributeString(attributes, 'current_temperature');
+            const unit = getAttributeString(attributes, 'temperature_unit') || getAttributeString(attributes, 'unit_of_measurement') || '°C';
+            return temperature && unit ?`${prettifyClimateState(state)}·${formatUnit(temperature, unit)}` : prettifyClimateState(state);
         }
         case 'relative-time':
             return formatRelativeTime(state) ?? prettifyState(state);
         case 'event':
             return formatRelativeTime(state) ?? prettifyState(getAttributeString(attributes, 'event_type') || state);
         case 'fan': {
-            if (normalizedState !== 'on') return normalizedState === 'off' ? translateHassState('off') : prettifyState(state);
-            if (!supportsFanSpeed(attributes)) return translateHassState('on');
             const percentage = getAttributeNumber(attributes, 'percentage');
+            if (normalizedState === 'off') return percentage !== null && percentage > 0 ? `${Math.round(percentage)}%` : translateHassState('off');
+            if (normalizedState !== 'on') return prettifyState(state);
+            if (!supportsFanSpeed(attributes)) return translateHassState('on');
             return percentage !== null ? `${Math.round(percentage)}%` : '--%';
         }
         case 'fan-badge': {
-            if (normalizedState === 'off') return translateHassState('off');
+            const percentage = getAttributeNumber(attributes, 'percentage');
+            if (normalizedState === 'off') return percentage !== null && percentage > 0 ? `${Math.round(Math.min(100, percentage))}%` : translateHassState('off');
             if (normalizedState !== 'on') return prettifyState(state);
             if (!supportsFanSpeed(attributes)) return translateHassState('on');
-            const percentage = getAttributeNumber(attributes, 'percentage');
             return percentage !== null ? `${Math.round(Math.max(0, Math.min(100, percentage)))}%` : '--%';
         }
         default:
@@ -309,7 +343,9 @@ const BINARY_SENSOR_ALERT_CLASSES = new Set([
 
 function getEntityTone(domain: string, state: string, fallback: IHassEntityPreviewConfig['tone'], deviceClass?: string): IHassEntityPreviewConfig['tone'] {
     const normalizedState = state.toLowerCase();
-    if (normalizedState === 'unavailable' || normalizedState === 'unknown' || !normalizedState) return 'ha-inactive';
+    if (domain === 'scene') return 'ha-sensor';
+    if (normalizedState === 'unavailable' || !normalizedState) return 'ha-inactive';
+    if (normalizedState === 'unknown') return domain === 'button' || domain === 'event' ? 'ha-sensor' : 'ha-inactive';
     if (domain === 'sensor') {
         if (deviceClass === 'battery' && state.trim()) {
             const batteryLevel = Number(state);
@@ -463,17 +499,20 @@ export function getHassEntityPresentation(
     const actualPreview = {
         ...preview,
         state: rawState,
-        label: isUnavailable || !displayStateObject ? translateHassState('unavailable') : getHassEntityDisplayState(entityId, displayStateObject, variant, displayName, registryEntity?.dp),
-        tone: isUnavailable ? 'neutral' as const : getEntityTone(entityDomain, rawState, preview.tone, capabilities.deviceClass),
+        label: !displayStateObject ? translateHassState('unavailable') : getHassEntityDisplayState(entityId, displayStateObject, variant, displayName, registryEntity?.dp),
+        tone: isUnavailable && entityDomain !== 'scene' && entityDomain !== 'light'
+            ? 'neutral'
+            : getEntityTone(entityDomain, rawState, preview.tone, capabilities.deviceClass),
     };
     const configuredIcon = options.icon ?? registryEntity?.ic ?? registryEntity?.icon ?? stateObject?.attributes?.icon;
     let iconStyle: string | undefined;
-    if (capabilities.config?.useRgbColor && !isUnavailable) {
+    if (capabilities.config?.useRgbColor) {
         const values = getHassLightRgbColor(stateObject?.attributes?.rgb_color);
         if (values) iconStyle = `--entity-icon-color: rgb(${values.join(', ')}); --entity-icon-background: rgba(${values.join(', ')}, 0.2);`;
     }
     return {
         ...capabilities,
+        domain: entityDomain,
         displayName,
         context: getHassEntityContext(entityId, data),
         displayState: actualPreview.label,

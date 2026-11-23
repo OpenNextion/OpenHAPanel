@@ -1,3 +1,9 @@
 export { default as ToggleFeature } from './ToggleFeature.svelte';
 export { default as ActionButtonFeature } from './ActionButtonFeature.svelte';
 export { default as SliderFeature } from './SliderFeature.svelte';
+export { default as StepControlFeature } from './StepControlFeature.svelte';
+export { default as OptionChoiceFeature } from './OptionChoiceFeature.svelte';
+export { default as ActionGroupFeature } from './ActionGroupFeature.svelte';
+export { default as FavoriteOptionsFeature } from './FavoriteOptionsFeature.svelte';
+export { default as ColorPickerFeature } from './ColorPickerFeature.svelte';
+export { default as TrendGraphFeature } from './TrendGraphFeature.svelte';

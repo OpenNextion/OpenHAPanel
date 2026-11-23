@@ -61,8 +61,8 @@
                     <span class="preview-status">
                         <span>{$_('page.screen.defaultSplit')}</span>
                         <span class="preview-status-icons">
-                            <SvgIcon name="ha.svg" />
-                            <SvgIcon name="wifi_4.svg" />
+                            <span class="status-ha-icon"><SvgIcon name="ha.svg" /></span>
+                            <span class="status-wifi-icon"><SvgIcon name="wifi_4.svg" /></span>
                             <b>19:20</b>
                         </span>
                     </span>
@@ -123,7 +123,7 @@
         gap: 0.35rem;
         align-self: center;
         border-radius: 0.65rem;
-        background: #000;
+        background: var(--screen-background);
         aspect-ratio: 2 / 3;
     }
     .device-preview.portrait {
@@ -141,7 +141,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 0.25rem;
-        color: #fff;
+        color: var(--screen-text-primary);
         font-size: clamp(0.4rem, 1.2vw, 0.65rem);
         white-space: nowrap;
     }
@@ -155,6 +155,12 @@
         width: 1em;
         height: 1em;
     }
+    .status-ha-icon :global(svg path) {
+        fill: var(--screen-status-ha-icon);
+    }
+    .status-wifi-icon :global(svg path) {
+        fill: var(--screen-status-wifi-icon);
+    }
     .preview-status-icons b {
         font-size: 1.1em;
         font-weight: 500;
@@ -167,7 +173,7 @@
         width: 22%;
         height: 0.55rem;
         border-radius: 999px;
-        background: #292d31;
+        background: var(--screen-tile-background);
     }
     .preview-entities {
         display: grid;
@@ -181,8 +187,9 @@
     }
     .preview-entities i {
         min-height: 0.75rem;
+        border: 1px solid var(--screen-tile-border);
         border-radius: 0.4rem;
-        background: #292d31;
+        background: var(--screen-tile-background);
     }
     .selected-check {
         position: absolute;

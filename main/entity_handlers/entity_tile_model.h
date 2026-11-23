@@ -33,7 +33,6 @@ typedef struct {
     lv_color_t icon_circle_background_color_light;
     lv_opa_t icon_circle_background_opa;
     lv_color_t title_color;
-    lv_color_t state_color;
 } entity_display_model_t;
 
 #endif // OPEN_NEXTION_MAIN_ENTITY_HANDLERS_ENTITY_TILE_MODEL_H

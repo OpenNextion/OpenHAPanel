@@ -66,6 +66,7 @@
 #include "firmware_update.h"
 #include "firmware_auto_check.h"
 #include "entity_handlers/light/light_favorite_colors_store.h"
+#include "entity_handlers/cover/cover_favorite_positions_store.h"
 
 static const char *TAG = "main_app";
 
@@ -158,7 +159,6 @@ static void app_reconcile_ha_data_for_firmware_status(
 static bool app_finish_ha_ota_resume(void);
 static screen_page_t app_screen_state_resolve_target(void);
 static void app_screen_state_reconcile(void);
-static void app_factory_reset_task(void *arg);
 static esp_err_t app_ha_data_reconcile(void);
 static esp_err_t app_ha_data_start(const ha_auth_connection_info_t *info);
 static bool app_ha_data_stop(void);
@@ -236,7 +236,7 @@ typedef struct {
  *
  * @param arg          Pointer to user-defined argument (usually unused).
  * @param event_base   Event base identifier (e.g., KEY_EVENT, CONFIG_EVENT).
- * @param event_id     Specific event ID within the event base (e.g., BUTTON_SINGLE_CLICK).
+ * @param event_id     Specific event ID within the event base (e.g., KEY_EVENT_SINGLE_CLICK).
  * @param event_data   Pointer to event-specific data (may be NULL).
  */
 static void device_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
@@ -315,8 +315,8 @@ static void device_event_handler(void *arg, esp_event_base_t event_base, int32_t
         }
     } else if (event_base == KEY_EVENT) {
         switch (event_id) {
-        case BUTTON_SINGLE_CLICK: {
-            ESP_LOGI(TAG, "BUTTON_SINGLE_CLICK");
+        case KEY_EVENT_SINGLE_CLICK: {
+            ESP_LOGI(TAG, "KEY_EVENT_SINGLE_CLICK");
             firmware_update_status_t firmware_status = {0};
             if (firmware_update_get_status(&firmware_status) == ESP_OK &&
                 firmware_status.state != FIRMWARE_UPDATE_STATE_CHECKING &&
@@ -339,23 +339,22 @@ static void device_event_handler(void *arg, esp_event_base_t event_base, int32_t
             }
         }
         break;
-        case BUTTON_DOUBLE_CLICK: {
-            ESP_LOGI(TAG, "BUTTON_DOUBLE_CLICK");
+        case KEY_EVENT_DOUBLE_CLICK: {
+            ESP_LOGI(TAG, "KEY_EVENT_DOUBLE_CLICK");
             webserver_config_forget_password_double_click();
         }
         break;
-        case BUTTON_LONG_PRESS_START: {
-            ESP_LOGI(TAG, "BUTTON_LONG_PRESS_START");
-            // rgb_set_indicator_effect(RGB_RESTORE_FACTORY_SETTING);
-            BaseType_t created = xTaskCreate(app_factory_reset_task,
-                                             "factory_reset",
-                                             4096,
-                                             NULL,
-                                             5,
-                                             NULL);
-            if (created != pdPASS) {
-                ESP_LOGE(TAG, "Failed to create factory reset task");
-                webserver_config_restore_factory_settings();
+        case KEY_EVENT_FACTORY_RESET_TRIGGERED: {
+            const key_factory_reset_event_data_t *key_event = event_data;
+            ESP_LOGW(TAG,
+                     "Factory reset triggered after BOOT was held for %" PRIu32 " ms",
+                     key_event ? key_event->pressed_duration_ms : 0);
+            esp_err_t err = webserver_config_request_factory_reset(
+                FACTORY_RESET_SOURCE_BUTTON);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG,
+                         "Factory reset request rejected: %s",
+                         esp_err_to_name(err));
             }
         }
         break;
@@ -632,7 +631,7 @@ esp_err_t app_ha_get_entity_history(const char *entity_id,
     }
     cJSON_AddItemToArray(entity_ids, entity_id_item);
     cJSON_AddItemToObject(message, "entity_ids", entity_ids);
-    cJSON_AddBoolToObject(message, "include_start_time_state", false);
+    cJSON_AddBoolToObject(message, "include_start_time_state", true);
     cJSON_AddBoolToObject(message, "significant_changes_only", false);
     cJSON_AddBoolToObject(message, "minimal_response", true);
     cJSON_AddBoolToObject(message, "no_attributes", true);
@@ -647,6 +646,151 @@ esp_err_t app_ha_get_entity_history(const char *entity_id,
         free(request);
     }
     return err;
+}
+
+esp_err_t app_ha_subscribe_entity_history(
+    const char *entity_id, unsigned hours_to_show,
+    ha_history_stream_cb_t callback, void *user_ctx,
+    ha_history_stream_t **stream_out, int *subscription_id_out)
+{
+    taskENTER_CRITICAL(&s_ha_data_state_guard);
+    ha_ws_client_t *client = s_ha_ws_client;
+    taskEXIT_CRITICAL(&s_ha_data_state_guard);
+    if (!client) return ESP_ERR_INVALID_STATE;
+    return ha_history_stream_open(client, entity_id, hours_to_show,
+                                  callback, user_ctx, stream_out,
+                                  subscription_id_out);
+}
+
+void app_ha_unsubscribe_entity_history(ha_history_stream_t *stream)
+{
+    ha_history_stream_close(stream);
+}
+
+esp_err_t app_ha_subscribe_trend_history(const char *entity_id,
+                                         unsigned hours_to_show,
+                                         ha_ws_event_cb_t event_cb,
+                                         ha_ws_result_cb_t result_cb,
+                                         void *user_ctx,
+                                         int *subscription_id_out)
+{
+    taskENTER_CRITICAL(&s_ha_data_state_guard);
+    ha_ws_client_t *client = s_ha_ws_client;
+    taskEXIT_CRITICAL(&s_ha_data_state_guard);
+    if (!client) return ESP_ERR_INVALID_STATE;
+    return ha_ws_subscribe_history_stream(client, entity_id, hours_to_show,
+                                           event_cb, result_cb, user_ctx,
+                                           subscription_id_out);
+}
+
+esp_err_t app_ha_unsubscribe_trend_history(ha_ws_event_cb_t event_cb,
+                                           void *user_ctx)
+{
+    taskENTER_CRITICAL(&s_ha_data_state_guard);
+    ha_ws_client_t *client = s_ha_ws_client;
+    taskEXIT_CRITICAL(&s_ha_data_state_guard);
+    if (!client) return ESP_ERR_INVALID_STATE;
+    return ha_ws_unsubscribe_events_by_callback(client, event_cb, user_ctx);
+}
+
+bool app_ha_trend_history_connected(void)
+{
+    taskENTER_CRITICAL(&s_ha_data_state_guard);
+    ha_ws_client_t *client = s_ha_ws_client;
+    taskEXIT_CRITICAL(&s_ha_data_state_guard);
+    return client && ha_ws_is_authenticated(client);
+}
+
+static esp_err_t app_ha_send_recorder_request(
+    cJSON *message, app_ha_history_result_cb_t callback,
+    void *user_ctx, int *request_id_out)
+{
+    if (!message) return ESP_ERR_NO_MEM;
+    if (!callback) {
+        cJSON_Delete(message);
+        return ESP_ERR_INVALID_ARG;
+    }
+    taskENTER_CRITICAL(&s_ha_data_state_guard);
+    ha_ws_client_t *client = s_ha_ws_client;
+    taskEXIT_CRITICAL(&s_ha_data_state_guard);
+    if (!client) {
+        cJSON_Delete(message);
+        return ESP_ERR_INVALID_STATE;
+    }
+    app_ha_history_request_t *request = calloc(1, sizeof(*request));
+    if (!request) {
+        cJSON_Delete(message);
+        return ESP_ERR_NO_MEM;
+    }
+    request->callback = callback;
+    request->user_ctx = user_ctx;
+    esp_err_t err = ha_ws_send_command(client, message,
+                                       app_ha_history_ws_result_cb,
+                                       request, request_id_out);
+    cJSON_Delete(message);
+    if (err != ESP_OK) free(request);
+    return err;
+}
+
+static bool app_ha_add_string_array_item(cJSON *array, const char *value)
+{
+    if (!array) return false;
+    cJSON *item = cJSON_CreateString(value);
+    if (!item) return false;
+    if (!cJSON_AddItemToArray(array, item)) {
+        cJSON_Delete(item);
+        return false;
+    }
+    return true;
+}
+
+esp_err_t app_ha_get_entity_statistics_metadata(
+    const char *entity_id, app_ha_history_result_cb_t callback,
+    void *user_ctx, int *request_id_out)
+{
+    if (!entity_id || !entity_id[0] || !callback) return ESP_ERR_INVALID_ARG;
+    cJSON *message = cJSON_CreateObject();
+    if (!message) return ESP_ERR_NO_MEM;
+    cJSON *ids = cJSON_AddArrayToObject(message, "statistic_ids");
+    if (!cJSON_AddStringToObject(message, "type",
+                                 "recorder/get_statistics_metadata") ||
+        !app_ha_add_string_array_item(ids, entity_id)) {
+        cJSON_Delete(message);
+        return ESP_ERR_NO_MEM;
+    }
+    return app_ha_send_recorder_request(message, callback, user_ctx,
+                                         request_id_out);
+}
+
+esp_err_t app_ha_get_entity_statistics(
+    const char *entity_id, time_t start_time,
+    app_ha_history_result_cb_t callback, void *user_ctx,
+    int *request_id_out)
+{
+    if (!entity_id || !entity_id[0] || start_time < 0 || !callback)
+        return ESP_ERR_INVALID_ARG;
+    char start_iso[40] = {0};
+    if (sys_time_format_iso8601_time_by_utc_ms(
+            (uint64_t)start_time * 1000,
+            start_iso, sizeof(start_iso)) != 0) return ESP_FAIL;
+    cJSON *message = cJSON_CreateObject();
+    if (!message) return ESP_ERR_NO_MEM;
+    cJSON *ids = cJSON_AddArrayToObject(message, "statistic_ids");
+    cJSON *types = cJSON_AddArrayToObject(message, "types");
+    if (!cJSON_AddStringToObject(message, "type",
+                                 "recorder/statistics_during_period") ||
+        !cJSON_AddStringToObject(message, "start_time", start_iso) ||
+        !cJSON_AddStringToObject(message, "period", "5minute") ||
+        !app_ha_add_string_array_item(ids, entity_id) ||
+        !app_ha_add_string_array_item(types, "state") ||
+        !app_ha_add_string_array_item(types, "min") ||
+        !app_ha_add_string_array_item(types, "mean") ||
+        !app_ha_add_string_array_item(types, "max")) {
+        cJSON_Delete(message);
+        return ESP_ERR_NO_MEM;
+    }
+    return app_ha_send_recorder_request(message, callback, user_ctx,
+                                         request_id_out);
 }
 
 static void app_ha_history_ws_result_cb(ha_ws_client_t *client,
@@ -964,7 +1108,8 @@ static void app_ha_registry_event_cb(ha_ws_client_t *client,
 
     if (strcmp(action->valuestring, "remove") != 0) {
         /* The event only identifies the changed entity. Re-query configured
-         * entries so favorite_colors changes become visible on the screen. */
+         * entries so favorite_colors / favorite_positions changes become
+         * visible on the screen. */
         esp_err_t err = app_ha_registry_query_configured_entities(client);
         if (err != ESP_OK) {
             ESP_LOGW(TAG,
@@ -977,6 +1122,7 @@ static void app_ha_registry_event_cb(ha_ws_client_t *client,
     /* Registry updates also cover renames and disabled-state changes. Keep
      * those references; only an actual registry removal invalidates a tile. */
     light_favorite_colors_store_remove(entity_id->valuestring);
+    cover_favorite_positions_store_remove(entity_id->valuestring);
 
     app_ha_registry_removal_job_t *job =
         app_ha_registry_create_single_removal_job(entity_id->valuestring);
@@ -1080,6 +1226,29 @@ static void app_ha_registry_query_result_cb(ha_ws_client_t *client,
                 lvgl_port_unlock();
             }
         }
+        if (entry->string && cJSON_IsObject(entry) &&
+            strncmp(entry->string, "cover.", 6) == 0) {
+            bool changed = false;
+            esp_err_t options_err = cover_favorite_positions_store_update(
+                entry->string,
+                entry,
+                &changed);
+            if (options_err != ESP_OK) {
+                ESP_LOGW(TAG,
+                         "Failed to cache favorite positions for %s: %s",
+                         entry->string,
+                         esp_err_to_name(options_err));
+            }
+            else if (changed && lvgl_port_lock(0)) {
+                taskENTER_CRITICAL(&s_ha_data_state_guard);
+                ha_entity_store_t *store = s_ha_entity_store;
+                taskEXIT_CRITICAL(&s_ha_data_state_guard);
+                if (store) {
+                    screen_ui_refresh_entity_all(store, entry->string);
+                }
+                lvgl_port_unlock();
+            }
+        }
         /* A null registry entry is only a candidate for removal. Entities
          * without a usable unique_id can still exist in HA's state machine,
          * so subscribe_entities must confirm that they are also absent there. */
@@ -1130,6 +1299,8 @@ static esp_err_t app_ha_registry_query_configured_entities(ha_ws_client_t *clien
     }
     light_favorite_colors_store_retain((const char *const *)entity_ids,
                                        entity_id_count);
+    cover_favorite_positions_store_retain((const char *const *)entity_ids,
+                                          entity_id_count);
     if (entity_id_count == 0) {
         screen_free_entity_ids(entity_ids, entity_id_count);
         return ESP_OK;
@@ -1343,6 +1514,7 @@ static void app_ha_registry_process_removal_job(
 
     for (size_t i = 0; i < job->entity_id_count; i++) {
         light_favorite_colors_store_remove(job->entity_ids[i]);
+        cover_favorite_positions_store_remove(job->entity_ids[i]);
     }
 
     size_t removed = 0;
@@ -1533,6 +1705,7 @@ static bool app_ha_data_stop(void)
     ha_entity_listener_handle_t *entity_listener = s_ha_entity_listener;
     if (!ws_client && !entity_store) {
         light_favorite_colors_store_clear();
+        cover_favorite_positions_store_clear();
         return true;
     }
 
@@ -1541,6 +1714,8 @@ static bool app_ha_data_stop(void)
         return false;
     }
     light_favorite_colors_store_clear();
+    cover_favorite_positions_store_clear();
+    ha_history_stream_detach_client(ws_client);
     screen_ui_set_entity_store(NULL);
     taskENTER_CRITICAL(&s_ha_data_state_guard);
     s_ha_ws_client = NULL;
@@ -1680,13 +1855,6 @@ static void app_ha_auth_event_handler(void *arg,
     if (event_id != HA_AUTH_EVENT_CONNECTION_SUSPEND_REQUESTED) {
         app_reconcile_ha_notifications();
     }
-}
-
-static void app_factory_reset_task(void *arg)
-{
-    (void)arg;
-    webserver_config_restore_factory_settings();
-    vTaskDelete(NULL);
 }
 
 static void app_lcd_prepare_black_frame(void)
@@ -2164,6 +2332,10 @@ static esp_err_t app_ha_data_manager_init(void)
     if (err != ESP_OK) {
         return err;
     }
+    err = cover_favorite_positions_store_init();
+    if (err != ESP_OK) {
+        return err;
+    }
     s_ha_data_reconcile_queue = xQueueCreate(1, sizeof(app_ha_data_request_t));
     if (!s_ha_data_reconcile_queue) {
         return ESP_ERR_NO_MEM;
@@ -2256,7 +2428,10 @@ void app_init(void)
         ESP_LOGE(TAG, "Failed to initialize firmware update state: %s", esp_err_to_name(firmware_update_err));
     }
 
-    key_init();
+    esp_err_t key_err = key_init();
+    if (key_err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize BOOT button: %s", esp_err_to_name(key_err));
+    }
 
     webserver_client_list_init();
 

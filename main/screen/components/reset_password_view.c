@@ -19,6 +19,7 @@ typedef struct {
     lv_obj_t *instructions;
     lv_obj_t *countdown_card;
     lv_obj_t *countdown_label;
+    lv_obj_t *hourglass_icon;
     system_status_bar_t *status_bar;
     lv_timer_t *timer;
     uint32_t started_at_ms;
@@ -117,6 +118,7 @@ lv_obj_t *reset_password_view_create(lv_obj_t *parent)
     lv_obj_set_style_pad_column(countdown_card, 8, 0);
 
     lv_obj_t *hourglass_icon = lv_image_create(countdown_card);
+    ctx->hourglass_icon = hourglass_icon;
     lv_image_set_src(hourglass_icon, &hourglass_24x24);
     lv_obj_remove_flag(hourglass_icon, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
@@ -223,6 +225,15 @@ static void reset_password_view_apply_theme_ctx(reset_password_view_ctx_t *ctx)
         lv_obj_set_style_text_color(ctx->countdown_label,
                                     lv_color_hex(palette->text_primary),
                                     0);
+    }
+    if (ctx->hourglass_icon) {
+        lv_obj_set_style_image_recolor(
+            ctx->hourglass_icon,
+            lv_color_hex(mode == SCREEN_THEME_LIGHT ? 0x333333 : 0xFFFFFF),
+            0);
+        lv_obj_set_style_image_recolor_opa(ctx->hourglass_icon,
+                                           LV_OPA_COVER,
+                                           0);
     }
     if (ctx->status_bar) {
         system_status_bar_apply_theme(ctx->status_bar);

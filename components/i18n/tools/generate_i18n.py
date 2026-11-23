@@ -8,6 +8,7 @@ from pathlib import Path
 
 PRINTF = re.compile(r'%(?:[-+ #0]*)(?:\d+)?(?:\.\d+)?(?:hh|ll|[hljztL])?[diuoxXfFeEgGaAcsp%]')
 NAMED = re.compile(r'\{([a-z][a-z0-9_]*)\}')
+NUMBER_FORMAT_KEYS = {'group_separator', 'decimal_separator', 'group_size'}
 
 
 def load(path):
@@ -38,6 +39,31 @@ def symbol(key):
     return 'I18N_' + key.upper().replace('.', '_')
 
 
+def validate_number_format(code, value):
+    if not isinstance(value, dict) or set(value) != NUMBER_FORMAT_KEYS:
+        raise ValueError(f'{code}: invalid number_format fields')
+    group_separator = value['group_separator']
+    decimal_separator = value['decimal_separator']
+    group_size = value['group_size']
+    for name, separator in (
+        ('group_separator', group_separator),
+        ('decimal_separator', decimal_separator),
+    ):
+        if not isinstance(separator, str) or not separator or '\0' in separator:
+            raise ValueError(f'{code}: invalid {name}')
+        if len(separator.encode('utf-8')) > 4:
+            raise ValueError(f'{code}: {name} is too long')
+    if group_separator == decimal_separator:
+        raise ValueError(f'{code}: number separators must differ')
+    if not isinstance(group_size, int) or isinstance(group_size, bool) or group_size != 3:
+        raise ValueError(f'{code}: unsupported number group_size')
+    return {
+        'group_separator': unicodedata.normalize('NFC', group_separator),
+        'decimal_separator': unicodedata.normalize('NFC', decimal_separator),
+        'group_size': group_size,
+    }
+
+
 def generate(source, output=None):
     manifest = load(source / 'manifest.json')
     languages = manifest['languages']
@@ -45,6 +71,7 @@ def generate(source, output=None):
         raise ValueError('English must be the first and default locale')
     codes = set()
     catalogs = []
+    number_formats = []
     for lang in languages:
         code = lang['code']
         if not re.fullmatch(r'[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*', code) or len(code) >= 32 or code.lower() in codes:
@@ -54,6 +81,7 @@ def generate(source, output=None):
             raise ValueError(f'{code}: invalid language name')
         if lang['plural_rule'] not in ('one_other', 'other'):
             raise ValueError(f'unsupported plural rule: {lang["plural_rule"]}')
+        number_formats.append(validate_number_format(code, lang.get('number_format')))
         if Path(lang['file']).name != lang['file']:
             raise ValueError('locale files must be inside locales/')
         catalog = load(source / lang['file'])
@@ -90,7 +118,14 @@ def generate(source, output=None):
         data = '/* Generated; included by i18n.c. */\n'
         data += 'static const char *const s_key_names[I18N_KEY_COUNT] = {\n' + ''.join(f'    {quote(k)},\n' for k in keys) + '};\n'
         data += 'static const i18n_locale_t s_locales[] = {\n'
-        data += ''.join('    {' + quote(l['code']) + ', ' + quote(unicodedata.normalize('NFC', l['name'])) + ', ' + ('true' if l['plural_rule'] == 'one_other' else 'false') + '},\n' for l in languages) + '};\n'
+        for lang, number_format in zip(languages, number_formats):
+            data += ('    {' + quote(lang['code']) + ', ' +
+                     quote(unicodedata.normalize('NFC', lang['name'])) + ', ' +
+                     ('true' if lang['plural_rule'] == 'one_other' else 'false') + ', ' +
+                     quote(number_format['group_separator']) + ', ' +
+                     quote(number_format['decimal_separator']) + ', ' +
+                     str(number_format['group_size']) + '},\n')
+        data += '};\n'
         for lang_index, catalog in enumerate(catalogs):
             for key_index, key in enumerate(keys):
                 if key in catalog:

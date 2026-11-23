@@ -5,67 +5,78 @@
       "code": "en",
       "name": "English",
       "file": "en.json",
-      "plural_rule": "one_other"
+      "plural_rule": "one_other",
+      "number_format": {"group_separator": ",", "decimal_separator": ".", "group_size": 3}
     },
     {
       "code": "de",
       "name": "Deutsch",
       "file": "de.json",
-      "plural_rule": "one_other"
+      "plural_rule": "one_other",
+      "number_format": {"group_separator": ".", "decimal_separator": ",", "group_size": 3}
     },
     {
       "code": "fr",
       "name": "Français",
       "file": "fr.json",
-      "plural_rule": "one_other"
+      "plural_rule": "one_other",
+      "number_format": {"group_separator": " ", "decimal_separator": ",", "group_size": 3}
     },
     {
       "code": "ru",
       "name": "Русский",
       "file": "ru.json",
-      "plural_rule": "one_other"
+      "plural_rule": "one_other",
+      "number_format": {"group_separator": " ", "decimal_separator": ",", "group_size": 3}
     },
     {
       "code": "vi",
       "name": "Tiếng Việt",
       "file": "vi.json",
-      "plural_rule": "other"
+      "plural_rule": "other",
+      "number_format": {"group_separator": ".", "decimal_separator": ",", "group_size": 3}
     },
     {
       "code": "da",
       "name": "Dansk",
       "file": "da.json",
-      "plural_rule": "one_other"
+      "plural_rule": "one_other",
+      "number_format": {"group_separator": ".", "decimal_separator": ",", "group_size": 3}
     },
     {
       "code": "tr",
       "name": "Türkçe",
       "file": "tr.json",
-      "plural_rule": "other"
+      "plural_rule": "other",
+      "number_format": {"group_separator": ".", "decimal_separator": ",", "group_size": 3}
     },
     {
       "code": "es",
       "name": "Español",
       "file": "es.json",
-      "plural_rule": "one_other"
+      "plural_rule": "one_other",
+      "number_format": {"group_separator": ".", "decimal_separator": ",", "group_size": 3}
     },
     {
       "code": "it",
       "name": "Italiano",
       "file": "it.json",
-      "plural_rule": "one_other"
+      "plural_rule": "one_other",
+      "number_format": {"group_separator": ".", "decimal_separator": ",", "group_size": 3}
     },
     {
       "code": "pt-BR",
       "name": "Português (Brasil)",
       "file": "pt-BR.json",
-      "plural_rule": "one_other"
+      "plural_rule": "one_other",
+      "number_format": {"group_separator": ".", "decimal_separator": ",", "group_size": 3}
     },
     {
       "code": "ko",
       "name": "한국어",
       "file": "ko.json",
-      "plural_rule": "other"
+      "plural_rule": "other",
+      "number_format": {"group_separator": ",", "decimal_separator": ".", "group_size": 3}
     }
   ]
 }

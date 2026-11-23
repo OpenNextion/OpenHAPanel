@@ -14,7 +14,6 @@
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 #include "lvgl.h"
-#include "esp_event.h"
 #include "screen.h"
 
 typedef struct {
@@ -25,6 +24,7 @@ typedef struct {
     lv_obj_t *close_btn;
     lv_obj_t *title_label;
     lv_obj_t *close_hitbox;
+    lv_obj_t *back_swipe_left;
     lv_obj_t *body;
     ha_entity_store_t *store;
     const screen_tile_card_data_t *tile_config;
@@ -42,6 +42,7 @@ static const char *TAG = "more_info_screen";
 
 #define MORE_INFO_HEADER_H_LANDSCAPE 66
 #define MORE_INFO_HEADER_H_PORTRAIT 76
+#define MORE_INFO_BACK_SWIPE_EDGE_WIDTH 32
 
 
 static void more_info_screen_build(lv_obj_t *screen);
@@ -50,13 +51,10 @@ static void more_info_screen_render_default(
     const entity_more_info_context_t *context);
 static void more_info_screen_close_cb(void *user_data);
 static void more_info_screen_default_close_event_cb(lv_event_t *event);
+static void more_info_screen_back_swipe_event_cb(lv_event_t *event);
 static void more_info_screen_lifecycle_event_cb(lv_event_t *event);
 static void more_info_screen_overlay_delete_event_cb(lv_event_t *event);
 static void more_info_screen_log_memory(const char *stage);
-static void more_info_screen_orientation_handler(void *arg,
-                                                  esp_event_base_t base,
-                                                  int32_t id,
-                                                  void *data);
 
 bool more_info_screen_open(ha_entity_store_t *store,
                            const char *entity_id,
@@ -158,6 +156,7 @@ bool more_info_screen_prepare_for_rotation(void)
     s_more_info.close_btn = NULL;
     s_more_info.title_label = NULL;
     s_more_info.close_hitbox = NULL;
+    s_more_info.back_swipe_left = NULL;
     s_more_info.body = NULL;
     s_more_info.rendered = false;
     s_more_info.rotation_prepared = true;
@@ -176,8 +175,6 @@ bool more_info_screen_complete_rotation(void)
     s_more_info.refresh_pending = false;
     return more_info_screen_refresh();
 }
-
-static bool s_orientation_registered = false;
 
 static void more_info_screen_apply_shell_theme(void)
 {
@@ -253,12 +250,34 @@ static void more_info_screen_header_create(lv_obj_t *screen, lv_obj_t *overlay)
     lv_obj_remove_style_all(close_hitbox);
     lv_obj_remove_flag(close_hitbox, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(close_hitbox, 50, 50);
-    lv_obj_align(close_hitbox, LV_ALIGN_TOP_LEFT, 20, 12);
+    /* Touches on the upper half can report y=0..11; include the screen edge. */
+    lv_obj_set_size(close_hitbox, 50, 62);
+    lv_obj_align(close_hitbox, LV_ALIGN_TOP_LEFT, 20, 0);
     lv_obj_add_event_cb(close_hitbox,
                         more_info_screen_default_close_event_cb,
                         LV_EVENT_CLICKED,
                         NULL);
+
+    lv_obj_t *left_edge = lv_obj_create(overlay);
+    lv_obj_remove_style_all(left_edge);
+    lv_obj_remove_flag(left_edge, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_flag(left_edge, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(left_edge, MORE_INFO_BACK_SWIPE_EDGE_WIDTH, LV_PCT(100));
+    lv_obj_align(left_edge, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_add_event_cb(left_edge, more_info_screen_back_swipe_event_cb,
+                        LV_EVENT_GESTURE, NULL);
+    lv_obj_move_to_index(left_edge, 0);
+    s_more_info.back_swipe_left = left_edge;
+
+    lv_obj_t *right_edge = lv_obj_create(overlay);
+    lv_obj_remove_style_all(right_edge);
+    lv_obj_remove_flag(right_edge, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_flag(right_edge, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(right_edge, MORE_INFO_BACK_SWIPE_EDGE_WIDTH, LV_PCT(100));
+    lv_obj_align(right_edge, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(right_edge, more_info_screen_back_swipe_event_cb,
+                        LV_EVENT_GESTURE, NULL);
+    lv_obj_move_to_index(right_edge, 0);
 
     lv_obj_t *title_label = lv_label_create(header);
     lv_obj_set_style_text_font(title_label, ha_ui_font_medium(24), 0);
@@ -280,14 +299,6 @@ static void more_info_screen_header_create(lv_obj_t *screen, lv_obj_t *overlay)
 
 static void more_info_screen_build(lv_obj_t *screen)
 {
-    if (!s_orientation_registered) {
-        esp_event_handler_register(SCREEN_EVENT,
-                                    SCREEN_EVENT_ORIENTATION_CHANGED,
-                                    more_info_screen_orientation_handler,
-                                    NULL);
-        s_orientation_registered = true;
-    }
-
     s_more_info.overlay = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(s_more_info.overlay);
     lv_obj_remove_flag(s_more_info.overlay, LV_OBJ_FLAG_SCROLLABLE);
@@ -452,6 +463,25 @@ static void more_info_screen_default_close_event_cb(lv_event_t *event)
     more_info_screen_close();
 }
 
+static void more_info_screen_back_swipe_event_cb(lv_event_t *event)
+{
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev || !more_info_screen_is_open()) {
+        return;
+    }
+
+    const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
+    const bool from_left =
+        lv_event_get_target_obj(event) == s_more_info.back_swipe_left;
+    if ((from_left && direction != LV_DIR_RIGHT) ||
+        (!from_left && direction != LV_DIR_LEFT)) {
+        return;
+    }
+
+    lv_indev_wait_release(indev);
+    more_info_screen_close();
+}
+
 static void more_info_screen_lifecycle_event_cb(lv_event_t *event)
 {
     if (lv_event_get_target_obj(event) != s_more_info.screen) {
@@ -527,27 +557,6 @@ static void more_info_screen_log_memory(const char *stage)
              (unsigned)monitor.free_biggest_size,
              (unsigned)monitor.used_pct,
              (unsigned)monitor.frag_pct);
-}
-
-static void more_info_screen_orientation_handler(void *arg,
-                                                  esp_event_base_t base,
-                                                  int32_t id,
-                                                  void *data)
-{
-    (void)arg;
-    (void)base;
-    (void)id;
-    (void)data;
-    if (!more_info_screen_is_open() || s_more_info.closing) {
-        return;
-    }
-    if (!lvgl_port_lock(0)) {
-        return;
-    }
-    if (!more_info_screen_complete_rotation()) {
-        more_info_screen_refresh();
-    }
-    lvgl_port_unlock();
 }
 
 bool more_info_screen_refresh_language(void)

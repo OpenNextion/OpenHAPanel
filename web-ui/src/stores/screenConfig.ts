@@ -1,6 +1,6 @@
 import { cloneDeep } from 'lodash-es';
 import { writable } from 'svelte/store';
-import { HASS_ENTITY_SUPPORT_CONFIG } from '@/constant';
+import { shouldShowHassEntityIconBackground } from '@/constant';
 import { normalizeTileFeaturePosition, type TTileFeaturePosition } from '@/constant/tileFeaturePosition';
 import type { IHassScreenActionConfig, IHassScreenConfigBadge, IHassScreenConfigCard, IHassScreenConfigFeature, IHassScreenConfigItem } from '@/types/screenConfig';
 
@@ -15,9 +15,7 @@ const INIT_VALUE: IScreenConfigStore = {
 export const MAX_SCREEN_BADGE_COUNT = 4;
 
 export function shouldShowScreenEntityIconBackground(entityId: string, actionConfig?: IHassScreenActionConfig) {
-    const domain = entityId.split('.', 1)[0] ?? '';
-    const defaultAction = HASS_ENTITY_SUPPORT_CONFIG[domain]?.interactions.iconTap.default ?? 'nothing';
-    return (actionConfig?.icon_tap_action?.action ?? defaultAction) !== 'nothing';
+    return shouldShowHassEntityIconBackground(entityId, actionConfig?.icon_tap_action?.action);
 }
 
 export const screenConfigStore = writable<IScreenConfigStore>(cloneDeep(INIT_VALUE));

@@ -107,6 +107,27 @@ static int climate_attr_tenths(climate_page_t *page, const char *key, int fallba
     return climate_attr_number(page, key, &value) ? (int)lround(value * 10.0) : fallback;
 }
 
+static void climate_format_current_value(char *output, size_t output_size,
+                                         const char *format, double value,
+                                         const char *unit)
+{
+    if (!output || output_size == 0 || !format || !unit) return;
+    char number[32];
+    const i18n_number_options_t options = {
+        true, I18N_NUMBER_FRACTION_FIXED, 1
+    };
+    if (!i18n_format_number_double(number, sizeof(number), value, &options)) {
+        snprintf(number, sizeof(number), "%.1f", value);
+    }
+    const i18n_arg_t args[] = {
+        {"value", number},
+        {"unit", unit},
+    };
+    if (!i18n_format(output, output_size, format, args, 2)) {
+        snprintf(output, output_size, "%s%s", number, unit);
+    }
+}
+
 static uint32_t climate_mode_color(const char *mode)
 {
     if (strcmp(mode, "heat") == 0) return 0xFF6F22;
@@ -229,14 +250,20 @@ static void climate_refresh_dial(climate_page_t *page)
     char current_temp[48] = "";
     char current_humidity[48] = "";
     if (page->has_current_temp) {
-        snprintf(current_temp, sizeof(current_temp),
-                 page->landscape ? i18n_get(I18N_CLIMATE_TEMPERATURE_MULTILINE) : i18n_get(I18N_CLIMATE_TEMPERATURE),
-                 page->current_temp);
+        climate_format_current_value(
+            current_temp, sizeof(current_temp),
+            page->landscape
+                ? i18n_get(I18N_CLIMATE_TEMPERATURE_MULTILINE)
+                : i18n_get(I18N_CLIMATE_TEMPERATURE),
+            page->current_temp, "°C");
     }
     if (page->has_current_humidity) {
-        snprintf(current_humidity, sizeof(current_humidity),
-                 page->landscape ? i18n_get(I18N_CLIMATE_HUMIDITY_MULTILINE) : i18n_get(I18N_CLIMATE_HUMIDITY),
-                 page->current_humidity);
+        climate_format_current_value(
+            current_humidity, sizeof(current_humidity),
+            page->landscape
+                ? i18n_get(I18N_CLIMATE_HUMIDITY_MULTILINE)
+                : i18n_get(I18N_CLIMATE_HUMIDITY),
+            page->current_humidity, "%");
     }
     if (page->humidity_mode) {
         climate_dial_set_dual(page->dial, false);
@@ -351,7 +378,6 @@ static const climate_option_icon_t s_option_icons[] = {
     {2, "high", MDI_SYMBOL_SPEEDOMETER},
     {2, "diffuse", MDI_SYMBOL_WEATHER_WINDY},
     {2, "focus", MDI_SYMBOL_TARGET},
-    {2, "quiet", MDI_SYMBOL_VOLUME_LOW},
     {2, "silent", MDI_SYMBOL_VOLUME_LOW},
     {3, "off", MDI_SYMBOL_ARROW_OSCILLATING_OFF},
     {3, "on", MDI_SYMBOL_ARROW_OSCILLATING},

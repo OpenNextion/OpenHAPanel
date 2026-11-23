@@ -1402,9 +1402,11 @@ esp_err_t ha_entity_store_get(ha_entity_store_t *store,
     const char *friendly_name = entry->attributes ? json_string(entry->attributes, "friendly_name") : NULL;
     const char *unit = entry->attributes ? json_string(entry->attributes, "unit_of_measurement") : NULL;
     const char *device_class = entry->attributes ? json_string(entry->attributes, "device_class") : NULL;
+    const char *state_class = entry->attributes ? json_string(entry->attributes, "state_class") : NULL;
     i18n_display_copy(out->friendly_name, sizeof(out->friendly_name), friendly_name);
     i18n_display_copy(out->unit_of_measurement, sizeof(out->unit_of_measurement), unit);
     copy_string(out->device_class, sizeof(out->device_class), device_class);
+    copy_string(out->state_class, sizeof(out->state_class), state_class);
     out->has_unit_of_measurement = entry->attributes &&
         cJSON_GetObjectItemCaseSensitive(entry->attributes, "unit_of_measurement") != NULL;
     out->has_state_class = entry->attributes &&

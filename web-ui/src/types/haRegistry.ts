@@ -22,6 +22,19 @@ export interface IHassEntityRegistryDisplayResult {
 
 export type THassEntityRegistryDisplayResult = IHassEntityRegistryDisplayResult | IHassEntityRegistryDisplayEntry[];
 
+export interface IHassEntityRegistryEntry {
+    entity_id: string;
+    options?: {
+        light?: {
+            favorite_colors?: unknown[];
+        };
+        cover?: {
+            favorite_positions?: number[];
+            favorite_tilt_positions?: number[];
+        };
+    } | null;
+}
+
 export interface IHassDeviceRegistryEntry {
     id: string;
     area_id?: string | null;
@@ -37,6 +50,8 @@ export interface IHassDeviceRegistryEntry {
 export interface IHassStateEntry {
     entity_id: string;
     state: string;
+    last_changed?: string;
+    last_updated?: string;
     attributes?: {
         friendly_name?: string | null;
         icon?: string | null;

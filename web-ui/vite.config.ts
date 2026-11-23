@@ -48,7 +48,8 @@ export default defineConfig(({ mode }) => {
             sourcemap: false,
             /** 选择压缩方式 */
             minify: 'esbuild',
-            target: 'esnext',
+            target: 'chrome103',
+            cssTarget: 'chrome103',
             /** 禁用静态文件合并限制 */
             assetsInlineLimit: 100000000,
             /** 禁用文件大小限制 */

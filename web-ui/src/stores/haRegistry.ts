@@ -304,6 +304,10 @@ export function setHassRegistryData(
     haRegistryTreeStore.set(tree);
 }
 
+export function updateHassRegistryData(patch: Partial<Pick<IHassRegistryStore, 'states' | 'entities' | 'devices' | 'areas' | 'floors' | 'domainTranslations'>>) {
+    setHassRegistryData({ ...get(haRegistryStore), ...patch });
+}
+
 export function updateHassEntityState(entityId: string, state: IHassStateEntry | null) {
     const store = get(haRegistryStore);
     const previousState = store.statesById.get(entityId);

@@ -19,24 +19,34 @@
 
 #define SELECT_MENU_BUTTON_H 56
 #define SELECT_MENU_ROW_H    40
+#define SELECT_MENU_SUB_ICON_W 20
+#define SELECT_MENU_LEFT_PAD  12
+#define SELECT_MENU_RIGHT_PAD 12
+#define SELECT_MENU_ICON_GAP  8
+#define SELECT_MENU_TITLE_Y   7
+#define SELECT_MENU_VALUE_Y   27
+#define SELECT_MENU_VALUE_SINGLE_Y 18
+#define SELECT_MENU_TEXT_LINE_H 20
 #define SELECT_MENU_INSET    0
 #define SELECT_MENU_MARGIN   8
 #define SELECT_MENU_MENU_RADIUS 12
 #define SELECT_MENU_SCROLLBAR_INSET 8
 
-#define SELECT_MENU_BUTTON_COLOR      0x999999
-#define SELECT_MENU_BUTTON_OPA        71
+#if LV_COLOR_DEPTH < 24
+#define SELECT_MENU_BUTTON_COLOR      0x242424
+#define SELECT_MENU_BUTTON_OPA        255
 #define SELECT_MENU_BUTTON_PRESSED    0x303030
 #define SELECT_MENU_MENU_COLOR        0x1E2228
 #define SELECT_MENU_MENU_BORDER_COLOR 0x44474C
 #define SELECT_MENU_TEXT_COLOR        0xFFFFFF
 #define SELECT_MENU_SELECTED_BG_COLOR 0x34373D
 #define SELECT_MENU_LIGHT_TEXT_COLOR        0x333333
-#define SELECT_MENU_LIGHT_BUTTON_COLOR      0x999999
-#define SELECT_MENU_LIGHT_PRESSED_COLOR     0xC8CDD5
+#define SELECT_MENU_LIGHT_BUTTON_COLOR      0xE3E3E3
+#define SELECT_MENU_LIGHT_PRESSED_COLOR     0xD1D1D1
 #define SELECT_MENU_LIGHT_MENU_COLOR        0xFFFFFF
 #define SELECT_MENU_LIGHT_BORDER_COLOR      0xD9DEE7
 #define SELECT_MENU_LIGHT_SCROLLBAR_COLOR   0xBDBDBD
+#endif
 
 typedef struct ha_control_select_menu_context ha_control_select_menu_context_t;
 
@@ -50,6 +60,7 @@ struct ha_control_select_menu_context {
     lv_obj_t *icon_label;
     lv_obj_t *title_label;
     lv_obj_t *value_label;
+    lv_obj_t *arrow_label;
     lv_obj_t *popup_mask;
     lv_obj_t *menu;
     lv_obj_t *rows[SELECT_MENU_MAX_OPTIONS];
@@ -57,6 +68,7 @@ struct ha_control_select_menu_context {
     char options[SELECT_MENU_MAX_OPTIONS][SELECT_MENU_NAME_MAX];
     char labels[SELECT_MENU_MAX_OPTIONS][SELECT_MENU_LABEL_MAX];
     char option_icons[SELECT_MENU_MAX_OPTIONS][SELECT_MENU_SYMBOL_MAX];
+    char icon[SELECT_MENU_SYMBOL_MAX];
     size_t option_count;
     size_t selected;
     bool disabled;
@@ -109,11 +121,6 @@ static lv_opa_t selector_button_opa(const ha_control_select_menu_context_t *cont
     return selector_colors(context)->button_opa;
 }
 
-static uint32_t selector_pressed_color(const ha_control_select_menu_context_t *context)
-{
-    return selector_colors(context)->pressed_color;
-}
-
 static ha_control_select_menu_context_t *menu_context(lv_obj_t *obj)
 {
     return obj ? lv_obj_get_user_data(obj) : NULL;
@@ -123,7 +130,7 @@ static void display_option(ha_control_select_menu_context_t *context,
                            size_t index, char *output, size_t size)
 {
     i18n_display_copy(output, size,
-                      index < context->option_count ? context->labels[index] : "-");
+                      index < context->option_count ? context->labels[index] : "");
 }
 
 static void close_popup(ha_control_select_menu_context_t *context)
@@ -159,37 +166,42 @@ static void reposition_labels(ha_control_select_menu_context_t *context)
 
     const char *title_text = lv_label_get_text(context->title_label);
     const char *value_text = lv_label_get_text(context->value_label);
+    const bool has_title = title_text && title_text[0] != '\0';
+    const bool has_value = value_text && value_text[0] != '\0';
 
-    lv_text_attributes_t text_attr;
-    lv_text_attributes_init(&text_attr);
+    const int32_t sub_w = SELECT_MENU_SUB_ICON_W;
+    const int32_t gap = SELECT_MENU_ICON_GAP;
 
-    int32_t title_w = title_text
-        ? lv_text_get_width(title_text, strlen(title_text),
-                            ha_ui_font_regular(14), &text_attr)
-        : 0;
-    int32_t value_w = value_text
-        ? lv_text_get_width(value_text, strlen(value_text),
-                            ha_ui_font_regular(14), &text_attr)
-        : 0;
-    int32_t max_label_w = LV_MAX(title_w, value_w);
+    const int32_t icon_x = SELECT_MENU_LEFT_PAD;
+    const int32_t arrow_x = root_w - SELECT_MENU_RIGHT_PAD - sub_w;
+    const int32_t sub_y = (SELECT_MENU_BUTTON_H - sub_w) / 2;
 
-    const int32_t icon_w = 24;
-    const int32_t gap = 4;
-    const int32_t right_pad = 6;
-    int32_t avail_w = root_w - icon_w - gap - right_pad;
-    if (avail_w < 0) avail_w = 0;
-    if (max_label_w > avail_w) max_label_w = avail_w;
+    lv_obj_align(context->icon_label, LV_ALIGN_TOP_LEFT, icon_x, sub_y);
+    if (context->arrow_label) {
+        lv_obj_align(context->arrow_label, LV_ALIGN_TOP_LEFT, arrow_x, sub_y);
+    }
 
-    lv_obj_set_width(context->title_label, max_label_w);
-    lv_obj_set_width(context->value_label, max_label_w);
+    int32_t content_x = icon_x + sub_w + gap;
+    int32_t content_w = (arrow_x - gap) - content_x;
+    if (content_w < 0) content_w = 0;
 
-    int32_t group_w = icon_w + gap + max_label_w;
-    int32_t left_offset = (root_w - group_w) / 2;
-    if (left_offset < 0) left_offset = 0;
+    lv_obj_set_size(context->title_label, content_w, SELECT_MENU_TEXT_LINE_H);
+    lv_obj_set_size(context->value_label, content_w, SELECT_MENU_TEXT_LINE_H);
+    lv_obj_set_style_text_align(context->title_label,
+                                LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_style_text_align(context->value_label,
+                                LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_x(context->title_label, content_x);
+    lv_obj_set_x(context->value_label, content_x);
 
-    lv_obj_set_x(context->icon_label, left_offset);
-    lv_obj_set_x(context->title_label, left_offset + icon_w + gap);
-    lv_obj_set_x(context->value_label, left_offset + icon_w + gap);
+    if (has_title && has_value) {
+        lv_obj_set_y(context->title_label, SELECT_MENU_TITLE_Y);
+        lv_obj_set_y(context->value_label, SELECT_MENU_VALUE_Y);
+    } else {
+        /* Only a single line of text (title or value) -> center it. */
+        lv_obj_set_y(context->title_label, SELECT_MENU_VALUE_SINGLE_Y);
+        lv_obj_set_y(context->value_label, SELECT_MENU_VALUE_SINGLE_Y);
+    }
 }
 
 static void refresh_trigger(ha_control_select_menu_context_t *context)
@@ -202,6 +214,14 @@ static void refresh_trigger(ha_control_select_menu_context_t *context)
     char label[SELECT_MENU_LABEL_MAX];
     display_option(context, context->selected, label, sizeof(label));
     ui_i18n_label_set_text(context->value_label, label);
+
+    const char *icon = context->icon;
+    if (context->selected < context->option_count &&
+        context->option_icons[context->selected][0] != '\0') {
+        icon = context->option_icons[context->selected];
+    }
+    ui_i18n_label_set_text(context->icon_label, icon);
+
     reposition_labels(context);
 }
 
@@ -329,18 +349,8 @@ static void open_popup(ha_control_select_menu_context_t *context)
         return;
     }
 
-    lv_obj_set_style_bg_color(context->root,
-                              lv_color_hex(selector_pressed_color(context)),
-                              LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(context->root, LV_OPA_COVER, LV_PART_MAIN);
-
     lv_display_t *display = lv_obj_get_display(context->root);
     if (!display) {
-        lv_obj_set_style_bg_color(context->root,
-                                  lv_color_hex(selector_button_color(context)),
-                                  LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(context->root,
-                                selector_button_opa(context), LV_PART_MAIN);
         return;
     }
     const int32_t screen_width =
@@ -513,12 +523,13 @@ lv_obj_t *ha_control_select_menu_create(lv_obj_t *parent)
     lv_obj_add_event_cb(root, root_event_cb, LV_EVENT_ALL, context);
 
     context->icon_label = lv_label_create(root);
-    ui_i18n_label_set_text(context->icon_label, MDI_SYMBOL_CREATION);
+    lv_strlcpy(context->icon, MDI_SYMBOL_CREATION, sizeof(context->icon));
     lv_obj_set_style_text_font(context->icon_label, &ha_font_mdi_20, 0);
     lv_obj_set_style_text_color(context->icon_label,
                                 lv_color_hex(selector_text_color(context)),
                                 0);
-    lv_obj_align(context->icon_label, LV_ALIGN_LEFT_MID, 8, 0);
+    lv_obj_align(context->icon_label, LV_ALIGN_LEFT_MID,
+                 SELECT_MENU_LEFT_PAD, 0);
 
     context->title_label = lv_label_create(root);
     ui_i18n_label_set_text(context->title_label, "");
@@ -541,6 +552,16 @@ lv_obj_t *ha_control_select_menu_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(context->value_label,
                                 lv_color_hex(selector_text_color(context)),
                                 0);
+
+    context->arrow_label = lv_label_create(root);
+    ui_i18n_label_set_text(context->arrow_label, MDI_SYMBOL_MENU_DOWN);
+    lv_obj_set_style_text_font(context->arrow_label, &ha_font_mdi_20, 0);
+    lv_obj_set_style_text_color(context->arrow_label,
+                                lv_color_hex(selector_text_color(context)),
+                                0);
+    lv_obj_align(context->arrow_label, LV_ALIGN_RIGHT_MID,
+                 -SELECT_MENU_RIGHT_PAD, 0);
+
     refresh_trigger(context);
     return root;
 }
@@ -602,6 +623,13 @@ void ha_control_select_menu_set_value(lv_obj_t *obj, const char *value)
     refresh_rows(context);
 }
 
+const char *ha_control_select_menu_get_value(lv_obj_t *obj)
+{
+    ha_control_select_menu_context_t *context = menu_context(obj);
+    if (!context || context->selected >= context->option_count) return "";
+    return context->options[context->selected];
+}
+
 size_t ha_control_select_menu_get_option_count(lv_obj_t *obj)
 {
     ha_control_select_menu_context_t *context = menu_context(obj);
@@ -648,9 +676,9 @@ void ha_control_select_menu_set_title(lv_obj_t *obj, const char *title)
 void ha_control_select_menu_set_icon(lv_obj_t *obj, const char *icon)
 {
     ha_control_select_menu_context_t *context = menu_context(obj);
-    if (context) {
-        ui_i18n_label_set_text(context->icon_label, icon ? icon : "");
-    }
+    if (!context) return;
+    lv_strlcpy(context->icon, icon ? icon : "", sizeof(context->icon));
+    refresh_trigger(context);
 }
 
 bool ha_control_select_menu_get_colors(lv_obj_t *obj, bool light,
@@ -676,20 +704,19 @@ void ha_control_select_menu_apply_theme(lv_obj_t *obj)
     ha_control_select_menu_context_t *context = menu_context(obj);
     if (!context) return;
     lv_obj_set_style_bg_color(obj,
-                              context->popup_mask
-                                  ? lv_color_hex(selector_pressed_color(context))
-                                  : lv_color_hex(selector_button_color(context)),
+                              lv_color_hex(selector_button_color(context)),
                               LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(obj,
-                            context->popup_mask ? LV_OPA_COVER
-                                                : selector_button_opa(context),
-                            LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(obj, selector_button_opa(context), LV_PART_MAIN);
     lv_obj_set_style_text_color(context->title_label,
                                 lv_color_hex(selector_text_color(context)), 0);
     lv_obj_set_style_text_color(context->value_label,
                                 lv_color_hex(selector_text_color(context)), 0);
     lv_obj_set_style_text_color(context->icon_label,
                                 lv_color_hex(selector_text_color(context)), 0);
+    if (context->arrow_label) {
+        lv_obj_set_style_text_color(context->arrow_label,
+                                    lv_color_hex(selector_text_color(context)), 0);
+    }
     if (context->menu) {
         lv_obj_set_style_bg_color(context->menu,
                                   lv_color_hex(selector_colors(context)->menu_color),

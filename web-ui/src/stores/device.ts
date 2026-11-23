@@ -17,6 +17,7 @@ type TBootstrapTheme = 'light' | 'dark';
 const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 const systemPrefersDark = darkModeMediaQuery.matches;
 const cachedTheme = localStorage.getItem('theme');
+const cachedScreenTheme = localStorage.getItem('screenTheme');
 const cachedFollowSystemValue = localStorage.getItem('themeFollowSystem');
 const cachedFollowSystem = cachedFollowSystemValue === null ? true : cachedFollowSystemValue === 'true';
 const initialBootstrapTheme: TBootstrapTheme = cachedFollowSystem
@@ -64,7 +65,7 @@ const INIT_VALUE: IDevice = {
         width: 320,
         height: 480,
     },
-    screenTheme: null,
+    screenTheme: cachedScreenTheme === 'light' || cachedScreenTheme === 'dark' ? cachedScreenTheme : null,
 };
 
 export const deviceStore = writable<IDevice>(cloneDeep(INIT_VALUE), () => {
@@ -183,8 +184,9 @@ themeInfo.subscribe((store) => {
 derived(deviceStore, (store) => store.screenTheme).subscribe((theme) => {
     if (theme) {
         document.documentElement.setAttribute('data-screen-theme', theme);
+        localStorage.setItem('screenTheme', theme);
     } else {
-        // Until the device reports its theme, keep the existing dark preview fallback.
+        // Without a cached or reported theme, use the existing dark preview fallback.
         document.documentElement.removeAttribute('data-screen-theme');
     }
 });

@@ -89,9 +89,7 @@ static void draw_icon(lv_layer_t *layer,
     lv_draw_label_dsc_init(&descriptor);
     descriptor.text = symbol;
     descriptor.font = &ha_font_mdi_20;
-    descriptor.color = lv_color_hex(light_detail_theme_color(
-        0xFFFFFF,
-        LIGHT_DETAIL_LIGHT_TEXT_PRIMARY));
+    descriptor.color = lv_color_hex(0xFFFFFF);
     descriptor.opa = opacity;
     descriptor.align = LV_TEXT_ALIGN_CENTER;
     descriptor.text_static = 1;

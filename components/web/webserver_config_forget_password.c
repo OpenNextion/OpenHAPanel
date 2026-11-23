@@ -11,13 +11,13 @@
 #include "cjson_helpers.h"
 #include "webserver_message_parse.h"
 #include "webserver_config_forget_password.h"
-#include "key.h"
 #include "screen_state.h"
 
 /**
  * @brief Timeout duration (in milliseconds) to wait for a double-click event during password reset.
  */
 #define WAIT_TIMEOUT_MS (10000)
+#define FORGOT_PASSWORD_DOUBLE_CLICK_NOTIFY_VALUE (1U)
 
 /**
  * @brief Logger tag
@@ -168,7 +168,9 @@ void webserver_config_forget_password_double_click(void)
     if (forget_password_double_click_task_handle != NULL) {
         // rgb_set_indicator_effect(RGB_RESET_PASSWORD);
         // ESP_LOGI(TAG, "RGB_RESET_PASSWORD");
-        xTaskNotify(forget_password_double_click_task_handle, BUTTON_DOUBLE_CLICK, eSetValueWithOverwrite);
+        xTaskNotify(forget_password_double_click_task_handle,
+                    FORGOT_PASSWORD_DOUBLE_CLICK_NOTIFY_VALUE,
+                    eSetValueWithOverwrite);
     }
 }
 
@@ -203,7 +205,7 @@ static void forget_password_timeout_detect_callback(TimerHandle_t xTimer)
 /**
  * @brief Task that waits for a double-click button event within a timeout.
  *
- * This function waits for up to 10 seconds for a `BUTTON_DOUBLE_CLICK` event.
+ * This function waits for up to 10 seconds for the private double-click notification value.
  * - If the event is received, it notifies the WebServer that the password reset is ready,
  *   and starts a 5-minute timeout timer.
  * - If no event is received within the timeout, it notifies the WebServer that the reset process is done,
@@ -219,7 +221,7 @@ static void forget_password_wait_double_click_task(void *arg)
     uint32_t event;
     bool ready = false;
     if (xTaskNotifyWait(0x00, ULONG_MAX, &event, pdMS_TO_TICKS(WAIT_TIMEOUT_MS)) == pdTRUE) {
-        if (event == BUTTON_DOUBLE_CLICK) {
+        if (event == FORGOT_PASSWORD_DOUBLE_CLICK_NOTIFY_VALUE) {
             ready = true;
             ESP_LOGI(TAG, "Detected double-click button, sent WebServer notification");
             forget_password_state = WEBSERVER_FORGOT_PASSWORD_STATE_READY;

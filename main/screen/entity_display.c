@@ -7,6 +7,13 @@
 #include "entity_handlers/entity_handler_registry.h"
 #include "ha_entity_store.h"
 #include "lvgl.h"
+#include "screen_theme.h"
+
+/* Universal unavailable icon color for every entity's Badge and Tile. Handlers
+ * no longer pick these colors; entity_display_build owns the single source of
+ * truth so light/dark values stay consistent across all entity types. */
+#define ENTITY_DISPLAY_ICON_UNAVAILABLE_DARK  0x6F6F6F
+#define ENTITY_DISPLAY_ICON_UNAVAILABLE_LIGHT 0xBDBDBD
 
 static esp_err_t entity_display_build_default(const ha_entity_snapshot_t *snapshot,
                                               entity_display_model_t *model);
@@ -48,7 +55,6 @@ void entity_display_model_init(const char *entity_id,
     out_model->icon_circle_background_color_light = lv_color_hex(0xECEFF1);
     out_model->icon_circle_background_opa = LV_OPA_COVER;
     out_model->title_color = lv_color_hex(0xFFFFFF);
-    out_model->state_color = lv_color_hex(0xA8A8A8);
 }
 
 esp_err_t entity_display_build(ha_entity_store_t *store,
@@ -74,11 +80,23 @@ esp_err_t entity_display_build(ha_entity_store_t *store,
         entity_handler_snapshot_is_service_unavailable(&snapshot);
 
     const entity_handler_t *handler = entity_handler_registry_find(entity_id);
+    esp_err_t render_err;
     if (!handler || !handler->render_tile) {
-        return entity_display_build_default(&snapshot, out_model);
+        render_err = entity_display_build_default(&snapshot, out_model);
+    } else {
+        render_err = handler->render_tile(store, &snapshot, out_model);
     }
 
-    return handler->render_tile(store, &snapshot, out_model);
+    /* Single source of truth for the unavailable icon color. Applied after the
+     * handler so every entity's Badge and Tile icon matches across themes. */
+    if (out_model->unavailable) {
+        out_model->icon_color = lv_color_hex(
+            screen_theme_get() == SCREEN_THEME_LIGHT
+                ? ENTITY_DISPLAY_ICON_UNAVAILABLE_LIGHT
+                : ENTITY_DISPLAY_ICON_UNAVAILABLE_DARK);
+    }
+
+    return render_err;
 }
 
 static esp_err_t entity_display_build_default(const ha_entity_snapshot_t *snapshot,
@@ -95,7 +113,6 @@ static esp_err_t entity_display_build_default(const ha_entity_snapshot_t *snapsh
         model->icon_color = lv_color_hex(0xA0A0A0);
         model->icon_circle_background_color = lv_color_hex(0x505050);
         model->title_color = lv_color_hex(0x909090);
-        model->state_color = lv_color_hex(0x808080);
     }
 
     return ESP_OK;

@@ -1,5 +1,6 @@
 <script lang="ts">
     import { _ } from 'svelte-i18n';
+    import { dragHandle, dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME, type DndEvent, type Item as DndItem } from 'svelte-dnd-action';
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
     import HassEntityRow from '@/component/HassEntityRow/HassEntityRow.svelte';
     import Modal from '@/component/Modal/Modal.svelte';
@@ -8,7 +9,6 @@
     import { getEditableTileFeatureDefinitions, getRenderableTileFeatures } from '@/constant/tileFeatureRules';
     import { getTileFeaturePosition, type TTileFeaturePosition } from '@/constant/tileFeaturePosition';
     import type { IHassScreenConfigFeature } from '@/types/screenConfig';
-    import { deviceStore } from '@/stores/device';
     import { haRegistryStore, haRegistryTreeStore } from '@/stores/haRegistry';
     import { EMessageType, sendMessage } from '@/stores/message';
     import { screenConfigStore, shouldShowScreenEntityIconBackground } from '@/stores/screenConfig';
@@ -39,10 +39,12 @@
     let draftEntityId = $state('');
     let entityQuery = $state('');
     let selectedFeatures = $state<IHassScreenConfigFeature[]>([]);
+    let featureDndItems = $state<TFeatureItem[] | null>(null);
+    let featureToAdd = $state('');
     let featuresPosition = $state<TTileFeaturePosition>('bottom');
     let initializedKey = '';
+    type TFeatureItem = DndItem & { id: string; value: IHassScreenConfigFeature };
     const layoutTabAvailable = $derived(mode === 'entity');
-    const isPortrait = $derived($deviceStore.screenRotation.rotation !== 90);
     const entityResults = $derived.by(() => {
         void $haRegistryTreeStore;
         return searchScreenEntities(entityQuery);
@@ -59,6 +61,10 @@
     const iconTapLabel = $derived(iconTapOptions.find((option) => option.value === iconTapAction)?.label ?? iconTapAction);
     const draftEntitySupported = $derived(draftEntity.supported);
     const availableFeatureEditors = $derived(mode === 'entity' ? getEditableTileFeatureDefinitions(draftEntityId, draftEntity.stateObject) : []);
+    const availableFeatureOptions = $derived(availableFeatureEditors
+        .filter((feature) => !selectedFeatures.some((selected) => selected.type === feature.type))
+        .map((feature) => ({ label: $_(feature.labelKey), value: feature.type })));
+    const featureItems: TFeatureItem[] = $derived(featureDndItems ?? selectedFeatures.map((feature) => ({ id: feature.type, value: feature })));
     const previewFeatures = $derived(getRenderableTileFeatures(draftEntityId, draftEntity.stateObject, selectedFeatures));
     const configuredEntityContext = $derived(draftEntity.context);
     const previewActionConfig = $derived(
@@ -83,8 +89,10 @@
             ?.cards?.find((card) => card.data.entity === entityId);
         const cardFeatures = currentCard?.data.features ?? [];
         selectedFeatures = cardFeatures.map((feature) => ({ ...feature, data: { ...feature.data } }));
-        featuresPosition = getTileFeaturePosition(currentCard?.data.features_position);
-        fullWidth = currentCard?.data.full_width ?? true;
+        featureDndItems = null;
+        featureToAdd = '';
+        featuresPosition = cardFeatures.length ? getTileFeaturePosition(currentCard?.data.features_position) : 'bottom';
+        fullWidth = featuresPosition === 'inline' ? true : (currentCard?.data.full_width ?? true);
         const actions = getScreenEntityActionSelections(mode, screenIndex, entityId);
         const entity = getHassEntityPresentation(entityId, $haRegistryStore, { variant: mode });
         const entityInteractions = mode === 'badge' ? entity.config?.badgeInteractions ?? entity.interactions : entity.interactions;
@@ -113,13 +121,28 @@
         onclose();
     }
 
-    function setFeatureEnabled(type: string, enabled: boolean) {
-        if (enabled) {
-            if (selectedFeatures.some((feature) => feature.type === type)) return;
-            selectedFeatures = [...selectedFeatures, { type, data: {} }];
-        } else {
-            selectedFeatures = selectedFeatures.filter((feature) => feature.type !== type);
-        }
+    function handleFeatureConsider(event: CustomEvent<DndEvent<TFeatureItem>>) {
+        featureDndItems = event.detail.items;
+    }
+
+    function handleFeatureFinalize(event: CustomEvent<DndEvent<TFeatureItem>>) {
+        selectedFeatures = event.detail.items
+            .filter((item) => !item[SHADOW_ITEM_MARKER_PROPERTY_NAME])
+            .map((item) => item.value);
+        featureDndItems = null;
+    }
+
+    function addFeature(type: string) {
+        if (!type || selectedFeatures.some((feature) => feature.type === type)) return;
+        selectedFeatures = [...selectedFeatures, { type, data: {} }];
+        featureDndItems = null;
+        featureToAdd = '';
+    }
+
+    function removeFeature(type: string) {
+        selectedFeatures = selectedFeatures.filter((feature) => feature.type !== type);
+        featureDndItems = null;
+        if (!selectedFeatures.length) featuresPosition = 'bottom';
     }
 
     function setFeaturesPosition(position: TTileFeaturePosition) {
@@ -128,8 +151,8 @@
     }
 
     function setFullWidth(value: boolean) {
+        if (featuresPosition === 'inline') return;
         fullWidth = value;
-        if (!value && isPortrait) featuresPosition = 'bottom';
     }
 
     function remove() {
@@ -153,6 +176,7 @@
             holdAction = 'default';
             iconTapAction = 'default';
             selectedFeatures = [];
+            featuresPosition = 'bottom';
         }
     }
 </script>
@@ -184,6 +208,7 @@
                             bind:value={draftEntityId}
                             options={entityOptions}
                             searchable={true}
+                            searchInMenu={true}
                             bind:searchValue={entityQuery}
                             searchPlaceholder={$_('page.screen.searchEntity')}
                             noOptionsText={$_('page.screen.noEntities')}
@@ -193,6 +218,7 @@
                             <span class="configured-entity-value">
                                 <SvgIcon name={draftEntity.icon} />
                                 <span><strong>{draftEntity.displayName}</strong><small>{configuredEntityContext}</small></span>
+                                <SvgIcon name="mdi:close" />
                                 <SvgIcon name="arrowRight.svg" />
                             </span>
                             {#snippet optionSnippet(option)}
@@ -244,34 +270,72 @@
                                 ></summary
                             >
                             {#if availableFeatureEditors.length}
-                                {#each availableFeatureEditors as feature (feature.type)}
-                                    {#if feature.editor === 'checkbox'}
-                                        <label class="feature-option">
-                                            <span>{$_(feature.labelKey)}</span>
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedFeatures.some((selected) => selected.type === feature.type)}
-                                                onchange={(event) => setFeatureEnabled(feature.type, event.currentTarget.checked)}
-                                            />
-                                        </label>
-                                    {/if}
-                                {/each}
+                                {#if selectedFeatures.length}
+                                    <div
+                                        class="selected-feature-list"
+                                        role="list"
+                                        aria-label={$_('page.screen.features')}
+                                        use:dragHandleZone={{ items: featureItems, type: 'entity-features', dropFromOthersDisabled: true, morphDisabled: true, dropTargetStyle: { outline: 'none' }, delayTouchStart: 250 }}
+                                        onconsider={handleFeatureConsider}
+                                        onfinalize={handleFeatureFinalize}
+                                    >
+                                        {#each featureItems as item (`${item.id}-${item[SHADOW_ITEM_MARKER_PROPERTY_NAME] ? 'shadow' : 'item'}`)}
+                                            {@const feature = availableFeatureEditors.find((entry) => entry.type === item.value.type)}
+                                            {#if feature}
+                                                <div class="selected-feature-row" role="listitem">
+                                                    <span use:dragHandle class="feature-drag-handle" aria-hidden="true"><SvgIcon name="mdi:drag-horizontal-variant" /></span>
+                                                    <span class="selected-feature-label">{$_(feature.labelKey)}</span>
+                                                <button class="remove-feature-button" type="button" aria-label={`${$_('page.screen.deleteEntity')}: ${$_(feature.labelKey)}`} onclick={() => removeFeature(feature.type)}><SvgIcon name="mdi:delete" /></button>
+                                                </div>
+                                            {/if}
+                                        {/each}
+                                    </div>
+                                {/if}
+                                <div class="add-feature-dropdown">
+                                    <DropDown
+                                        id="entity-settings-add-feature"
+                                        bind:value={featureToAdd}
+                                        options={availableFeatureOptions}
+                                        disabled={!availableFeatureOptions.length}
+                                        ariaLabel={$_('page.screen.addFeature')}
+                                        onchange={addFeature}
+                                    >
+                                        <span class="add-feature-trigger"><SvgIcon name="mdi:plus" /><span>{$_('page.screen.addFeature')}</span></span>
+                                    </DropDown>
+                                </div>
                             {:else}
-                                <div class="feature-placeholder"><SvgIcon name="coming.svg" /><span>{$_('page.screen.comingSoon')}</span></div>
+                                <div class="feature-placeholder" role="status">
+                                    <SvgIcon name="mdi:alert-circle-outline" />
+                                    <span>{$_('page.screen.comingSoon')}</span>
+                                </div>
                             {/if}
                             {#if selectedFeatures.length}
                                 <fieldset class="features-position-setting">
                                     <legend>{$_('page.screen.featuresPosition')}</legend>
                                     <div class="features-position-options">
                                         <label class:active={featuresPosition === 'bottom'} class="features-position-option">
-                                            <input type="radio" name="features-position" value="bottom" checked={featuresPosition === 'bottom'} onchange={() => setFeaturesPosition('bottom')} />
+                                            <span class="features-position-radio">
+                                                <input type="radio" name="features-position" value="bottom" checked={featuresPosition === 'bottom'} onchange={() => setFeaturesPosition('bottom')} />
+                                                <span class="features-position-radio-icon" aria-hidden="true"><SvgIcon name="mdi:circle" size="12px" /></span>
+                                            </span>
                                             <span class="features-position-copy"><strong>{$_('page.screen.featuresPositionBottom')}</strong><small>{$_('page.screen.featuresPositionBottomHint')}</small></span>
-                                            <span class="features-position-example bottom" aria-hidden="true"><i></i><i></i></span>
+                                            <svg class="features-position-example" viewBox="0 0 96 48" aria-hidden="true" focusable="false">
+                                                <rect class="example-frame" x="1" y="1" width="94" height="46" rx="7" />
+                                                <rect class="example-block" x="9" y="8" width="78" height="12" rx="2" />
+                                                <rect class="example-block secondary" x="9" y="28" width="78" height="12" rx="2" />
+                                            </svg>
                                         </label>
                                         <label class:active={featuresPosition === 'inline'} class="features-position-option">
-                                            <input type="radio" name="features-position" value="inline" checked={featuresPosition === 'inline'} onchange={() => setFeaturesPosition('inline')} />
+                                            <span class="features-position-radio">
+                                                <input type="radio" name="features-position" value="inline" checked={featuresPosition === 'inline'} onchange={() => setFeaturesPosition('inline')} />
+                                                <span class="features-position-radio-icon" aria-hidden="true"><SvgIcon name="mdi:circle" size="12px" /></span>
+                                            </span>
                                             <span class="features-position-copy"><strong>{$_('page.screen.featuresPositionInline')}</strong><small>{$_('page.screen.featuresPositionInlineHint')}</small></span>
-                                            <span class="features-position-example inline" aria-hidden="true"><i></i><i></i></span>
+                                            <svg class="features-position-example features-position-example-inline" viewBox="0 0 96 30" aria-hidden="true" focusable="false">
+                                                <rect class="example-frame" x="1" y="1" width="94" height="28" rx="7" />
+                                                <rect class="example-block" x="9" y="9" width="36" height="12" rx="2" />
+                                                <rect class="example-block secondary" x="51" y="9" width="36" height="12" rx="2" />
+                                            </svg>
                                         </label>
                                     </div>
                                 </fieldset>
@@ -291,6 +355,7 @@
                                     role="switch"
                                     aria-label={$_('page.screen.fullWidth')}
                                     checked={fullWidth}
+                                    disabled={featuresPosition === 'inline'}
                                     onchange={(event) => setFullWidth(event.currentTarget.checked)}
                                 />
                             </span>
@@ -330,10 +395,14 @@
 
 <style lang="scss">
     .entity-settings-dialog {
-        --entity-field-bg: #f2f2f7;
+        --entity-field-bg: #f3f3f3;
         --entity-preview-bg: rgb(249, 249, 249);
         --interaction-menu-bg: #fff;
         --interaction-menu-border: rgba(25, 40, 60, 0.18);
+        --feature-empty-background: rgb(225, 243, 252);
+        --feature-add-background: rgb(223, 243, 252);
+        --feature-add-color: rgb(0, 154, 199);
+        --feature-add-text-color: rgb(20, 20, 20);
         box-sizing: border-box;
         display: flex;
         width: min(62.5rem, calc(100vw - 2rem));
@@ -350,6 +419,12 @@
         --entity-preview-bg: rgba(17,17,17,1);
         --interaction-menu-bg: #303132;
         --interaction-menu-border: rgba(207, 220, 234, 0.85);
+        --feature-empty-background: rgb(25, 43, 52);
+        --feature-add-background: #003b4d;
+        --feature-add-color: #00c8f8;
+        --feature-add-text-color: rgb(225, 225, 225);
+        --ha-color-fill-primary-normal-resting: #003b4d;
+        --ha-color-on-primary-normal: #00c8f8;
         --body-inner-level-2: #303132;
         --bs-border-color: #515253;
     }
@@ -408,7 +483,7 @@
     }
     .entity-settings-tabs button.active {
         border-bottom-color: var(--primary-button-bg);
-        background: color-mix(in srgb, var(--primary-button-bg) 12%, transparent);
+        background: rgba(1, 119, 253, 0.12);
     }
     .configured-entity {
         position: relative;
@@ -429,6 +504,10 @@
         max-height: 18rem;
         overflow-y: auto;
         border-radius: 0.625rem;
+    }
+    .configured-entity :global(.dropdown-menu),
+    .add-feature-dropdown :global(.dropdown-menu) {
+        background: var(--body-inner-level-2);
     }
     .configured-entity :global(.custom-searchable-trigger) {
         min-height: 3.5rem;
@@ -454,7 +533,7 @@
         min-width: 0;
         padding: 0.5rem 0.75rem;
         align-items: center;
-        grid-template-columns: 1.25rem minmax(0, 1fr) 0.75rem;
+        grid-template-columns: 1.25rem minmax(0, 1fr) 1rem 0.75rem;
         gap: 0.625rem;
         border-bottom: 0.0625rem solid var(--bs-secondary-color);
         border-radius: 0.5rem 0.5rem 0 0;
@@ -485,9 +564,13 @@
         font-size: 0.75rem;
         line-height: 1.125rem;
     }
+    .configured-entity-value > :global(.sf-icon:nth-last-child(2)),
     .configured-entity-value > :global(.sf-icon:last-child) {
         color: var(--bs-secondary-color);
-        font-size: 0.625rem;
+        font-size: 1rem;
+    }
+    .configured-entity-value > :global(.sf-icon:last-child) {
+        font-size: 0.75rem;
         transform: rotate(90deg);
     }
     .configured-entity :global(.dropdown-item) {
@@ -629,27 +712,126 @@
     }
     .feature-placeholder {
         display: flex;
-        min-height: 2.375rem;
-        padding: 0 0.75rem 0.75rem;
+        min-height: 2.5rem;
+        margin: 0 0.75rem 0.75rem;
+        padding: 0.5rem 0.625rem;
+        align-items: center;
+        gap: 0.5rem;
+        border-radius: 0.25rem;
+        background: var(--feature-empty-background);
+        color: var(--feature-add-text-color);
+    }
+    .selected-feature-list {
+        display: flex;
+        margin-bottom: 0.5rem;
+        padding: 0 0.2rem 0 0.75rem;
+        flex-direction: column;
+    }
+    .selected-feature-row {
+        display: flex;
+        min-height: 2.75rem;
+        min-width: 0;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .feature-drag-handle {
+        display: flex;
+        width: 1.5rem;
+        flex: 0 0 1.5rem;
         align-items: center;
         justify-content: center;
-        gap: 0.625rem;
+        color: var(--bs-text-secondary);
+        cursor: grab;
+        touch-action: none;
     }
-    .feature-option {
-        display: flex;
-        padding: 0.5rem 0.75rem 0.75rem;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        cursor: pointer;
+    .feature-drag-handle:active {
+        cursor: grabbing;
     }
-    .feature-option input {
+    .feature-drag-handle :global(svg) {
+        width: 1.25rem;
+        height: 1.25rem;
+    }
+    .selected-feature-label {
+        min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .remove-feature-button {
+        display: grid;
+        width: 2rem;
+        height: 2rem;
+        flex: 0 0 2rem;
+        place-items: center;
+        border: 0;
+        border-radius: 0.25rem;
+        background: transparent;
+        color: var(--bs-secondary-color);
+    }
+    .remove-feature-button :global(svg) {
         width: 1.125rem;
         height: 1.125rem;
-        accent-color: var(--primary-button-bg);
+    }
+    .add-feature-dropdown {
+        width: max-content;
+        max-width: 100%;
+        margin: 0 0.75rem 0.75rem;
+    }
+    .add-feature-dropdown :global(.dropdown) {
+        width: max-content;
+        max-width: 100%;
+    }
+    .add-feature-dropdown :global(.dropdown.disabled) {
+        opacity: 1;
+        cursor: not-allowed;
+    }
+    .add-feature-dropdown :global(.dropdown.disabled .dropdown-trigger) {
+        cursor: not-allowed;
+    }
+    .add-feature-dropdown :global(.dropdown-menu) {
+        width: max-content !important;
+        min-width: 100%;
+        max-width: calc(100vw - 2rem);
+        max-height: min(16rem, 40dvh);
+        margin-top: 0;
+        margin-bottom: 0.25rem;
+        overflow-y: auto;
+        top: auto !important;
+        bottom: 100%;
+    }
+    .add-feature-dropdown :global(.dropdown-item) {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+    .add-feature-dropdown :global(.dropdown-trigger) {
+        width: auto !important;
+        height: auto !important;
+    }
+    .add-feature-dropdown :global(.dropdown-trigger .arrow) {
+        display: none !important;
+    }
+    .add-feature-trigger {
+        display: inline-flex;
+		justify-content: center;
+        min-height: 2rem;
+        padding: 0.375rem 0.625rem;
+        align-items: center;
+        border-radius: 999px;
+        background: var(--ha-color-fill-primary-normal-resting, var(--feature-add-background));
+		color: var(--ha-color-on-primary-normal, var(--feature-add-color));
+        font-size: 0.875rem;
+        white-space: nowrap;
+		font-weight: 500;
+    }
+    .add-feature-trigger :global(svg) {
+        width: 1rem;
+        height: 1rem;
     }
     .feature-placeholder :global(.sf-icon) {
-        font-size: 1.5rem;
+        flex: 0 0 auto;
+        color: var(--feature-icon-color);
+        font-size: 1.25rem;
     }
     .features-position-setting {
         min-width: 0;
@@ -671,7 +853,7 @@
     .features-position-option {
         display: grid;
         min-width: 0;
-        min-height: 8rem;
+        min-height: 7.875rem;
         padding: 0.625rem;
         grid-template-columns: auto minmax(0, 1fr);
         align-content: start;
@@ -681,14 +863,45 @@
         cursor: pointer;
     }
     .features-position-option.active {
-        border-color: var(--primary-button-bg);
-        background: color-mix(in srgb, var(--primary-button-bg) 14%, transparent);
+        background: var(--screen-feature-position-active-background);
     }
-    .features-position-option input {
-        width: 1.125rem;
-        height: 1.125rem;
+    .features-position-radio {
+        position: relative;
+        display: block;
+        width: 1.25rem;
+        height: 1.25rem;
         margin: 0.125rem 0 0;
-        accent-color: var(--primary-button-bg);
+    }
+    .features-position-radio input {
+        display: block;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        appearance: none;
+        border: 0.125rem solid var(--bs-secondary-color);
+        border-radius: 50%;
+        background: transparent;
+        cursor: pointer;
+    }
+    .features-position-radio input:checked {
+        border-color: var(--feature-add-color);
+    }
+    .features-position-radio-icon {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--feature-add-color);
+        pointer-events: none;
+        visibility: hidden;
+    }
+    .features-position-radio input:checked + .features-position-radio-icon {
+        visibility: visible;
+    }
+    .features-position-radio input:focus-visible {
+        outline: 0.125rem solid var(--screen-tone-cyan-color, #00bcd4);
+        outline-offset: 0.125rem;
     }
     .features-position-copy {
         display: flex;
@@ -706,34 +919,26 @@
         line-height: 1rem;
     }
     .features-position-example {
-        display: flex;
-        width: 5rem;
-        height: 2.25rem;
-        margin-top: auto;
-        padding: 0.375rem;
+        display: block;
+        width: 6rem;
+        height: 3rem;
+        margin-top: 0.6875rem;
         grid-column: 1 / -1;
         justify-self: center;
-        gap: 0.25rem;
-        border: 0.0625rem solid var(--bs-border-color);
-        border-radius: 0.375rem;
-        background: var(--body-inner-level-2);
     }
-    .features-position-example.bottom {
-        flex-direction: column;
+    .features-position-example-inline {
+        height: 1.875rem;
+        margin-top: 0.0625rem;
     }
-    .features-position-example.inline {
-        align-items: stretch;
+    .features-position-example .example-frame {
+        fill: var(--body-inner-level-2);
+        stroke: var(--bs-border-color);
     }
-    .features-position-example i {
-        min-width: 0;
-        min-height: 0;
-        flex: 1 1 0;
-        border-radius: 0.1875rem;
-        background: var(--bs-secondary-color);
-        opacity: 0.5;
+    .features-position-example .example-block {
+        fill: var(--feature-position-example-primary);
     }
-    .features-position-example i:last-child {
-        opacity: 0.8;
+    .features-position-example .example-block.secondary {
+        fill: var(--feature-position-example-secondary);
     }
     .layout-settings {
         display: flex;
@@ -768,6 +973,9 @@
         margin: 0;
         border: 0;
         cursor: pointer;
+    }
+    .layout-settings .form-check-input:disabled {
+        cursor: not-allowed;
     }
     .entity-settings-preview {
         min-width: 0;

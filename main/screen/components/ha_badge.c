@@ -13,7 +13,7 @@
 #define BADGE_PRESSED_MIX 31 /* 12% of the badge color */
 #define BADGE_BORDER_OPA 31 /* 12% */
 #define BADGE_TEXT_COLOR_DARK 0xE4E7EE
-#define BADGE_TEXT_COLOR_LIGHT 0x333333
+#define BADGE_TEXT_COLOR_LIGHT 0x5E5E5E
 #define BADGE_UNAVAILABLE_TEXT_COLOR_DARK 0x909090
 /* HA heading badges render unavailable state as an em dash that inherits
  * --secondary-text-color; the current light-theme default is #5E5E5E. */
@@ -175,7 +175,7 @@ static void ha_badge_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj)
     badge->text_label = lv_label_create(obj);
     lv_label_set_long_mode(badge->text_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_max_width(badge->text_label, LV_HOR_RES - 80, 0);
-    lv_obj_set_style_text_font(badge->text_label, ha_ui_font_regular(14), 0);
+    lv_obj_set_style_text_font(badge->text_label, ha_ui_font_medium(14), 0);
     ha_badge_apply_theme(obj);
 }
 
@@ -203,4 +203,3 @@ static void ha_badge_event(const lv_obj_class_t *class_p, lv_event_t *event)
         break;
     }
 }
-

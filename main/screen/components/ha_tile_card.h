@@ -59,7 +59,6 @@ void ha_tile_card_set_icon_circle_background_color(lv_obj_t *obj, lv_color_t col
 void ha_tile_card_set_icon_circle_background_color_light(lv_obj_t *obj, lv_color_t color);
 void ha_tile_card_set_icon_circle_background_opa(lv_obj_t *obj, lv_opa_t opa);
 void ha_tile_card_set_title_color(lv_obj_t *obj, lv_color_t color);
-void ha_tile_card_set_state_color(lv_obj_t *obj, lv_color_t color);
 /** Set the optional icon displayed immediately before the state text. */
 void ha_tile_card_set_state_icon(lv_obj_t *obj, const char *icon);
 /** Show or hide the optional state icon without changing its configured text. */

@@ -15,8 +15,8 @@
 #define HA_TILE_CARD_DARK_BACKGROUND_COLOR 0x1C1C1C
 #define HA_TILE_CARD_PRESSED_MIX 31 /* 12% of the tile color */
 #define HA_TILE_CARD_BORDER_OPA 31 /* 12%, matching Home Assistant */
-#define HA_TILE_CARD_LIGHT_TITLE_COLOR 0x333333
-#define HA_TILE_CARD_LIGHT_STATE_COLOR 0x666666
+#define HA_TILE_CARD_LIGHT_TEXT_COLOR 0x333333
+#define HA_TILE_CARD_DARK_TEXT_COLOR 0xFFFFFF
 
 typedef struct {
     lv_obj_t obj;
@@ -49,7 +49,6 @@ typedef struct {
     lv_color_t configured_background_color;
     lv_color_t configured_icon_color;
     lv_color_t configured_title_color;
-    lv_color_t configured_state_color;
 } ha_tile_card_t;
 
 static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
@@ -173,11 +172,15 @@ void ha_tile_card_update_feature_layout(lv_obj_t *obj, bool inline_features)
     LV_ASSERT_OBJ(obj, MY_CLASS);
     ha_tile_card_t *card = (ha_tile_card_t *)obj;
     card->inline_features = inline_features;
-    /* Keep the feature group at the bottom of its grid-sized card so any
-     * extra height becomes space between it and the main tile row. */
+    /* Let the tile row fill the space above bottom features. Its children
+     * stay vertically centered, giving the tile content equal space above
+     * and below. Match the top padding to the gap before the features. */
+    const bool has_bottom_features = card->features_container != NULL;
+    lv_obj_set_flex_grow(card->tile_row, has_bottom_features ? 1 : 0);
+    lv_obj_set_style_pad_top(obj, has_bottom_features ? 10 : 8, 0);
     lv_obj_set_flex_align(obj,
-                          card->features_container ? LV_FLEX_ALIGN_SPACE_BETWEEN
-                                                   : LV_FLEX_ALIGN_START,
+                          has_bottom_features ? LV_FLEX_ALIGN_START
+                                              : LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     ha_tile_card_layout_inline_feature(card, true);
@@ -259,11 +262,11 @@ void ha_tile_card_apply_theme(lv_obj_t *obj)
                                             ? lv_color_hex(HA_TILE_CARD_LIGHT_BACKGROUND_COLOR)
                                             : lv_color_hex(HA_TILE_CARD_DARK_BACKGROUND_COLOR);
     const lv_color_t title_color = light
-                                       ? lv_color_hex(HA_TILE_CARD_LIGHT_TITLE_COLOR)
+                                       ? lv_color_hex(HA_TILE_CARD_LIGHT_TEXT_COLOR)
                                        : card->configured_title_color;
     const lv_color_t state_color = light
-                                       ? lv_color_hex(HA_TILE_CARD_LIGHT_STATE_COLOR)
-                                       : card->configured_state_color;
+                                       ? lv_color_hex(HA_TILE_CARD_LIGHT_TEXT_COLOR)
+                                       : lv_color_hex(HA_TILE_CARD_DARK_TEXT_COLOR);
 
     const lv_color_t icon_circle_bg = light
         ? card->configured_icon_circle_background_color_light
@@ -468,14 +471,6 @@ void ha_tile_card_set_title_color(lv_obj_t *obj, lv_color_t color)
     ha_tile_card_apply_theme(obj);
 }
 
-void ha_tile_card_set_state_color(lv_obj_t *obj, lv_color_t color)
-{
-    LV_ASSERT_OBJ(obj, MY_CLASS);
-    ha_tile_card_t *card = (ha_tile_card_t *)obj;
-    card->configured_state_color = color;
-    ha_tile_card_apply_theme(obj);
-}
-
 void ha_tile_card_set_state_icon(lv_obj_t *obj, const char *icon)
 {
     LV_ASSERT_OBJ(obj, MY_CLASS);
@@ -517,7 +512,6 @@ static void ha_tile_card_constructor(const lv_obj_class_t *class_p, lv_obj_t *ob
     card->configured_background_color = lv_color_hex(0x1E2228);
     card->configured_icon_color = lv_color_hex(0x9E9E9E);
     card->configured_title_color = lv_color_hex(0xFFFFFF);
-    card->configured_state_color = lv_color_hex(0xA8A8A8);
 
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);

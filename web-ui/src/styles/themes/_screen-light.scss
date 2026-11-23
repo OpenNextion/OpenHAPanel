@@ -3,7 +3,7 @@
     --screen-card-background: #e3e3e3;
     --screen-card-title-color: #1c1c1e;
     --screen-text-primary: #1c1c1e;
-    --screen-text-secondary: #6e6e73;
+    --screen-text-secondary: rgba(20, 20, 20, 1);
     --screen-tile-background: rgba(255, 255, 255, 1);
     --screen-tile-border: rgba(224, 224, 224, 1);
     --screen-page-indicator: rgba(28, 28, 30, 0.25);
@@ -15,6 +15,11 @@
     --screen-icon-background: #f2f2f7;
     --screen-icon-unavailable: #9e9e9e;
     --screen-icon-unavailable-background: rgba(142, 142, 147, 0.2);
+    --screen-feature-disabled-color: #bdbdbd;
+    --screen-cover-favorite-disabled-color: #bdbdbd;
+    --screen-cover-favorite-disabled-background: rgba(189, 189, 189, 0.2);
+    --screen-feature-disabled-fill: #b5b5b5;
+    --screen-feature-disabled-background: #f2f2f2;
     --screen-modal-tile-background: #f2f2f7;
     --screen-modal-badge-background: rgb(227, 227, 227);
     --screen-status-ha-icon: #969696;
@@ -42,6 +47,8 @@
     --screen-tone-neutral-background: rgba(110, 110, 115, 0.12);
     --screen-tone-ha-inactive-color: #9e9e9e;
     --screen-tone-ha-inactive-background: rgba(158, 158, 158, 0.18);
+    --screen-scene-button-background: rgb(242, 242, 242);
+    --screen-scene-button-color: rgb(54, 54, 54);
     --screen-tone-ha-cover-color: #926bc7;
     --screen-tone-ha-cover-background: rgba(146, 107, 199, 0.2);
     --screen-tone-ha-fan-color: #00bcd4;

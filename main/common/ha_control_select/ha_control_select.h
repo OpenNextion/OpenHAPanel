@@ -43,8 +43,10 @@ typedef struct {
     ha_control_select_option_store_t * options_data; \
     const char ** map; \
     uint32_t option_count; \
+    uint32_t visible_limit; \
     char selected_value[HA_CONTROL_SELECT_MAX_VALUE_LEN]; \
-    lv_color_t text_color;
+    lv_color_t text_color; \
+    lv_opa_t disabled_opa;
 
 #include "ha_control_select_gen.h"
 
@@ -53,6 +55,8 @@ typedef struct {
  **********************/
 
 void ha_control_select_set_options_array(lv_obj_t * obj, const ha_control_select_option_t * options, uint32_t count);
+void ha_control_select_set_visible_limit(lv_obj_t * obj, uint32_t limit);
+uint32_t ha_control_select_get_visible_limit(lv_obj_t * obj);
 void ha_control_select_set_text_color(lv_obj_t * obj, lv_color_t color);
 /* Sets an opaque neutral surface behind unselected items without changing selected-item colors. */
 void ha_control_select_set_surface_color(lv_obj_t * obj, lv_color_t color);
@@ -65,6 +69,8 @@ bool ha_control_select_get_disabled(lv_obj_t * obj);
 bool ha_control_select_get_vertical(lv_obj_t * obj);
 bool ha_control_select_get_hide_option_label(lv_obj_t * obj);
 lv_color_t ha_control_select_get_color(lv_obj_t * obj);
+
+void ha_control_select_set_disabled_opa(lv_obj_t * obj, lv_opa_t opa);
 
 void ha_control_select_set_text_font(lv_obj_t * ha_control_select, const lv_font_t * font);
 void ha_control_select_set_symbol_font(lv_obj_t * ha_control_select, const lv_font_t * font);

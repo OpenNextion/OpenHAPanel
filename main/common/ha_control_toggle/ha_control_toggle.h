@@ -12,6 +12,7 @@ lv_obj_t *ha_control_toggle_create(lv_obj_t *parent);
 void ha_control_toggle_set_value(lv_obj_t *obj, bool on, lv_anim_enable_t animate);
 void ha_control_toggle_set_active_color(lv_obj_t *obj, lv_color_t color);
 void ha_control_toggle_set_disabled(lv_obj_t *obj, bool disabled);
+bool ha_control_toggle_get_disabled(lv_obj_t *obj);
 void ha_control_toggle_set_change_cb(lv_obj_t *obj,
                                      ha_control_toggle_change_cb_t callback,
                                      void *user_data);
@@ -25,5 +26,14 @@ void ha_control_toggle_set_light_colors(lv_obj_t *obj,
                                         lv_color_t knob_on,
                                         lv_color_t disabled_track,
                                         lv_color_t disabled_knob);
+void ha_control_toggle_set_dark_disabled_colors(lv_obj_t *obj,
+                                                lv_color_t track,
+                                                lv_color_t knob);
+/** Override the dark-theme off-state track/knob colours (default: grey). */
+void ha_control_toggle_set_dark_off_colors(lv_obj_t *obj,
+                                           lv_color_t track,
+                                           lv_color_t knob);
+/** Toggle input without applying disabled colours (keeps current styling). */
+void ha_control_toggle_set_interactive(lv_obj_t *obj, bool interactive);
 
 #endif

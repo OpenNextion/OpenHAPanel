@@ -16,6 +16,7 @@ extern "C" {
 #define HA_ENTITY_STORE_FRIENDLY_NAME_MAX 128
 #define HA_ENTITY_STORE_UNIT_MAX 32
 #define HA_ENTITY_STORE_DEVICE_CLASS_MAX 48
+#define HA_ENTITY_STORE_STATE_CLASS_MAX 32
 /* Room for an ISO 8601 timestamp such as 2026-09-20T13:24:31.123456+00:00. */
 #define HA_ENTITY_STORE_DATETIME_MAX 40
 
@@ -75,6 +76,7 @@ typedef struct {
     char friendly_name[HA_ENTITY_STORE_FRIENDLY_NAME_MAX];
     char unit_of_measurement[HA_ENTITY_STORE_UNIT_MAX];
     char device_class[HA_ENTITY_STORE_DEVICE_CLASS_MAX];
+    char state_class[HA_ENTITY_STORE_STATE_CLASS_MAX];
     bool has_unit_of_measurement;
     bool has_state_class;
     bool has_display_precision;

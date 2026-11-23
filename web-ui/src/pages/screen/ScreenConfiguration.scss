@@ -191,16 +191,21 @@
         display: flex;
         margin-top: 4.5rem;
         justify-content: center;
+        flex-wrap: wrap;
         gap: 1.75rem;
     }
     .add-screen-dialog footer button {
-        width: 8.875rem;
-        height: 3rem;
-        padding: 0.5rem 1rem;
+        flex: 0 0 auto;
+        width: auto;
+        max-width: 100%;
+        min-height: 3rem;
+        padding: 0.5rem 1.75rem;
         color: var(--bs-body-color);
         border: 0.0625rem solid var(--bs-border-color);
         border-radius: 999rem;
         background: transparent;
+        line-height: 1.25;
+        text-align: center;
     }
     .add-screen-dialog footer .save-new-screen-button {
         color: #fff;
@@ -482,11 +487,13 @@
     }
     .connect-ha-title {
         font-size: 1.25rem;
+        font-weight: 500;
         line-height: 1.75rem;
     }
     .connect-ha-hint {
         margin-top: 0.5rem;
         font-size: 1rem;
+        font-weight: 350;
         line-height: 1.5rem;
     }
     .image-placeholder {
@@ -611,6 +618,9 @@
     .screen-entity-sort-item.multi-row > .hass-entity-row.feature-tile:not(.inline-features) .tile-feature-list,
     .screen-entity-sort-item.multi-row > .hass-entity-row.feature-tile:not(.inline-features) .tile-feature-item {
         flex: 1 1 auto;
+    }
+    .screen-entity-sort-item.multi-row > .hass-entity-row.feature-tile:not(.inline-features) .tile-feature-item {
+        min-height: var(--feature-height);
     }
     .screen-entity-sort-item.multi-row > .hass-entity-row.feature-tile:not(.inline-features) .tile-action-feature,
     .screen-entity-sort-item.multi-row > .hass-entity-row.feature-tile:not(.inline-features) .tile-toggle-feature {

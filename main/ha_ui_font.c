@@ -33,6 +33,7 @@ static ha_ui_bitmap_entry_t s_bitmap_fonts[] = {
     {.size = 16, .medium = false, .source = &ha_font_misan_regular_16},
     {.size = 20, .medium = false, .source = &ha_font_misan_regular_20},
     {.size = 12, .medium = true, .source = &ha_font_misan_medium_12},
+    {.size = 14, .medium = true, .source = &ha_font_misan_medium_14},
     {.size = 16, .medium = true, .source = &ha_font_misan_medium_16},
     {.size = 20, .medium = true, .source = &ha_font_misan_medium_20},
     {.size = 24, .medium = true, .source = &ha_font_misan_medium_24},
@@ -104,4 +105,3 @@ const lv_font_t *ha_ui_font_medium(uint32_t size)
 {
     return ha_ui_font_get(size, true);
 }
-

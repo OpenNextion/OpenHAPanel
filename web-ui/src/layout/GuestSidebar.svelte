@@ -139,7 +139,7 @@
     .theme-option-check :global(.sf-icon), .theme-option-check :global(svg) { display: block; width: 100%; height: 100%; }
     .guest-theme-options small { display: block; margin-top: 0.4rem; overflow: hidden; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
     .guest-sidebar-links { display: grid; margin-top: 2rem; }
-    .guest-sidebar-links a, .guest-sidebar-links label { display: flex; min-height: 48px; padding: 0; align-items: center; justify-content: space-between; color: var(--body-text-color-grey); border-bottom: 1px solid color-mix(in srgb, var(--bs-border-color) 55%, transparent); font-size: 0.85rem; text-decoration: none; }
+    .guest-sidebar-links a, .guest-sidebar-links label { display: flex; min-height: 48px; padding: 0; align-items: center; justify-content: space-between; color: var(--body-text-color-grey); border-bottom: 1px solid var(--web-sidebar-link-border); font-size: 0.85rem; text-decoration: none; }
     .guest-sidebar-links .guest-language-select { min-height: 0; padding-bottom: 0.9rem; align-items: stretch; flex-direction: column; gap: 0.75rem; }
     .guest-language-select :global(.dropdown) { width: 100%; min-height: 38px; color: var(--bs-body-color); border: 1px solid var(--bs-border-color); border-radius: 0.35rem; background: var(--body-inner-level-2); }
     .guest-language-select :global(.dropdown-toggle) { min-height: 38px; padding: 0.35rem 0.65rem; }

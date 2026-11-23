@@ -38,17 +38,19 @@
 
 <button
     class="tile-toggle-feature"
+    class:read-only={readOnly}
+    class:unavailable={disabled}
     type="button"
     aria-label={label}
     aria-pressed={checked}
     aria-busy={busy}
     aria-disabled={readOnly || disabled || busy}
-    disabled={disabled || busy}
+    disabled={readOnly || disabled || busy}
     tabindex={readOnly ? -1 : 0}
     style={`--toggle-track-color: ${trackColor}; --toggle-active-color: ${activeColor}; --toggle-inactive-color: ${inactiveColor}; --toggle-active-icon-color: ${activeIconColor}; --toggle-inactive-icon-color: ${inactiveIconColor}`}
     onpointerdown={(event) => event.stopPropagation()}
     onkeydown={(event) => event.stopPropagation()}
-    onclick={(event) => { event.stopPropagation(); if (!readOnly) onToggle?.(!checked); }}
+    onclick={(event) => { event.stopPropagation(); if (!disabled && !readOnly && !busy) onToggle?.(!checked); }}
 >
     <span class:checked class="toggle-thumb" aria-hidden="true"><SvgIcon name={icon} /></span>
 </button>
@@ -75,6 +77,9 @@
 
     .tile-toggle-feature:disabled {
         cursor: not-allowed;
+    }
+
+    .tile-toggle-feature.unavailable {
         opacity: 0.5;
     }
 

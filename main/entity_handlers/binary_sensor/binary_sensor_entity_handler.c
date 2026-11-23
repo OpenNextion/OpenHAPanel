@@ -33,6 +33,9 @@
 #define BINARY_SENSOR_COLOR_STATE_ICON  0x44739E
 #define BINARY_SENSOR_COLOR_UNAVAILABLE 0x6F6F6F
 #define BINARY_SENSOR_TILE_ICON_BG      0x1C1C1C
+#define BINARY_SENSOR_TILE_ICON_BG_LIGHT 0xFFFFFF
+#define BINARY_SENSOR_TILE_ICON_UNAVAILABLE_DARK 0x6F6F6F
+#define BINARY_SENSOR_TILE_ICON_UNAVAILABLE_LIGHT 0xBDBDBD
 
 static const char *TAG = "binary_sensor_entity_handler";
 
@@ -149,7 +152,11 @@ static uint32_t binary_sensor_icon_color(
     bool more_info)
 {
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
-        return BINARY_SENSOR_COLOR_UNAVAILABLE;
+        const uint32_t unavailable_color =
+            screen_theme_get() == SCREEN_THEME_LIGHT
+                ? BINARY_SENSOR_TILE_ICON_UNAVAILABLE_LIGHT
+                : BINARY_SENSOR_TILE_ICON_UNAVAILABLE_DARK;
+        return unavailable_color;
     }
     if (binary_sensor_is_on(snapshot)) {
         return binary_sensor_active_color(snapshot->device_class);
@@ -159,11 +166,15 @@ static uint32_t binary_sensor_icon_color(
 }
 
 static lv_color_t binary_sensor_tile_icon_background_color(
-    uint32_t icon_color)
+    uint32_t icon_color,
+    bool light)
 {
     /* ha-tile-icon renders the state color over its background at 20%. */
+    const uint32_t background = light
+                                    ? BINARY_SENSOR_TILE_ICON_BG_LIGHT
+                                    : BINARY_SENSOR_TILE_ICON_BG;
     return lv_color_mix(lv_color_hex(icon_color),
-                        lv_color_hex(BINARY_SENSOR_TILE_ICON_BG),
+                        lv_color_hex(background),
                         LV_OPA_20);
 }
 
@@ -582,9 +593,10 @@ static esp_err_t binary_sensor_render_tile(ha_entity_store_t *store,
     const uint32_t icon_color = binary_sensor_icon_color(snapshot, false);
     model->icon_color = lv_color_hex(icon_color);
     model->icon_circle_background_color =
-        binary_sensor_tile_icon_background_color(icon_color);
+        binary_sensor_tile_icon_background_color(icon_color, false);
+    model->icon_circle_background_color_light =
+        binary_sensor_tile_icon_background_color(icon_color, true);
     model->title_color = lv_color_hex(0xFFFFFF);
-    model->state_color = lv_color_hex(0x666666);
     return ESP_OK;
 }
 

@@ -30,7 +30,7 @@
 
 {#snippet content()}
     <HassEntityIcon {entity} showBackground={false} showWarning={false} />
-    <strong class="badge-value">{badgeValue}</strong>
+    <span class="badge-value entity-text-secondary">{badgeValue}</span>
 {/snippet}
 
 {#if onclick && interactiveElement === 'button'}

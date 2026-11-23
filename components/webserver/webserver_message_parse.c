@@ -557,10 +557,17 @@ esp_err_t method_api_handle_set_login_state(cJSON *data, async_resp_arg *now_res
  */
 esp_err_t method_api_handle_reset_device(cJSON *data, async_resp_arg *now_resp_arg)
 {
-    esp_err_t ret =
-        webserver_code_response_to_current_client(WEB_API_ERROR_OK, WEB_API_METHOD_RESET_DEVICE_RSP, now_resp_arg->seq);
-    webserver_config_restore_factory_settings();
-    return ret;
+    esp_err_t reset_err =
+        webserver_config_request_factory_reset(FACTORY_RESET_SOURCE_WEB);
+    int error_code = WEB_API_ERROR_OK;
+    if (reset_err == ESP_ERR_INVALID_STATE) {
+        error_code = WEB_API_ERROR_OTA_IS_DOING;
+    }
+    else if (reset_err != ESP_OK) {
+        error_code = WEB_API_ERROR_FAIL;
+    }
+    return webserver_code_response_to_current_client(
+        error_code, WEB_API_METHOD_RESET_DEVICE_RSP, now_resp_arg->seq);
 }
 
 /**

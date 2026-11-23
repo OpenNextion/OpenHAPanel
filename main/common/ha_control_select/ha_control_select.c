@@ -29,6 +29,7 @@
  *  STATIC PROTOTYPES
  **********************/
 
+static uint32_t visible_option_count(const ha_control_select_t * st);
 static void rebuild_map(ha_control_select_t * st);
 static void update_styles(ha_control_select_t * st);
 static void clear_options(ha_control_select_t * st);
@@ -54,11 +55,13 @@ void ha_control_select_constructor_hook(lv_obj_t * obj)
         st->options_data = NULL;
         st->map = NULL;
         st->option_count = 0;
+        st->visible_limit = 0;
         st->selected_value[0] = '\0';
         st->color = lv_color_hex(0xFF6F22);
         st->text_color = lv_color_hex(0x141414);
         st->height = DEFAULT_HEIGHT;
         st->disabled = false;
+        st->disabled_opa = LV_OPA_40;
         st->vertical = false;
         st->hide_option_label = false;
 
@@ -88,6 +91,13 @@ void ha_control_select_constructor_hook(lv_obj_t * obj)
         lv_obj_set_style_radius(obj, BUTTON_RADIUS, LV_PART_ITEMS | LV_STATE_PRESSED);
         lv_obj_set_style_bg_color(obj, st->color, LV_PART_ITEMS | LV_STATE_PRESSED);
         lv_obj_set_style_bg_opa(obj, (255 * 25 / 100), LV_PART_ITEMS | LV_STATE_PRESSED);
+
+        /* Selected + pressed: keep full selected appearance (no pressed dimming) */
+        lv_obj_set_style_radius(obj, BUTTON_RADIUS, LV_PART_ITEMS | LV_STATE_CHECKED | LV_STATE_PRESSED);
+        lv_obj_set_style_bg_color(obj, st->color, LV_PART_ITEMS | LV_STATE_CHECKED | LV_STATE_PRESSED);
+        lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_CHECKED | LV_STATE_PRESSED);
+        lv_obj_set_style_text_color(obj, lv_color_hex(0xFFFFFF), LV_PART_ITEMS | LV_STATE_CHECKED | LV_STATE_PRESSED);
+        lv_obj_set_style_border_width(obj, 0, LV_PART_ITEMS | LV_STATE_CHECKED | LV_STATE_PRESSED);
 
         lv_buttonmatrix_set_one_checked(obj, true);
         lv_obj_add_event_cb(obj, buttonmatrix_value_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
@@ -137,6 +147,20 @@ void ha_control_select_set_options_array(lv_obj_t * obj, const ha_control_select
     }
 
     rebuild_map(st);
+}
+
+void ha_control_select_set_visible_limit(lv_obj_t * obj, uint32_t limit)
+{
+    ha_control_select_t * st = (ha_control_select_t *)obj;
+    if(st == NULL || st->visible_limit == limit) return;
+    st->visible_limit = limit;
+    rebuild_map(st);
+}
+
+uint32_t ha_control_select_get_visible_limit(lv_obj_t * obj)
+{
+    ha_control_select_t * st = (ha_control_select_t *)obj;
+    return st ? st->visible_limit : 0;
 }
 
 void ha_control_select_set_options(lv_obj_t * obj, const char * options_str)
@@ -216,7 +240,8 @@ void ha_control_select_set_value(lv_obj_t * obj, const char * value)
     st->value = st->selected_value;
 
     if(st->options_data != NULL) {
-        for(uint32_t i = 0; i < st->option_count; i++) {
+        uint32_t count = visible_option_count(st);
+        for(uint32_t i = 0; i < count; i++) {
             if(strcmp(st->options_data[i].value, st->selected_value) == 0) {
                 lv_buttonmatrix_set_button_ctrl(obj, i, LV_BUTTONMATRIX_CTRL_CHECKED);
             } else {
@@ -284,6 +309,14 @@ void ha_control_select_set_surface_style(lv_obj_t * obj, lv_color_t color, lv_op
     if(obj == NULL) return;
     lv_obj_set_style_bg_color(obj, color, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(obj, opa, LV_PART_MAIN);
+}
+
+void ha_control_select_set_disabled_opa(lv_obj_t * obj, lv_opa_t opa)
+{
+    ha_control_select_t * st = (ha_control_select_t *)obj;
+    if(st == NULL) return;
+    st->disabled_opa = opa;
+    update_styles(st);
 }
 
 void ha_control_select_set_height(lv_obj_t * obj, lv_coord_t height)
@@ -354,6 +387,15 @@ lv_color_t ha_control_select_get_color(lv_obj_t * obj)
  *   STATIC FUNCTIONS
  **********************/
 
+static uint32_t visible_option_count(const ha_control_select_t * st)
+{
+    if(st == NULL || st->option_count == 0) return 0;
+    if(st->visible_limit > 0 && st->visible_limit < st->option_count) {
+        return st->visible_limit;
+    }
+    return st->option_count;
+}
+
 static void rebuild_map(ha_control_select_t * st)
 {
     if(st == NULL || st->options_data == NULL || st->option_count == 0) return;
@@ -364,7 +406,7 @@ static void rebuild_map(ha_control_select_t * st)
         st->map = NULL;
     }
 
-    uint32_t count = st->option_count;
+    uint32_t count = visible_option_count(st);
     uint32_t map_slots = st->vertical ? (count * 2 + 1) : (count + 1);
     st->map = lv_malloc(sizeof(char *) * map_slots);
     LV_ASSERT_MALLOC(st->map);
@@ -427,12 +469,13 @@ static void update_styles(ha_control_select_t * st)
     /* Update selected item style */
     lv_obj_set_style_bg_color(obj, active_color, LV_PART_ITEMS | LV_STATE_CHECKED);
     lv_obj_set_style_bg_color(obj, active_color, LV_PART_ITEMS | LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(obj, active_color, LV_PART_ITEMS | LV_STATE_CHECKED | LV_STATE_PRESSED);
 
     if(st->disabled) {
         lv_obj_add_state(obj, LV_STATE_DISABLED);
         /* Keep the control as the touch target so disabled features cannot tap the Tile. */
         lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_opa(obj, LV_OPA_40, LV_PART_MAIN);
+        lv_obj_set_style_opa(obj, st->disabled_opa, LV_PART_MAIN);
     } else {
         lv_obj_remove_state(obj, LV_STATE_DISABLED);
         lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
@@ -461,7 +504,7 @@ static void buttonmatrix_value_changed_cb(lv_event_t * e)
     if(st == NULL || st->disabled || st->options_data == NULL) return;
 
     uint32_t btn_id = lv_buttonmatrix_get_selected_button(obj);
-    if(btn_id >= st->option_count) return;
+    if(btn_id >= visible_option_count(st)) return;
 
     if(strcmp(st->selected_value, st->options_data[btn_id].value) == 0) return;
 

@@ -32,8 +32,11 @@
 #define SENSOR_TITLE_MIN_WIDTH_LANDSCAPE 120
 #define SENSOR_TITLE_STATE_GAP_LANDSCAPE 8
 #define SENSOR_HISTORY_HOURS 12
+#define SENSOR_STATISTICS_HOURS 12
 #define SENSOR_HISTORY_LIST_DAYS 3
 #define SENSOR_HISTORY_LIST_MAX_RECORDS 14
+#define SENSOR_TILE_ICON_UNAVAILABLE_DARK 0x6F6F6F
+#define SENSOR_TILE_ICON_UNAVAILABLE_LIGHT 0xBDBDBD
 
 static const char *TAG = "sensor_entity_handler";
 
@@ -44,18 +47,32 @@ typedef struct {
     char state[HA_ENTITY_STORE_STATE_MAX];
 } sensor_history_record_t;
 
+typedef enum {
+    SENSOR_HISTORY_REQUEST_RAW,
+    SENSOR_HISTORY_REQUEST_METADATA,
+    SENSOR_HISTORY_REQUEST_STATISTICS,
+} sensor_history_request_t;
+
 typedef struct {
     lv_obj_t *screen;
+    lv_timer_t *refresh_timer;
     char entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
     char device_class[HA_ENTITY_STORE_DEVICE_CLASS_MAX];
     char unit[HA_ENTITY_STORE_UNIT_MAX];
+    char statistics_unit[HA_ENTITY_STORE_UNIT_MAX];
     time_t start_time;
     time_t end_time;
     int request_id;
+    ha_history_stream_t *stream;
     bool loading;
     bool loaded;
     bool failed;
     bool is_list_history;
+    bool statistics_eligible;
+    bool statistics_mode;
+    bool current_state_appended;
+    bool stream_fallback;
+    sensor_history_request_t request_kind;
     bool observed_state_initialized;
     char observed_state[HA_ENTITY_STORE_STATE_MAX];
     size_t point_count;
@@ -253,6 +270,9 @@ static bool sensor_history_parse_list_result(const cJSON *result);
 static bool sensor_history_parse_item(const cJSON *item,
                                       sensor_history_point_t *point_out);
 static bool sensor_history_parse_result(const cJSON *result);
+static bool sensor_history_parse_statistics_result(const cJSON *result);
+static bool sensor_history_metadata_matches(const cJSON *result);
+static esp_err_t sensor_history_send_request(int *request_id);
 static bool sensor_history_reserve(size_t required_capacity);
 static void sensor_history_prune(time_t now_epoch);
 static void sensor_history_observe_state(
@@ -264,7 +284,11 @@ static void sensor_history_result_cb(int request_id,
                                      const cJSON *result,
                                      const cJSON *error,
                                      void *user_ctx);
+static void sensor_history_stream_cb(int subscription_id, esp_err_t err,
+                                     const cJSON *states, bool reset,
+                                     void *user_ctx);
 static void sensor_history_screen_delete_cb(lv_event_t *event);
+static void sensor_history_refresh_timer_cb(lv_timer_t *timer);
 static void sensor_history_reset(void);
 static void sensor_history_render(lv_obj_t *parent);
 static bool sensor_format_timestamp_state(const char *state,
@@ -373,7 +397,10 @@ static bool sensor_history_parse_list_result(const cJSON *result)
     const cJSON *item = NULL;
     cJSON_ArrayForEach(item, states) {
         time_t epoch = 0;
-        if (!sensor_history_parse_epoch(item, &epoch)) {
+        /* The first state may describe the value already held at the
+         * requested start time, rather than a change in this period. */
+        if (!sensor_history_parse_epoch(item, &epoch) ||
+            epoch <= s_sensor_history.start_time) {
             continue;
         }
         const cJSON *state = cJSON_GetObjectItemCaseSensitive(item, "s");
@@ -475,22 +502,47 @@ static bool sensor_history_parse_result(const cJSON *result)
     }
 
     size_t merged_count = 0;
-    cJSON_ArrayForEach(item, states) {
-        sensor_history_point_t point = {0};
-        if (!sensor_history_parse_item(item, &point)) {
-            continue;
+    if (s_sensor_history.stream) {
+        /* Stream chunks arrive after the already displayed history. Keep
+         * existing points first; insert late chunks at their time position. */
+        if (live_count) {
+            memcpy(merged, s_sensor_history.points,
+                   live_count * sizeof(*merged));
         }
-        merged[merged_count++] = point;
-    }
-
-    for (size_t i = 0; i < live_count; i++) {
-        const sensor_history_point_t point = s_sensor_history.points[i];
-        if (merged_count > 0 &&
-            merged[merged_count - 1].epoch == point.epoch &&
-            fabs(merged[merged_count - 1].value - point.value) < 0.000001) {
-            continue;
+        merged_count = live_count;
+        cJSON_ArrayForEach(item, states) {
+            sensor_history_point_t point = {0};
+            if (!sensor_history_parse_item(item, &point)) continue;
+            size_t pos = merged_count;
+            while (pos > 0 && merged[pos - 1].epoch > point.epoch) pos--;
+            if ((pos > 0 && merged[pos - 1].epoch == point.epoch &&
+                 fabs(merged[pos - 1].value - point.value) < 0.000001) ||
+                (pos < merged_count && merged[pos].epoch == point.epoch &&
+                 fabs(merged[pos].value - point.value) < 0.000001)) {
+                continue;
+            }
+            if (pos < merged_count) {
+                memmove(merged + pos + 1, merged + pos,
+                        (merged_count - pos) * sizeof(*merged));
+            }
+            merged[pos] = point;
+            merged_count++;
         }
-        merged[merged_count++] = point;
+    } else {
+        cJSON_ArrayForEach(item, states) {
+            sensor_history_point_t point = {0};
+            if (!sensor_history_parse_item(item, &point)) continue;
+            merged[merged_count++] = point;
+        }
+        for (size_t i = 0; i < live_count; i++) {
+            const sensor_history_point_t point = s_sensor_history.points[i];
+            if (merged_count > 0 &&
+                merged[merged_count - 1].epoch == point.epoch &&
+                fabs(merged[merged_count - 1].value - point.value) < 0.000001) {
+                continue;
+            }
+            merged[merged_count++] = point;
+        }
     }
 
     free(s_sensor_history.points);
@@ -499,6 +551,209 @@ static bool sensor_history_parse_result(const cJSON *result)
     s_sensor_history.point_capacity = required_count;
     sensor_history_prune(s_sensor_history.end_time);
     return true;
+}
+
+static bool sensor_history_metadata_matches(const cJSON *result)
+{
+    const cJSON *item = NULL;
+    cJSON_ArrayForEach(item, result) {
+        const cJSON *id = cJSON_GetObjectItemCaseSensitive(item,
+                                                           "statistic_id");
+        if (cJSON_IsString(id) && id->valuestring &&
+            strcmp(id->valuestring, s_sensor_history.entity_id) == 0) {
+            const cJSON *unit = cJSON_GetObjectItemCaseSensitive(
+                item, "statistics_unit_of_measurement");
+            if (cJSON_IsString(unit) && unit->valuestring) {
+                snprintf(s_sensor_history.statistics_unit,
+                         sizeof(s_sensor_history.statistics_unit),
+                         "%s", unit->valuestring);
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sensor_history_stat_number(const cJSON *row, const char *key,
+                                       double *value)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(row, key);
+    if (!cJSON_IsNumber(item) || !isfinite(item->valuedouble)) {
+        return false;
+    }
+    *value = item->valuedouble;
+    return true;
+}
+
+static bool sensor_history_stat_has_type(const cJSON *row, const char *key)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(row, key);
+    return item != NULL && !cJSON_IsNull(item);
+}
+
+static bool sensor_history_parse_statistics_result(const cJSON *result)
+{
+    if (!cJSON_IsObject(result)) {
+        return false;
+    }
+    const cJSON *rows = cJSON_GetObjectItemCaseSensitive(
+        result, s_sensor_history.entity_id);
+    if (!rows && !result->child) {
+        s_sensor_history.current_state_appended = false;
+        free(s_sensor_history.points);
+        s_sensor_history.points = NULL;
+        s_sensor_history.point_count = 0;
+        s_sensor_history.point_capacity = 0;
+        return true;
+    }
+    if (!cJSON_IsArray(rows)) {
+        return false;
+    }
+    /* Home Assistant decides whether to create a band from the complete
+     * statistics series, not from the fields present in each bucket. */
+    bool series_has_mean = false;
+    bool series_has_min = false;
+    bool series_has_max = false;
+    bool series_has_state = false;
+    const cJSON *row = NULL;
+    cJSON_ArrayForEach(row, rows) {
+        series_has_mean |= sensor_history_stat_has_type(row, "mean");
+        series_has_min |= sensor_history_stat_has_type(row, "min");
+        series_has_max |= sensor_history_stat_has_type(row, "max");
+        series_has_state |= sensor_history_stat_has_type(row, "state");
+    }
+    const bool draw_band =
+        (series_has_mean + series_has_min + series_has_max) > 1;
+    const size_t row_count = (size_t)cJSON_GetArraySize(rows);
+    if (row_count > SIZE_MAX / sizeof(sensor_history_point_t) - 2) {
+        return false;
+    }
+    const size_t capacity = row_count + 2;
+    sensor_history_point_t *points = calloc(capacity, sizeof(*points));
+    if (!points) {
+        return false;
+    }
+    size_t count = 0;
+    cJSON_ArrayForEach(row, rows) {
+        double start_ms, end_ms, mean = 0.0, minimum = 0.0;
+        double maximum = 0.0, state = 0.0;
+        if (!sensor_history_stat_number(row, "start", &start_ms) ||
+            !sensor_history_stat_number(row, "end", &end_ms) ||
+            start_ms < 0 || end_ms <= start_ms) {
+            continue;
+        }
+        const time_t start = (time_t)(start_ms / 1000.0);
+        const time_t end = (time_t)(end_ms / 1000.0);
+        if (end <= s_sensor_history.start_time ||
+            start >= s_sensor_history.end_time) {
+            continue;
+        }
+        const bool has_mean = sensor_history_stat_number(row, "mean", &mean);
+        const bool has_min = sensor_history_stat_number(row, "min", &minimum);
+        const bool has_max = sensor_history_stat_number(row, "max", &maximum);
+        const bool has_state = sensor_history_stat_number(row, "state", &state);
+        if (!has_mean && !has_min && !has_max && !has_state) {
+            continue;
+        }
+        const time_t clipped_start = LV_MAX(start, s_sensor_history.start_time);
+        const time_t clipped_end = LV_MIN(end, s_sensor_history.end_time);
+        if (clipped_end <= clipped_start ||
+            (count && clipped_start <= points[count - 1].epoch)) {
+            continue;
+        }
+        sensor_history_point_t *point = &points[count++];
+        point->epoch = clipped_start;
+        point->end_epoch = clipped_end;
+        point->run_id = count > 1
+            ? points[count - 2].run_id +
+                  (points[count - 2].end_epoch != clipped_start)
+            : 0;
+        point->value = has_mean ? mean : has_state ? state :
+                       has_min && has_max ? (minimum + maximum) / 2.0 :
+                       has_min ? minimum : maximum;
+        point->stat_state = state;
+        point->stat_min = minimum;
+        point->stat_mean = mean;
+        point->stat_max = maximum;
+        point->has_stat_state = has_state;
+        point->has_stat_min = has_min;
+        point->has_stat_mean = has_mean;
+        point->has_stat_max = has_max;
+        point->has_band = draw_band;
+        point->has_line = has_mean || has_state || !(has_min && has_max);
+        if (draw_band) {
+            /* The frontend selects the band series globally and uses zero
+             * for an absent value in its per-bucket stacked difference. */
+            point->lower = series_has_min ? (has_min ? minimum : 0.0)
+                                           : (has_mean ? mean : 0.0);
+            const double top = series_has_max ? (has_max ? maximum : 0.0)
+                                              : (has_mean ? mean : 0.0);
+            point->upper = point->lower + fabs(top - point->lower);
+        }
+    }
+    s_sensor_history.current_state_appended = false;
+    if (count > 0 &&
+        (!s_sensor_history.statistics_unit[0] || !s_sensor_history.unit[0] ||
+         strcmp(s_sensor_history.statistics_unit, s_sensor_history.unit) == 0)) {
+        const time_t now = time(NULL);
+        double current = 0.0;
+        sensor_history_point_t *last = &points[count - 1];
+        if (now > last->end_epoch && now - last->epoch <= 600 &&
+            sensor_parse_numeric_state(s_sensor_history.observed_state,
+                                       &current)) {
+            sensor_history_point_t *bridge = &points[count++];
+            *bridge = *last;
+            bridge->epoch = last->end_epoch;
+            bridge->end_epoch = now;
+            sensor_history_point_t *live = &points[count++];
+            *live = *last;
+            live->epoch = now;
+            live->end_epoch = now;
+            live->value = current;
+            live->lower = current;
+            live->upper = current;
+            live->stat_state = current;
+            live->stat_min = current;
+            live->stat_mean = current;
+            live->stat_max = current;
+            live->has_stat_state = series_has_state;
+            live->has_stat_min = series_has_min;
+            live->has_stat_mean = series_has_mean;
+            live->has_stat_max = series_has_max;
+            s_sensor_history.end_time = now;
+            s_sensor_history.current_state_appended = true;
+        }
+    }
+    free(s_sensor_history.points);
+    s_sensor_history.points = points;
+    s_sensor_history.point_count = count;
+    s_sensor_history.point_capacity = capacity;
+    return true;
+}
+
+static esp_err_t sensor_history_send_request(int *request_id)
+{
+    switch (s_sensor_history.request_kind) {
+    case SENSOR_HISTORY_REQUEST_METADATA:
+        return app_ha_get_entity_statistics_metadata(
+            s_sensor_history.entity_id, sensor_history_result_cb,
+            &s_sensor_history, request_id);
+    case SENSOR_HISTORY_REQUEST_STATISTICS:
+        return app_ha_get_entity_statistics(
+            s_sensor_history.entity_id, s_sensor_history.start_time,
+            sensor_history_result_cb, &s_sensor_history, request_id);
+    default:
+        if (s_sensor_history.is_list_history) {
+            return app_ha_get_entity_history(
+                s_sensor_history.entity_id, s_sensor_history.start_time,
+                s_sensor_history.end_time, sensor_history_result_cb,
+                &s_sensor_history, request_id);
+        }
+        return app_ha_subscribe_entity_history(
+            s_sensor_history.entity_id, SENSOR_HISTORY_HOURS,
+            sensor_history_stream_cb, &s_sensor_history,
+            &s_sensor_history.stream, request_id);
+    }
 }
 
 static bool sensor_history_reserve(size_t required_capacity)
@@ -552,6 +807,14 @@ static void sensor_history_prune(time_t now_epoch)
         return;
     }
 
+    /* Carry the last known value to the new left edge as the window moves. */
+    if (first_visible == s_sensor_history.point_count ||
+        s_sensor_history.points[first_visible].epoch >
+            s_sensor_history.start_time) {
+        first_visible--;
+        s_sensor_history.points[first_visible].epoch =
+            s_sensor_history.start_time;
+    }
     const size_t remaining = s_sensor_history.point_count - first_visible;
     if (remaining > 0) {
         memmove(s_sensor_history.points,
@@ -596,6 +859,37 @@ static void sensor_history_observe_state(
         return;
     }
 
+    /* Recorder statistics already summarize the window. A current state is
+     * added only after a fresh statistics result, not as raw history points. */
+    if (s_sensor_history.statistics_mode) {
+        if (s_sensor_history.loaded &&
+            s_sensor_history.current_state_appended &&
+            s_sensor_history.point_count >= 2) {
+            double current = 0.0;
+            const time_t now = time(NULL);
+            if (now > 0 &&
+                sensor_parse_numeric_state(snapshot->state, &current)) {
+                sensor_history_point_t *bridge =
+                    &s_sensor_history.points[s_sensor_history.point_count - 2];
+                sensor_history_point_t *live =
+                    &s_sensor_history.points[s_sensor_history.point_count - 1];
+                bridge->end_epoch = now;
+                live->epoch = now;
+                live->end_epoch = now;
+                live->value = current;
+                live->lower = current;
+                live->upper = current;
+                live->stat_state = current;
+                live->stat_min = current;
+                live->stat_mean = current;
+                live->stat_max = current;
+                s_sensor_history.end_time = now;
+            }
+        }
+        return;
+    }
+    /* The chart receives live state changes from history/stream. */
+    if (s_sensor_history.stream) return;
     double value = 0.0;
     const time_t now_epoch = time(NULL);
     if (s_sensor_history.failed || now_epoch <= 0 ||
@@ -618,6 +912,10 @@ static void sensor_history_observe_state(
 
 static void sensor_history_reset(void)
 {
+    app_ha_unsubscribe_entity_history(s_sensor_history.stream);
+    if (s_sensor_history.refresh_timer) {
+        lv_timer_delete(s_sensor_history.refresh_timer);
+    }
     free(s_sensor_history.points);
     memset(&s_sensor_history, 0, sizeof(s_sensor_history));
     s_sensor_history.request_id = -1;
@@ -641,8 +939,11 @@ static void sensor_history_prepare(
 
     const bool is_list_history =
         !sensor_entity_has_chart_history(&context->snapshot);
+    const bool statistics_eligible =
+        !is_list_history && context->snapshot.state_class[0] != '\0';
     const bool history_mode_changed =
-        s_sensor_history.is_list_history != is_list_history;
+        s_sensor_history.is_list_history != is_list_history ||
+        s_sensor_history.statistics_eligible != statistics_eligible;
 
     if (entity_changed || history_mode_changed) {
         /* Keep the existing screen delete callback when switching modes. */
@@ -667,8 +968,16 @@ static void sensor_history_prepare(
                             LV_EVENT_DELETE,
                             NULL);
     }
+    if (!is_list_history && !s_sensor_history.refresh_timer) {
+        s_sensor_history.refresh_timer = lv_timer_create(
+            sensor_history_refresh_timer_cb, 60 * 1000, NULL);
+    }
 
     s_sensor_history.is_list_history = is_list_history;
+    s_sensor_history.statistics_eligible = statistics_eligible;
+    if (entity_changed || history_mode_changed) {
+        s_sensor_history.statistics_mode = statistics_eligible;
+    }
     snprintf(s_sensor_history.device_class,
              sizeof(s_sensor_history.device_class),
              "%s",
@@ -679,9 +988,26 @@ static void sensor_history_prepare(
              context->snapshot.unit_of_measurement);
     sensor_history_observe_state(&context->snapshot);
 
+    if (s_sensor_history.stream &&
+        !ha_history_stream_is_attached(s_sensor_history.stream) &&
+        app_ha_trend_history_connected()) {
+        /* The app replaced its WebSocket client while this page stayed open. */
+        app_ha_unsubscribe_entity_history(s_sensor_history.stream);
+        s_sensor_history.stream = NULL;
+        free(s_sensor_history.points);
+        s_sensor_history.points = NULL;
+        s_sensor_history.point_count = 0;
+        s_sensor_history.point_capacity = 0;
+        s_sensor_history.loaded = false;
+        s_sensor_history.loading = false;
+        s_sensor_history.failed = false;
+        s_sensor_history.request_id = -1;
+    }
+
     const time_t now_epoch = time(NULL);
     if (s_sensor_history.loaded && now_epoch > 0 &&
-        !s_sensor_history.is_list_history) {
+        !s_sensor_history.is_list_history &&
+        !s_sensor_history.statistics_mode) {
         sensor_history_prune(now_epoch);
     }
 
@@ -699,18 +1025,15 @@ static void sensor_history_prepare(
     s_sensor_history.start_time =
         s_sensor_history.is_list_history
             ? end_time - SENSOR_HISTORY_LIST_DAYS * 24 * 60 * 60
-            : end_time - SENSOR_HISTORY_HOURS * 60 * 60;
+            : end_time - (statistics_eligible ? SENSOR_STATISTICS_HOURS
+                                             : SENSOR_HISTORY_HOURS) * 60 * 60;
     s_sensor_history.end_time = end_time;
     s_sensor_history.loading = true;
 
+    s_sensor_history.request_kind = statistics_eligible
+        ? SENSOR_HISTORY_REQUEST_METADATA : SENSOR_HISTORY_REQUEST_RAW;
     int request_id = 0;
-    const esp_err_t err = app_ha_get_entity_history(
-        s_sensor_history.entity_id,
-        s_sensor_history.start_time,
-        s_sensor_history.end_time,
-        sensor_history_result_cb,
-        &s_sensor_history,
-        &request_id);
+    const esp_err_t err = sensor_history_send_request(&request_id);
     if (err != ESP_OK) {
         s_sensor_history.loading = false;
         s_sensor_history.failed = true;
@@ -721,6 +1044,90 @@ static void sensor_history_prepare(
         return;
     }
     s_sensor_history.request_id = request_id;
+}
+
+static void sensor_history_refresh_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (!s_sensor_history.screen || s_sensor_history.is_list_history ||
+        !s_sensor_history.loaded || s_sensor_history.loading) {
+        return;
+    }
+    const time_t now = time(NULL);
+    if (now <= 0) return;
+    if (!s_sensor_history.statistics_mode) {
+        /* Raw history is updated by state changes; redraw once a minute so
+         * its time axis continues to follow now even without new states. */
+        sensor_history_prune(now);
+        ha_entity_store_t *store = app_get_ha_entity_store();
+        if (store) {
+            more_info_screen_refresh_entity(store, s_sensor_history.entity_id);
+        }
+        return;
+    }
+    s_sensor_history.start_time = now - SENSOR_STATISTICS_HOURS * 60 * 60;
+    s_sensor_history.end_time = now;
+    s_sensor_history.request_kind = SENSOR_HISTORY_REQUEST_STATISTICS;
+    s_sensor_history.loading = true;
+    int request_id = 0;
+    esp_err_t err = sensor_history_send_request(&request_id);
+    if (err == ESP_OK) {
+        s_sensor_history.request_id = request_id;
+    } else {
+        s_sensor_history.loading = false;
+        ESP_LOGW(TAG, "Failed to refresh sensor statistics for %s: %s",
+                 s_sensor_history.entity_id, esp_err_to_name(err));
+    }
+}
+
+static void sensor_history_stream_cb(int subscription_id, esp_err_t err,
+                                     const cJSON *states, bool reset,
+                                     void *user_ctx)
+{
+    sensor_history_cache_t *history = user_ctx;
+    if (history != &s_sensor_history ||
+        subscription_id != history->request_id) return;
+    if (reset) {
+        free(history->points);
+        history->points = NULL;
+        history->point_count = 0;
+        history->point_capacity = 0;
+        history->record_count = 0;
+        history->loaded = false;
+        history->failed = false;
+        history->loading = true;
+        history->stream_fallback = false;
+        return;
+    }
+    if (err == ESP_OK && cJSON_IsObject(states) &&
+        history->request_kind == SENSOR_HISTORY_REQUEST_RAW) {
+        const time_t now = time(NULL);
+        if (now > 0) {
+            history->end_time = now;
+            history->start_time = now - SENSOR_HISTORY_HOURS * 60 * 60;
+        }
+        const cJSON *rows = cJSON_GetObjectItemCaseSensitive(
+            states, history->entity_id);
+        if (history->stream_fallback && cJSON_IsArray(rows) &&
+            cJSON_GetArraySize(rows) > 0) {
+            history->point_count = 0;
+            history->stream_fallback = false;
+        }
+        if (!history->is_list_history && history->point_count == 0 &&
+            (!cJSON_IsArray(rows) || cJSON_GetArraySize(rows) == 0)) {
+            double value = 0.0;
+            if (now > 0 && sensor_parse_numeric_state(
+                    history->observed_state, &value) &&
+                sensor_history_reserve(1)) {
+                history->points[0] = (sensor_history_point_t){
+                    .epoch = now, .value = value,
+                };
+                history->point_count = 1;
+                history->stream_fallback = true;
+            }
+        }
+    }
+    sensor_history_result_cb(subscription_id, err, states, NULL, user_ctx);
 }
 
 static void sensor_history_result_cb(int request_id,
@@ -740,13 +1147,44 @@ static void sensor_history_result_cb(int request_id,
         return;
     }
 
+    if (history->request_kind == SENSOR_HISTORY_REQUEST_METADATA) {
+        const bool has_metadata = err == ESP_OK &&
+            cJSON_IsArray(result) && sensor_history_metadata_matches(result);
+        history->request_kind = has_metadata
+            ? SENSOR_HISTORY_REQUEST_STATISTICS : SENSOR_HISTORY_REQUEST_RAW;
+        history->statistics_mode = has_metadata;
+        if (!has_metadata) {
+            history->start_time = history->end_time -
+                                  SENSOR_HISTORY_HOURS * 60 * 60;
+        }
+        int next_id = 0;
+        esp_err_t next_err = sensor_history_send_request(&next_id);
+        if (next_err == ESP_OK) {
+            history->request_id = next_id;
+            lvgl_port_unlock();
+            return;
+        }
+        err = next_err;
+    }
+
+    const bool was_loaded = history->loaded;
     history->loading = false;
-    history->loaded =
-        err == ESP_OK && (history->is_list_history
-                              ? sensor_history_parse_list_result(result)
-                              : sensor_history_parse_result(result));
+    history->loaded = err == ESP_OK &&
+        (history->request_kind == SENSOR_HISTORY_REQUEST_STATISTICS
+             ? sensor_history_parse_statistics_result(result)
+             : history->request_kind == SENSOR_HISTORY_REQUEST_RAW
+                 ? (history->is_list_history
+                        ? sensor_history_parse_list_result(result)
+                        : sensor_history_parse_result(result))
+                 : false);
+    if (!history->loaded && was_loaded &&
+        history->request_kind == SENSOR_HISTORY_REQUEST_STATISTICS) {
+        /* A failed refresh leaves the previous chart visible. The timer will
+         * retry on its next interval, avoiding UI-refresh retry loops. */
+        history->loaded = true;
+    }
     history->failed = !history->loaded;
-    if (history->failed) {
+    if (err != ESP_OK || history->failed) {
         ESP_LOGW(TAG,
                  "Failed to load sensor history for %s: %s",
                  history->entity_id,
@@ -815,13 +1253,32 @@ static void sensor_history_render(lv_obj_t *parent)
         message = i18n_get(I18N_HISTORY_EMPTY);
     }
 
+    /* Keep the request window separate from the visible time axis. Start at
+     * the first plotted sample; statistics end at the last plotted timestamp,
+     * while raw history keeps the right edge at now. */
+    time_t chart_start = s_sensor_history.start_time;
+    time_t chart_end = s_sensor_history.end_time;
+    if (s_sensor_history.point_count > 0) {
+        chart_start = s_sensor_history.points[0].epoch;
+        const time_t last_epoch =
+            s_sensor_history.points[s_sensor_history.point_count - 1].epoch;
+        if (s_sensor_history.statistics_mode) {
+            chart_end = last_epoch;
+        } else {
+            chart_end = LV_MAX(chart_end, last_epoch);
+        }
+        if (chart_end <= chart_start) {
+            chart_end = chart_start + 1;
+        }
+    }
     const ha_history_chart_config_t config = {
         .title = i18n_get(I18N_HISTORY_TITLE),
         .unit = s_sensor_history.unit,
         .points = s_sensor_history.points,
         .point_count = s_sensor_history.point_count,
-        .start_time = s_sensor_history.start_time,
-        .end_time = s_sensor_history.end_time,
+        .statistics = s_sensor_history.statistics_mode,
+        .start_time = chart_start,
+        .end_time = chart_end,
         .message = message,
     };
     if (!ha_history_chart_create(parent, &config)) {
@@ -867,7 +1324,9 @@ static const char *sensor_get_icon(const ha_entity_snapshot_t *snapshot)
 uint32_t sensor_entity_icon_color(const ha_entity_snapshot_t *snapshot)
 {
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
-        return 0x6F6F6F;
+        return screen_theme_get() == SCREEN_THEME_LIGHT
+                   ? SENSOR_TILE_ICON_UNAVAILABLE_LIGHT
+                   : SENSOR_TILE_ICON_UNAVAILABLE_DARK;
     }
 
     if (strcmp(snapshot->device_class, "battery") == 0) {
@@ -889,84 +1348,14 @@ uint32_t sensor_entity_icon_color(const ha_entity_snapshot_t *snapshot)
 static const char *sensor_display_numeric_state(const ha_entity_snapshot_t *snapshot,
                                                 char *buffer, size_t buffer_size)
 {
-    double value = 0;
-    if (!sensor_parse_numeric_state(snapshot->state, &value)) {
-        return snapshot->state;
-    }
+    i18n_number_options_t options = I18N_NUMBER_OPTIONS_PRESERVE;
     if (snapshot->has_display_precision) {
-        int length = snprintf(buffer, buffer_size, "%.*f",
-                              snapshot->display_precision, value);
-        return length >= 0 && (size_t)length < buffer_size
-                   ? buffer : snapshot->state;
+        options.fraction_mode = I18N_NUMBER_FRACTION_FIXED;
+        options.fraction_digits = snapshot->display_precision;
     }
-
-    /* Preserve the digits sent by HA when its state uses scientific notation. */
-    const char *exponent = strchr(snapshot->state, 'e');
-    if (!exponent) {
-        exponent = strchr(snapshot->state, 'E');
-    }
-    if (!exponent) {
-        return snapshot->state;
-    }
-    char *end = NULL;
-    long power = strtol(exponent + 1, &end, 10);
-    if (!end || *end != '\0' || power < -1000 || power > 1000) {
-        return snapshot->state;
-    }
-    const char *mantissa = snapshot->state;
-    const bool negative = *mantissa == '-';
-    if (*mantissa == '-' || *mantissa == '+') {
-        mantissa++;
-    }
-    char digits[HA_ENTITY_STORE_STATE_MAX];
-    size_t digit_count = 0;
-    int decimal_at = -1;
-    for (const char *p = mantissa; p < exponent; p++) {
-        if (*p == '.') {
-            decimal_at = (int)digit_count;
-        } else if (digit_count + 1 < sizeof(digits)) {
-            digits[digit_count++] = *p;
-        } else {
-            return snapshot->state;
-        }
-    }
-    if (decimal_at < 0) {
-        decimal_at = (int)digit_count;
-    }
-    long point = decimal_at + power;
-    size_t length = (negative ? 1 : 0) +
-                    (point <= 0 ? 2 + (size_t)-point + digit_count :
-                     point >= (long)digit_count ? (size_t)point : digit_count + 1);
-    if (length >= buffer_size) {
-        return snapshot->state;
-    }
-    char *out = buffer;
-    if (negative) {
-        *out++ = '-';
-    }
-    if (point <= 0) {
-        *out++ = '0';
-        *out++ = '.';
-        for (long i = 0; i < -point; i++) {
-            *out++ = '0';
-        }
-        memcpy(out, digits, digit_count);
-        out += digit_count;
-    } else if (point >= (long)digit_count) {
-        memcpy(out, digits, digit_count);
-        out += digit_count;
-        for (long i = (long)digit_count; i < point; i++) {
-            *out++ = '0';
-        }
-    } else {
-        memcpy(out, digits, (size_t)point);
-        out += point;
-        *out++ = '.';
-        memcpy(out, digits + point, digit_count - (size_t)point);
-        out += digit_count - (size_t)point;
-    }
-    *out = '\0';
-    return buffer;
+    return i18n_format_number(buffer, buffer_size, snapshot->state, &options)
+               ? buffer
+               : snapshot->state;
 }
 
 static void sensor_format_state(const ha_entity_snapshot_t *snapshot,
@@ -991,19 +1380,20 @@ static void sensor_format_state(const ha_entity_snapshot_t *snapshot,
             strcmp(snapshot->unit_of_measurement, "°") == 0
                 ? ""
                 : " ";
-        snprintf(output,
-                 output_size,
-                 "%s%s%s",
-                 display_state,
-                 separator,
-                 snapshot->unit_of_measurement);
+        const i18n_arg_t args[] = {
+            {"value", display_state},
+            {"separator", separator},
+            {"unit", snapshot->unit_of_measurement},
+        };
+        i18n_format(output, output_size,
+                    "{value}{separator}{unit}", args, 3);
         return;
     }
 
     if (display_state == snapshot->state) {
         entity_handler_copy_snapshot_state(output, output_size, snapshot);
     } else {
-        snprintf(output, output_size, "%s", display_state);
+        i18n_copy(output, output_size, display_state);
     }
 }
 
@@ -1140,10 +1530,10 @@ static esp_err_t sensor_render_tile(ha_entity_store_t *store,
     model->icon = sensor_get_icon(snapshot);
     model->background_color = lv_color_hex(0x1E2228);
     model->icon_color = lv_color_hex(sensor_entity_icon_color(snapshot));
-    model->icon_circle_background_color = lv_color_hex(0x242d36);
-    model->icon_circle_background_color_light = lv_color_hex(0xBFCBD9);
+    model->icon_circle_background_color = model->icon_color;
+    model->icon_circle_background_color_light = model->icon_color;
     model->title_color = lv_color_hex(0xFFFFFF);
-    model->state_color = lv_color_hex(0x666666);
+    model->icon_circle_background_opa = LV_OPA_20;
 
     if (entity_handler_snapshot_is_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
@@ -1297,6 +1687,11 @@ static esp_err_t sensor_render_more_info(
                         lv_font_get_line_height(ha_ui_font_regular(16)));
         lv_label_set_long_mode(tile_content_cur_state, LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_align(tile_content_cur_state, LV_TEXT_ALIGN_RIGHT, 0);
+    } else {
+        lv_obj_set_size(tile_content_cur_state,
+                        LV_PCT(100),
+                        lv_font_get_line_height(ha_ui_font_regular(16)));
+        lv_label_set_long_mode(tile_content_cur_state, LV_LABEL_LONG_DOT);
     }
     lv_obj_t *tile_content_state = lv_label_create(left_col);
     char state_text[ENTITY_DISPLAY_STATE_TEXT_MAX] = {0};

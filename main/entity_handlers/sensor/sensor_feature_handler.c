@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -11,40 +12,51 @@
 #include "common/hui_trend_graph/hui_trend_graph.h"
 #include "entity_handlers/ha_datetime_format.h"
 #include "esp_log.h"
-#include "esp_lvgl_port.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "ha_ws.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "sensor_entity_handler.h"
 
 #define SENSOR_TREND_DEFAULT_HOURS 24
 #define SENSOR_TREND_REQUEST_RETRY_SECONDS 60
-#define SENSOR_TREND_BUCKETS 46
+#define SENSOR_TREND_RETRY_POLL_MS 5000
+#define SENSOR_TREND_RENDER_DELAY_MS 200
+#define SENSOR_TREND_MIN_VALID_EPOCH 1577836800 /* 2020-01-01 UTC */
 
 static const char *TAG = "sensor_feature_handler";
 
-typedef struct sensor_trend_request sensor_trend_request_t;
-
 typedef struct {
     lv_obj_t *graph;
+    lv_timer_t *retry_timer;
+    lv_timer_t *render_timer;
     char entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
-    hui_trend_graph_point_t points[HUI_TREND_GRAPH_MAX_POINTS];
+    hui_trend_graph_point_t *points;
     size_t count;
+    size_t capacity;
+    hui_trend_graph_point_t *sampled;
+    SemaphoreHandle_t incoming_lock;
+    hui_trend_graph_point_t *incoming;
+    size_t incoming_count;
+    size_t incoming_capacity;
     time_t last_epoch;
     double last_value;
-    time_t last_attempt;
+    int64_t last_attempt_us;
+    int64_t last_render_us;
+    time_t last_render_minute;
+    int32_t last_graph_width;
     int hours;
+    bool detail;
     bool last_value_valid;
     bool loaded;
-    sensor_trend_request_t *request;
+    bool subscribed;
+    bool stream_failed;
+    bool incoming_reset;
+    bool incoming_event;
+    bool incoming_overflow;
+    bool fallback_dirty;
 } sensor_trend_state_t;
-
-struct sensor_trend_request {
-    sensor_trend_state_t *state; /* Cleared before the Feature host is deleted. */
-    char entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
-    hui_trend_graph_point_t points[HUI_TREND_GRAPH_MAX_POINTS];
-    size_t count;
-    time_t start_time;
-    time_t end_time;
-    int request_id;
-};
 
 static bool parse_number(const char *text, double *value)
 {
@@ -90,128 +102,206 @@ static bool parse_history_point(const cJSON *item,
     return point->epoch > 0;
 }
 
-typedef struct {
-    bool used;
-    hui_trend_graph_point_t minimum;
-    hui_trend_graph_point_t maximum;
-    size_t minimum_order;
-    size_t maximum_order;
-} sensor_trend_bucket_t;
-
-static void append_unique(sensor_trend_request_t *request,
-                          hui_trend_graph_point_t point)
+static bool append_incoming_point(sensor_trend_state_t *state,
+                                  hui_trend_graph_point_t point)
 {
-    if (request->count &&
-        request->points[request->count - 1].epoch == point.epoch &&
-        request->points[request->count - 1].value == point.value) {
-        return;
+    if (state->incoming_count == state->incoming_capacity) {
+        size_t capacity = state->incoming_capacity > 16
+            ? state->incoming_capacity * 2 : 32;
+        if (capacity < state->incoming_capacity ||
+            capacity > SIZE_MAX / sizeof(*state->incoming)) return false;
+        hui_trend_graph_point_t *points = heap_caps_realloc(
+            state->incoming, capacity * sizeof(*points),
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!points) return false;
+        state->incoming = points;
+        state->incoming_capacity = capacity;
     }
-    if (request->count < HUI_TREND_GRAPH_MAX_POINTS - 1) {
-        request->points[request->count++] = point;
-    }
-}
-
-static bool parse_history(sensor_trend_request_t *request, const cJSON *result)
-{
-    if (!cJSON_IsObject(result)) {
-        return false;
-    }
-    const cJSON *states = cJSON_GetObjectItemCaseSensitive(result,
-                                                            request->entity_id);
-    if (!states && !result->child) {
-        return true;
-    }
-    if (!cJSON_IsArray(states)) {
-        return false;
-    }
-    sensor_trend_bucket_t buckets[SENSOR_TREND_BUCKETS] = {0};
-    hui_trend_graph_point_t first = {0};
-    hui_trend_graph_point_t last = {0};
-    size_t valid_count = 0;
-    const cJSON *item = NULL;
-    cJSON_ArrayForEach(item, states) {
-        hui_trend_graph_point_t point;
-        if (parse_history_point(item, &point) &&
-            point.epoch >= request->start_time &&
-            point.epoch <= request->end_time) {
-            if (!valid_count) {
-                first = point;
-            }
-            if (valid_count < SENSOR_TREND_BUCKETS) {
-                request->points[valid_count] = point;
-            }
-            last = point;
-            size_t bucket_index = (size_t)(
-                ((int64_t)(point.epoch - request->start_time) *
-                 SENSOR_TREND_BUCKETS) /
-                (request->end_time - request->start_time));
-            if (bucket_index >= SENSOR_TREND_BUCKETS) {
-                bucket_index = SENSOR_TREND_BUCKETS - 1;
-            }
-            sensor_trend_bucket_t *bucket = &buckets[bucket_index];
-            if (!bucket->used) {
-                bucket->used = true;
-                bucket->minimum = point;
-                bucket->maximum = point;
-                bucket->minimum_order = valid_count;
-                bucket->maximum_order = valid_count;
-            } else {
-                if (point.value < bucket->minimum.value) {
-                    bucket->minimum = point;
-                    bucket->minimum_order = valid_count;
-                }
-                if (point.value > bucket->maximum.value) {
-                    bucket->maximum = point;
-                    bucket->maximum_order = valid_count;
-                }
-            }
-            valid_count++;
-        }
-    }
-    if (!valid_count) {
-        return true;
-    }
-    /* Home Assistant keeps the original states when they already fit within
-     * the detail budget. Extremum buckets would discard intermediate changes
-     * even for a short history such as 20 -> 50 -> 70 -> 80 -> 23. */
-    if (valid_count <= SENSOR_TREND_BUCKETS) {
-        request->count = valid_count;
-        return true;
-    }
-    append_unique(request, first);
-    for (size_t i = 0; i < SENSOR_TREND_BUCKETS; i++) {
-        const sensor_trend_bucket_t *bucket = &buckets[i];
-        if (!bucket->used) {
-            continue;
-        }
-        if (bucket->minimum_order <= bucket->maximum_order) {
-            append_unique(request, bucket->minimum);
-            append_unique(request, bucket->maximum);
-        } else {
-            append_unique(request, bucket->maximum);
-            append_unique(request, bucket->minimum);
-        }
-    }
-    append_unique(request, last);
+    state->incoming[state->incoming_count++] = point;
     return true;
 }
 
-static void append_live_point(sensor_trend_state_t *state,
-                              hui_trend_graph_point_t point)
+static void trend_stream_result_cb(ha_ws_client_t *client, int id,
+                                   esp_err_t err, const cJSON *result,
+                                   const cJSON *error, void *user_ctx)
 {
-    if (state->count) {
-        const hui_trend_graph_point_t *last = &state->points[state->count - 1];
-        if (point.epoch < last->epoch ||
-            (point.epoch == last->epoch && point.value == last->value)) {
-            return;
+    (void)id; (void)result; (void)error;
+    sensor_trend_state_t *state = user_ctx;
+    xSemaphoreTake(state->incoming_lock, portMAX_DELAY);
+    if (err == ESP_OK) {
+        state->incoming_count = 0;
+        state->incoming_reset = true;
+        state->incoming_event = false;
+        state->incoming_overflow = false;
+        state->stream_failed = false;
+    } else {
+        state->stream_failed = ha_ws_is_authenticated(client);
+    }
+    xSemaphoreGive(state->incoming_lock);
+}
+
+static void trend_stream_event_cb(ha_ws_client_t *client, int id,
+                                  const cJSON *event, void *user_ctx)
+{
+    (void)client; (void)id;
+    sensor_trend_state_t *state = user_ctx;
+    const cJSON *states = cJSON_GetObjectItemCaseSensitive(event, "states");
+    if (!cJSON_IsObject(states)) return;
+    const cJSON *rows = cJSON_GetObjectItemCaseSensitive(
+        states, state->entity_id);
+    if (rows && !cJSON_IsArray(rows)) return;
+    xSemaphoreTake(state->incoming_lock, portMAX_DELAY);
+    if (rows) {
+        const cJSON *item = NULL;
+        cJSON_ArrayForEach(item, rows) {
+            hui_trend_graph_point_t point;
+            if (parse_history_point(item, &point) &&
+                !append_incoming_point(state, point)) {
+                state->incoming_overflow = true;
+                break;
+            }
         }
     }
-    if (state->count == HUI_TREND_GRAPH_MAX_POINTS) {
-        memmove(state->points, state->points + 1,
-                (state->count - 1) * sizeof(state->points[0]));
-        state->count--;
+    state->incoming_event = true;
+    xSemaphoreGive(state->incoming_lock);
+}
+
+static bool append_live_point(sensor_trend_state_t *state,
+                              hui_trend_graph_point_t point)
+{
+    size_t pos = state->count;
+    while (pos > 0 && state->points[pos - 1].epoch > point.epoch) pos--;
+    if ((pos > 0 && state->points[pos - 1].epoch == point.epoch &&
+         state->points[pos - 1].value == point.value) ||
+        (pos < state->count && state->points[pos].epoch == point.epoch &&
+         state->points[pos].value == point.value)) {
+        return true;
     }
-    state->points[state->count++] = point;
+    if (state->count == state->capacity) {
+        size_t capacity = state->capacity > 16 ? state->capacity * 2 : 32;
+        if (capacity < state->capacity ||
+            capacity > SIZE_MAX / sizeof(*state->points)) {
+            return false;
+        }
+        hui_trend_graph_point_t *points = heap_caps_realloc(
+            state->points, capacity * sizeof(*state->points),
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!points) {
+            return false;
+        }
+        state->points = points;
+        state->capacity = capacity;
+    }
+    if (pos < state->count) {
+        memmove(state->points + pos + 1, state->points + pos,
+                (state->count - pos) * sizeof(*state->points));
+    }
+    state->points[pos] = point;
+    state->count++;
+    return true;
+}
+
+static time_t trend_frame_size(time_t desired)
+{
+    static const time_t sizes[] = {
+        1, 2, 3, 5, 10, 15, 20, 30,
+        60, 120, 180, 300, 600, 900, 1200, 1800,
+        3600, 7200, 10800, 14400, 21600, 28800, 43200, 86400,
+    };
+    if (desired >= 86400) {
+        return (desired / 86400) * 86400;
+    }
+    time_t step = 1;
+    for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+        if (sizes[i] > desired) {
+            break;
+        }
+        step = sizes[i];
+    }
+    return step;
+}
+
+static size_t sample_trend_points(sensor_trend_state_t *state,
+                                  time_t start, time_t now)
+{
+    lv_obj_update_layout(state->graph);
+    const int32_t width = lv_obj_get_width(state->graph);
+    size_t details = state->detail
+        ? (size_t)LV_MAX(LV_MAX(10, width / 5), state->hours)
+        : (size_t)LV_MAX(10, state->hours);
+    if (state->count <= details &&
+        state->count <= HUI_TREND_GRAPH_MAX_POINTS) {
+        const size_t count = state->count;
+        if (count) {
+            memcpy(state->sampled, state->points,
+                   count * sizeof(*state->sampled));
+        }
+        return count;
+    }
+    const time_t span = now - start;
+    const time_t desired = (span + (time_t)details - 1) / (time_t)details;
+    time_t step = trend_frame_size(LV_MAX(1, desired));
+    for (;;) {
+        size_t output = 0;
+        bool overflow = false;
+        for (size_t first = 0; first < state->count;) {
+            const int64_t frame = (int64_t)state->points[first].epoch / step;
+            size_t end = first + 1;
+            while (end < state->count &&
+                   (int64_t)state->points[end].epoch / step == frame) {
+                end++;
+            }
+            if (state->detail) {
+                size_t min_i = first;
+                size_t max_i = first;
+                for (size_t i = first + 1; i < end; i++) {
+                    if (state->points[i].value < state->points[min_i].value) {
+                        min_i = i;
+                    }
+                    if (state->points[i].value > state->points[max_i].value) {
+                        max_i = i;
+                    }
+                }
+                if (output + (min_i == max_i ? 1 : 2) >
+                    HUI_TREND_GRAPH_MAX_POINTS) {
+                    overflow = true;
+                    break;
+                }
+                if (min_i < max_i) {
+                    state->sampled[output++] = state->points[min_i];
+                    state->sampled[output++] = state->points[max_i];
+                } else if (max_i < min_i) {
+                    state->sampled[output++] = state->points[max_i];
+                    state->sampled[output++] = state->points[min_i];
+                } else {
+                    state->sampled[output++] = state->points[min_i];
+                }
+            } else {
+                if (output == HUI_TREND_GRAPH_MAX_POINTS) {
+                    overflow = true;
+                    break;
+                }
+                double sum_time = 0.0;
+                double sum_value = 0.0;
+                for (size_t i = first; i < end; i++) {
+                    sum_time += (double)state->points[i].epoch;
+                    sum_value += state->points[i].value;
+                }
+                state->sampled[output++] = (hui_trend_graph_point_t){
+                    .epoch = (time_t)llround(sum_time / (end - first)),
+                    .value = sum_value / (end - first),
+                };
+            }
+            first = end;
+        }
+        if (!overflow) {
+            return output;
+        }
+        if (step > span) {
+            return 0;
+        }
+        step *= 2;
+    }
 }
 
 static void render_graph(sensor_trend_state_t *state, bool animate)
@@ -224,11 +314,17 @@ static void render_graph(sensor_trend_state_t *state, bool animate)
         return;
     }
     const time_t start = now - state->hours * 60 * 60;
+    state->last_render_us = esp_timer_get_time();
     size_t first = 0;
     while (first < state->count && state->points[first].epoch < start) {
         first++;
     }
     if (first) {
+        /* Keep the value active at the moving window boundary. */
+        if (first == state->count || state->points[first].epoch > start) {
+            first--;
+            state->points[first].epoch = start;
+        }
         state->count -= first;
         memmove(state->points, state->points + first,
                 state->count * sizeof(state->points[0]));
@@ -242,81 +338,115 @@ static void render_graph(sensor_trend_state_t *state, bool animate)
         };
         hui_trend_graph_set_points(state->graph, &current, 1, start, now,
                                    animate);
+        state->last_graph_width = lv_obj_get_width(state->graph);
+        state->last_render_minute = now / 60;
         return;
     }
-    hui_trend_graph_set_points(state->graph, state->points, state->count,
+    const size_t count = sample_trend_points(state, start, now);
+    hui_trend_graph_set_points(state->graph, state->sampled, count,
                                start, now, animate);
+    state->last_graph_width = lv_obj_get_width(state->graph);
+    state->last_render_minute = now / 60;
 }
 
-static void history_result_cb(int request_id, esp_err_t err,
-                              const cJSON *result, const cJSON *error,
-                              void *user_ctx)
+static bool consume_stream_points(sensor_trend_state_t *state)
 {
-    (void)request_id;
-    (void)error;
-    sensor_trend_request_t *request = user_ctx;
-    if (!request) {
-        return;
+    xSemaphoreTake(state->incoming_lock, portMAX_DELAY);
+    const bool reset = state->incoming_reset;
+    const bool event = state->incoming_event;
+    const bool overflow = state->incoming_overflow;
+    hui_trend_graph_point_t *incoming = state->incoming;
+    const size_t count = state->incoming_count;
+    state->incoming = NULL;
+    state->incoming_count = 0;
+    state->incoming_capacity = 0;
+    state->incoming_reset = false;
+    state->incoming_event = false;
+    state->incoming_overflow = false;
+    xSemaphoreGive(state->incoming_lock);
+    if (reset) {
+        heap_caps_free(state->points);
+        state->points = NULL;
+        state->count = 0;
+        state->capacity = 0;
+        state->loaded = false;
     }
-    const bool valid = err == ESP_OK && parse_history(request, result);
-    lvgl_port_lock(0);
-    sensor_trend_state_t *state = request->state;
-    if (state && state->request == request) {
-        state->request = NULL;
-        state->loaded = valid;
-        if (valid) {
-            state->count = request->count;
-            memcpy(state->points, request->points,
-                   state->count * sizeof(state->points[0]));
-            if (state->last_value_valid) {
-                const hui_trend_graph_point_t live = {
-                    .epoch = state->last_epoch,
-                    .value = state->last_value,
-                };
-                append_live_point(state, live);
-            }
-            render_graph(state, true);
-        } else {
-            ESP_LOGW(TAG, "History request for %s failed: %s",
-                     request->entity_id,
-                     err == ESP_OK ? "invalid response" : esp_err_to_name(err));
+    bool append_failed = false;
+    for (size_t i = 0; i < count; i++) {
+        if (!append_live_point(state, incoming[i])) {
+            append_failed = true;
+            break;
         }
     }
-    lvgl_port_unlock();
-    free(request);
+    heap_caps_free(incoming);
+    const bool first_event = event && !state->loaded;
+    if (event) {
+        state->loaded = true;
+    }
+    if (overflow || append_failed) {
+        xSemaphoreTake(state->incoming_lock, portMAX_DELAY);
+        state->stream_failed = true;
+        xSemaphoreGive(state->incoming_lock);
+    }
+    return reset || first_event || count > 0;
 }
 
-static void request_history(sensor_trend_state_t *state)
+static void subscribe_history(sensor_trend_state_t *state)
 {
-    if (!state || state->loaded || state->request) {
-        return;
-    }
+    if (!state || !app_ha_trend_history_connected()) return;
     const time_t now = time(NULL);
-    if (now <= 0 ||
-        (state->last_attempt &&
-         now - state->last_attempt < SENSOR_TREND_REQUEST_RETRY_SECONDS)) {
-        return;
+    if (now < SENSOR_TREND_MIN_VALID_EPOCH ||
+        now <= (time_t)state->hours * 60 * 60) return;
+    xSemaphoreTake(state->incoming_lock, portMAX_DELAY);
+    const bool failed = state->stream_failed;
+    xSemaphoreGive(state->incoming_lock);
+    if (state->subscribed && !failed) return;
+    const int64_t attempt_us = esp_timer_get_time();
+    if (state->last_attempt_us > 0 &&
+        attempt_us - state->last_attempt_us <
+            (int64_t)SENSOR_TREND_REQUEST_RETRY_SECONDS * 1000000) return;
+    if (state->subscribed) {
+        app_ha_unsubscribe_trend_history(trend_stream_event_cb, state);
+        state->subscribed = false;
     }
-    state->last_attempt = now;
-    sensor_trend_request_t *request = calloc(1, sizeof(*request));
-    if (!request) {
-        return;
-    }
-    request->state = state;
-    request->start_time = now - state->hours * 60 * 60;
-    request->end_time = now;
-    snprintf(request->entity_id, sizeof(request->entity_id), "%s",
-             state->entity_id);
-    state->request = request;
-    const esp_err_t err = app_ha_get_entity_history(
-        state->entity_id, request->start_time, request->end_time,
-        history_result_cb, request, &request->request_id);
+    state->last_attempt_us = attempt_us;
+    const esp_err_t err = app_ha_subscribe_trend_history(
+        state->entity_id, (unsigned)state->hours,
+        trend_stream_event_cb, trend_stream_result_cb, state, NULL);
     if (err != ESP_OK) {
-        state->request = NULL;
-        free(request);
-        ESP_LOGW(TAG, "Cannot request history for %s: %s",
+        ESP_LOGW(TAG, "Cannot subscribe to history for %s: %s",
                  state->entity_id, esp_err_to_name(err));
+    } else {
+        state->subscribed = true;
+        xSemaphoreTake(state->incoming_lock, portMAX_DELAY);
+        state->stream_failed = false;
+        xSemaphoreGive(state->incoming_lock);
     }
+}
+
+static void sensor_trend_retry_timer_cb(lv_timer_t *timer)
+{
+    sensor_trend_state_t *state = lv_timer_get_user_data(timer);
+    const time_t now = time(NULL);
+    if (state && state->loaded && now > 0 &&
+        (state->last_render_minute != now / 60 ||
+         state->last_graph_width != lv_obj_get_width(state->graph))) {
+        render_graph(state, false);
+    }
+    subscribe_history(state);
+}
+
+static void sensor_trend_render_timer_cb(lv_timer_t *timer)
+{
+    sensor_trend_state_t *state = lv_timer_get_user_data(timer);
+    if (!state) return;
+    const bool changed = consume_stream_points(state);
+    if (!changed && !state->fallback_dirty) return;
+    state->fallback_dirty = false;
+    const int64_t now_us = esp_timer_get_time();
+    const bool animate = state->last_render_us == 0 ||
+        now_us - state->last_render_us >= 500000;
+    render_graph(state, animate);
 }
 
 static void feature_delete_cb(lv_event_t *event)
@@ -326,9 +456,19 @@ static void feature_delete_cb(lv_event_t *event)
                       lv_event_get_current_target_obj(event)) {
         return;
     }
-    if (state->request) {
-        state->request->state = NULL;
+    if (state->subscribed) {
+        app_ha_unsubscribe_trend_history(trend_stream_event_cb, state);
     }
+    if (state->retry_timer) {
+        lv_timer_delete(state->retry_timer);
+    }
+    if (state->render_timer) {
+        lv_timer_delete(state->render_timer);
+    }
+    heap_caps_free(state->points);
+    heap_caps_free(state->sampled);
+    heap_caps_free(state->incoming);
+    vSemaphoreDelete(state->incoming_lock);
     lv_obj_set_user_data(lv_event_get_target_obj(event), NULL);
     lv_free(state);
 }
@@ -362,16 +502,69 @@ static esp_err_t sensor_feature_create(entity_feature_instance_t *instance)
         return ESP_ERR_NO_MEM;
     }
     memset(state, 0, sizeof(*state));
+    state->incoming_lock = xSemaphoreCreateMutex();
+    if (!state->incoming_lock) {
+        lv_free(state);
+        return ESP_ERR_NO_MEM;
+    }
     state->hours = SENSOR_TREND_DEFAULT_HOURS;
+    state->detail = true;
     const cJSON *hours = instance->config->data
-        ? cJSON_GetObjectItemCaseSensitive(instance->config->data, "hours") : NULL;
+        ? cJSON_GetObjectItemCaseSensitive(instance->config->data,
+                                           "hours_to_show") : NULL;
+    if (!hours && instance->config->data) {
+        hours = cJSON_GetObjectItemCaseSensitive(instance->config->data,
+                                                  "hours");
+    }
     if (cJSON_IsNumber(hours) && hours->valueint >= 1 && hours->valueint <= 168) {
         state->hours = hours->valueint;
+    }
+    const cJSON *detail = instance->config->data
+        ? cJSON_GetObjectItemCaseSensitive(instance->config->data, "detail") : NULL;
+    if (cJSON_IsBool(detail)) {
+        state->detail = cJSON_IsTrue(detail);
+    }
+    state->sampled = heap_caps_malloc(
+        HUI_TREND_GRAPH_MAX_POINTS * sizeof(*state->sampled),
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!state->sampled) {
+        vSemaphoreDelete(state->incoming_lock);
+        lv_free(state);
+        return ESP_ERR_NO_MEM;
     }
     snprintf(state->entity_id, sizeof(state->entity_id), "%s",
              instance->entity_id);
     state->graph = hui_trend_graph_create(instance->host);
     if (!state->graph) {
+        heap_caps_free(state->sampled);
+        vSemaphoreDelete(state->incoming_lock);
+        lv_free(state);
+        return ESP_ERR_NO_MEM;
+    }
+    /* Poll for clock readiness and retry failed requests even when the sensor
+     * state does not change. Spread timers by entity to avoid a request burst. */
+    uint32_t phase = 0;
+    for (const char *p = state->entity_id; *p; p++) {
+        phase = phase * 33U + (uint8_t)*p;
+    }
+    state->retry_timer = lv_timer_create(
+        sensor_trend_retry_timer_cb,
+        SENSOR_TREND_RETRY_POLL_MS + phase % SENSOR_TREND_RETRY_POLL_MS,
+        state);
+    if (!state->retry_timer) {
+        lv_obj_delete(state->graph);
+        heap_caps_free(state->sampled);
+        vSemaphoreDelete(state->incoming_lock);
+        lv_free(state);
+        return ESP_ERR_NO_MEM;
+    }
+    state->render_timer = lv_timer_create(sensor_trend_render_timer_cb,
+                                          SENSOR_TREND_RENDER_DELAY_MS, state);
+    if (!state->render_timer) {
+        lv_timer_delete(state->retry_timer);
+        lv_obj_delete(state->graph);
+        heap_caps_free(state->sampled);
+        vSemaphoreDelete(state->incoming_lock);
         lv_free(state);
         return ESP_ERR_NO_MEM;
     }
@@ -403,7 +596,7 @@ static void sensor_feature_update(entity_feature_instance_t *instance,
         parse_number(snapshot->state, &value);
     if (!current_available && state->last_value_valid) {
         state->last_value_valid = false;
-        render_graph(state, true);
+        state->fallback_dirty = true;
     }
     if (current_available) {
         time_t epoch = time(NULL);
@@ -420,17 +613,24 @@ static void sensor_feature_update(entity_feature_instance_t *instance,
             state->last_epoch = epoch;
             state->last_value = value;
             state->last_value_valid = true;
-            append_live_point(state,
-                              (hui_trend_graph_point_t){ .epoch = epoch,
-                                                        .value = value });
-            render_graph(state, true);
+            if (!state->loaded || state->count == 0) {
+                state->fallback_dirty = true;
+            }
         }
     }
-    request_history(state);
+    subscribe_history(state);
+}
+
+static void sensor_feature_apply_theme(entity_feature_instance_t *instance)
+{
+    if (instance && instance->control) {
+        hui_trend_graph_apply_theme(instance->control);
+    }
 }
 
 const entity_feature_handler_t sensor_feature_handler = {
     .supports = sensor_feature_supports,
     .create = sensor_feature_create,
     .update = sensor_feature_update,
+    .apply_theme = sensor_feature_apply_theme,
 };

@@ -9,6 +9,7 @@
 
 #include "climate_big_number_gen.h"
 #include "climate_big_number_private_gen.h"
+#include "i18n.h"
 #include <lvgl.h>
 #include "src/core/lv_obj_style.h"
 #include "src/core/lv_obj_style_gen.h"
@@ -65,7 +66,7 @@ void climate_big_number_set_value(lv_obj_t * obj, int32_t value)
 void climate_big_number_set_decimal_places(lv_obj_t * obj, int32_t decimal_places)
 {
     climate_big_number_t * widget = (climate_big_number_t *)obj;
-    widget->decimal_places = decimal_places;
+    widget->decimal_places = LV_CLAMP(0, decimal_places, 9);
     climate_big_number_refresh(obj);
 }
 
@@ -119,9 +120,9 @@ void climate_big_number_set_unit_label_text_font(lv_obj_t * obj, const lv_font_t
 /**********************
  *   STATIC FUNCTIONS
  **********************/
-static int32_t pow10_i32(uint8_t n)
+static int64_t pow10_i64(uint8_t n)
 {
-    int32_t result = 1;
+    int64_t result = 1;
     while(n-- > 0) result *= 10;
     return result;
 }
@@ -129,36 +130,51 @@ static int32_t pow10_i32(uint8_t n)
 static void format_parts(const climate_big_number_t * st, char * integer, size_t integer_len,
                          char * decimal, size_t decimal_len)
 {
-    int32_t scale = pow10_i32(st->decimal_places);
-    int32_t whole = st->value / scale;
-    int32_t frac = st->value % scale;
+    if (!st || !integer || integer_len == 0 || !decimal || decimal_len == 0) return;
 
-    if(st->value < 0 && whole == 0) {
-        lv_snprintf(integer, integer_len, "-0");
+    const uint8_t places = (uint8_t)LV_CLAMP(0, st->decimal_places, 9);
+    const int64_t scale = pow10_i64(places);
+    const int64_t signed_value = st->value;
+    const uint64_t magnitude = signed_value < 0
+                                   ? (uint64_t)(-signed_value)
+                                   : (uint64_t)signed_value;
+    const uint64_t whole = magnitude / (uint64_t)scale;
+    const uint64_t fraction = magnitude % (uint64_t)scale;
+
+    char canonical[32];
+    if (places == 0) {
+        lv_snprintf(canonical, sizeof(canonical), "%s%llu",
+                    signed_value < 0 ? "-" : "",
+                    (unsigned long long)whole);
     } else {
-        lv_snprintf(integer, integer_len, "%ld", whole);
+        lv_snprintf(canonical, sizeof(canonical), "%s%llu.%0*llu",
+                    signed_value < 0 ? "-" : "",
+                    (unsigned long long)whole, (int)places,
+                    (unsigned long long)fraction);
     }
 
-    if(st->decimal_places == 0) {
+    char localized[48];
+    const i18n_number_options_t options = I18N_NUMBER_OPTIONS_PRESERVE;
+    if (!i18n_format_number(localized, sizeof(localized), canonical, &options)) {
+        lv_strlcpy(localized, canonical, sizeof(localized));
+    }
+
+    const i18n_locale_t *locale = i18n_current_locale();
+    const char *separator = places > 0 && locale
+                                ? strstr(localized,
+                                         locale->number_decimal_separator)
+                                : NULL;
+    if (!separator) {
+        lv_strlcpy(integer, localized, integer_len);
         decimal[0] = '\0';
         return;
     }
 
-    if(frac < 0) frac = -frac;
-
-    char frac_buf[16];
-    lv_snprintf(frac_buf, sizeof(frac_buf), "%ld", frac);
-
-    size_t frac_len = strlen(frac_buf);
-    size_t pad = st->decimal_places > frac_len ? st->decimal_places - frac_len : 0;
-
-    if(pad >= decimal_len) pad = decimal_len - 1;
-    decimal[0] = '.';
-    for(size_t i = 0; i < pad && i + 1 < decimal_len; i++) {
-        decimal[i + 1] = '0';
-    }
-    decimal[pad + 1] = '\0';
-    lv_strncat(decimal, frac_buf, decimal_len - strlen(decimal) - 1);
+    size_t integer_bytes = (size_t)(separator - localized);
+    if (integer_bytes >= integer_len) integer_bytes = integer_len - 1;
+    memcpy(integer, localized, integer_bytes);
+    integer[integer_bytes] = '\0';
+    lv_strlcpy(decimal, separator, decimal_len);
 }
 
 static void climate_big_number_refresh(lv_obj_t * obj)

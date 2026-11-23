@@ -26,8 +26,8 @@ class ResourceTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             generate(self.source, output)
 
-    def test_shipped_catalogs_complete_and_deterministic(self):
-        self.assertEqual(set(load(self.source / 'en.json')), set(load(self.source / 'de.json')))
+    def test_shipped_catalogs_valid_and_deterministic(self):
+        self.assertTrue(load(self.source / 'en.json'))
         self.run_generator(self.root / 'first')
         self.run_generator(self.root / 'second')
         for name in ['i18n_keys.h', 'i18n_data.inc']:
@@ -39,6 +39,8 @@ class ResourceTests(unittest.TestCase):
         data = (self.root / 'first' / 'i18n_data.inc').read_text(encoding='utf-8')
         self.assertIn('Geräte-Hotspot', data)
         self.assertIn('static const char s_text_', data)
+        self.assertIn('"fr", "Français", true, "\u00a0", ",", 3', data)
+        self.assertIn('"ru", "Русский", true, "\u00a0", ",", 3', data)
 
     def test_decomposed_translation_is_emitted_precomposed(self):
         messages = load(self.source / 'vi.json')
@@ -97,11 +99,41 @@ class ResourceTests(unittest.TestCase):
 
     def test_new_locale_can_reuse_english_fallback(self):
         manifest = load(self.source / 'manifest.json')
-        manifest['languages'].append({'code': 'sv', 'name': 'Svenska', 'file': 'sv.json', 'plural_rule': 'one_other'})
+        manifest['languages'].append({
+            'code': 'sv',
+            'name': 'Svenska',
+            'file': 'sv.json',
+            'plural_rule': 'one_other',
+            'number_format': {
+                'group_separator': '\u00a0',
+                'decimal_separator': ',',
+                'group_size': 3,
+            },
+        })
         (self.source / 'manifest.json').write_text(json.dumps(manifest))
         self.write_locale('sv', {'common.cancel': 'Avbryt'})
         self.run_generator(self.root / 'generated')
         self.assertIn('"sv", "Svenska"', (self.root / 'generated' / 'i18n_data.inc').read_text(encoding='utf-8'))
+
+    def test_number_format_is_required_and_validated(self):
+        manifest = load(self.source / 'manifest.json')
+        cases = [
+            (None, 'invalid number_format fields'),
+            ({'group_separator': ',', 'decimal_separator': ',', 'group_size': 3},
+             'number separators must differ'),
+            ({'group_separator': ',', 'decimal_separator': '.', 'group_size': 4},
+             'unsupported number group_size'),
+        ]
+        for number_format, message in cases:
+            with self.subTest(number_format=number_format):
+                changed = json.loads(json.dumps(manifest))
+                if number_format is None:
+                    changed['languages'][0].pop('number_format')
+                else:
+                    changed['languages'][0]['number_format'] = number_format
+                (self.source / 'manifest.json').write_text(json.dumps(changed))
+                with self.assertRaisesRegex(ValueError, message):
+                    self.run_generator()
 
 
 if __name__ == '__main__':

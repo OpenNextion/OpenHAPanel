@@ -14,7 +14,6 @@ extern "C" {
 
 #define HA_WS_ERR_BASE 0x7000
 #define HA_WS_ERR_NOT_AUTHENTICATED (HA_WS_ERR_BASE + 1)
-#define HA_WS_ERR_NO_FREE_SLOT (HA_WS_ERR_BASE + 2)
 #define HA_WS_ERR_INVALID_RESPONSE (HA_WS_ERR_BASE + 3)
 #define HA_WS_ERR_AUTH_INVALID (HA_WS_ERR_BASE + 4)
 
@@ -92,6 +91,16 @@ esp_err_t ha_ws_subscribe_entities(ha_ws_client_t *client,
                                    ha_ws_result_cb_t result_cb,
                                    void *user_ctx,
                                    int *subscription_id_out);
+
+/* Subscribe to a rolling history window. A reconnect rebuilds start_time
+ * from the current clock before replaying the stream. */
+esp_err_t ha_ws_subscribe_history_stream(ha_ws_client_t *client,
+                                         const char *entity_id,
+                                         unsigned hours_to_show,
+                                         ha_ws_event_cb_t event_cb,
+                                         ha_ws_result_cb_t result_cb,
+                                         void *user_ctx,
+                                         int *subscription_id_out);
 
 esp_err_t ha_ws_unsubscribe_events(ha_ws_client_t *client,
                                    int subscription_id,

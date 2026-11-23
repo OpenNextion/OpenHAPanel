@@ -4,6 +4,7 @@
     import { networkStore, setApConfig } from '@/stores/network';
     import SettingRow from '@/component/SettingRow/SettingRow.svelte';
     import SettingRowGroup from '@/component/SettingRow/SettingRowGroup.svelte';
+    import SettingSwitch from '@/component/SettingSwitch/SettingSwitch.svelte';
     import ApInUseConfirmModal from './ApInUseConfirmModal.svelte';
     import { ROUTES_PATH } from '@/constant';
     let loadingField = $state<'defaultEnabled' | 'internetThroughAp' | 'hideSsid' | null>(null);
@@ -63,17 +64,17 @@
     <SettingRowGroup>
         <SettingRow title="AP" titleCol={10} contentCol={2}>
             {#snippet titleSnippet()}<span class="ap-row-title"><span>AP</span><small>{$_('networkPage.apHint')}</small></span>{/snippet}
-            {#snippet contentSnippet()}<span class="form-check form-switch"><input class="form-check-input" type="checkbox" checked={$networkStore.ap?.defaultEnabled ?? false} disabled={loadingField !== null} onchange={(event) => updateConfig('defaultEnabled', event)} /></span>{/snippet}
+            {#snippet contentSnippet()}<SettingSwitch ariaLabel="AP" checked={$networkStore.ap?.defaultEnabled ?? false} disabled={loadingField !== null} onchange={(event) => updateConfig('defaultEnabled', event)} />{/snippet}
         </SettingRow>
         <!--<SettingRow title={$_('networkPage.internetConnection')} disable={!$networkStore.ap?.enabled}>
-            {#snippet contentSnippet()}<span class="form-check form-switch"><input class="form-check-input" type="checkbox" checked={$networkStore.ap?.internetThroughAp ?? false} disabled={!$networkStore.ap?.enabled || loadingField !== null} onchange={(event) => updateConfig('internetThroughAp', event)} /></span>{/snippet}
+            {#snippet contentSnippet()}<SettingSwitch ariaLabel={$_('networkPage.internetConnection')} checked={$networkStore.ap?.internetThroughAp ?? false} disabled={!$networkStore.ap?.enabled || loadingField !== null} onchange={(event) => updateConfig('internetThroughAp', event)} />{/snippet}
         </SettingRow>-->
     </SettingRowGroup>
     <SettingRowGroup>
         <SettingRow title="SSID" content={$networkStore.ap?.apName || '--'} route={ROUTES_PATH.NETWORK_AP_SSID} />
         <SettingRow title={$_('networkPage.changePassword')} content={$networkStore?.ap?.password || ''} route={ROUTES_PATH.NETWORK_AP_PASSWORD} />
         <!--<SettingRow title={$_('networkPage.hideNetwork')}>
-            {#snippet contentSnippet()}<span class="form-check form-switch"><input class="form-check-input" type="checkbox" checked={$networkStore.ap?.hideSsid ?? false} disabled={loadingField !== null} onchange={(event) => updateConfig('hideSsid', event)} /></span>{/snippet}
+            {#snippet contentSnippet()}<SettingSwitch ariaLabel={$_('networkPage.hideNetwork')} checked={$networkStore.ap?.hideSsid ?? false} disabled={loadingField !== null} onchange={(event) => updateConfig('hideSsid', event)} />{/snippet}
         </SettingRow>-->
         <SettingRow title={$_('networkPage.ipv4Lan')} route={ROUTES_PATH.NETWORK_AP_IPV4} />
         <SettingRow title={$_('networkPage.channel')} route={ROUTES_PATH.NETWORK_AP_CHANNEL} />
@@ -85,11 +86,6 @@
 <style>
     .ap-settings > :global(.setting-row-group:not(:last-child)) {
         margin-bottom: 1.25rem;
-    }
-
-    .ap-settings :global(.form-switch) {
-        margin: 0;
-        padding-left: 0;
     }
 
     .ap-row-title {
@@ -104,10 +100,4 @@
         line-height: 1.25;
     }
 
-    .ap-settings :global(.form-check-input) {
-        width: 2.75rem;
-        height: 1.5rem;
-        margin: 0;
-        cursor: pointer;
-    }
 </style>

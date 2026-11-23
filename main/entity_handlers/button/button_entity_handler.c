@@ -16,6 +16,7 @@
 #include "entity_handlers/light/components/light_detail_theme.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
+#include "lvgl.h"
 #include "screen/components/ha_history_list.h"
 #include "screen/components/ha_relative_time_label.h"
 #include "screen/components/more_info_screen.h"
@@ -34,6 +35,17 @@
 #define BUTTON_TILE_ICON_COLOR 0x44739E
 #define BUTTON_TILE_ICON_UNAVAILABLE_DARK 0x6F6F6F
 #define BUTTON_TILE_ICON_UNAVAILABLE_LIGHT 0xBDBDBD
+
+/* Detail page "Press" button animation timings (mirrors the HA frontend). */
+#define BUTTON_ACTION_SPINNER_DELAY_MS 150
+#define BUTTON_ACTION_TIMEOUT_MS 3000
+#define BUTTON_ACTION_RESULT_DURATION_MS 2000
+#define BUTTON_ACTION_RESULT_ANIM_MS 250
+#define BUTTON_ACTION_SPIN_PERIOD_MS 30
+#define BUTTON_ACTION_SPIN_STEP 108
+#define BUTTON_ACTION_SPIN_FULL_ROTATION 3600
+#define BUTTON_ACTION_SUCCESS_COLOR 0x63B639
+#define BUTTON_ACTION_ERROR_COLOR 0xF7554A
 
 static const char *TAG = "button_entity_handler";
 
@@ -63,6 +75,7 @@ typedef struct {
     lv_obj_t *screen;
     char entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
     char entity_state[HA_ENTITY_STORE_STATE_MAX];
+    time_t start_time;
     int request_id;
     bool loading;
     bool loaded;
@@ -141,9 +154,11 @@ static void button_history_request(const char *entity_id)
 
     s_button_history.loading = true;
     int request_id = 0;
+    s_button_history.start_time =
+        end_time - BUTTON_HISTORY_DAYS * 24 * 60 * 60;
     const esp_err_t err = app_ha_get_entity_history(
         entity_id,
-        end_time - BUTTON_HISTORY_DAYS * 24 * 60 * 60,
+        s_button_history.start_time,
         end_time,
         button_history_result_cb,
         &s_button_history,
@@ -226,12 +241,14 @@ static bool button_history_parse_result(const cJSON *result)
             continue;
         }
 
-        if (ha_datetime_parse_epoch(state->valuestring, &epoch) == ESP_OK) {
+        if (ha_datetime_parse_epoch(state->valuestring, &epoch) == ESP_OK &&
+            epoch > s_button_history.start_time) {
             button_history_insert(epoch, BUTTON_HISTORY_PRESSED_STATE);
         }
         else if ((strcmp(state->valuestring, "unavailable") == 0 ||
                   strcmp(state->valuestring, "unknown") == 0) &&
-                 button_history_parse_epoch(item, &epoch)) {
+                 button_history_parse_epoch(item, &epoch) &&
+                 epoch > s_button_history.start_time) {
             button_history_insert(epoch, state->valuestring);
         }
     }
@@ -415,6 +432,318 @@ static bool button_handle_action(const entity_action_context_t *context)
     return button_press(context->entity_id);
 }
 
+typedef enum {
+    BUTTON_ACTION_PHASE_IDLE = 0,
+    BUTTON_ACTION_PHASE_BUSY,
+    BUTTON_ACTION_PHASE_RESULT,
+} button_action_phase_t;
+
+typedef struct {
+    lv_obj_t *screen;
+    lv_obj_t *label;
+    lv_obj_t *status_icon;
+    lv_obj_t *result_icon;
+    char entity_id[HA_ENTITY_STORE_ENTITY_ID_MAX];
+    char pending_state[HA_ENTITY_STORE_STATE_MAX];
+    lv_timer_t *spinner_timer;
+    lv_timer_t *timeout_timer;
+    lv_timer_t *reset_timer;
+    lv_timer_t *rot_timer;
+    int32_t rot_angle;
+    bool result_ok;
+    button_action_phase_t phase;
+} button_action_t;
+
+static button_action_t s_button_action;
+
+static void button_action_scale_cb(void *var, int32_t scale)
+{
+    lv_obj_t *obj = (lv_obj_t *)var;
+    lv_obj_set_style_transform_scale_x(obj, scale, 0);
+    lv_obj_set_style_transform_scale_y(obj, scale, 0);
+}
+
+static void button_action_apply_visual(button_action_t *act)
+{
+    if (!act->label || !act->status_icon || !act->result_icon) {
+        return;
+    }
+    const bool label_valid = lv_obj_is_valid(act->label);
+    const bool icon_valid = lv_obj_is_valid(act->status_icon);
+    const bool result_valid = lv_obj_is_valid(act->result_icon);
+
+    bool show_label = false;
+    bool show_icon = false;
+    bool spinning = false;
+    bool show_result = false;
+
+    switch (act->phase) {
+    case BUTTON_ACTION_PHASE_IDLE:
+        show_label = true;
+        break;
+    case BUTTON_ACTION_PHASE_BUSY:
+        if (act->spinner_timer == NULL) {
+            show_icon = true;
+            spinning = true;
+        } else {
+            show_label = true;
+        }
+        break;
+    case BUTTON_ACTION_PHASE_RESULT:
+        show_result = true;
+        break;
+    }
+
+    if (label_valid) {
+        if (show_label) {
+            lv_obj_remove_flag(act->label, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(act->label, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    if (icon_valid) {
+        if (show_icon) {
+            if (spinning) {
+                lv_image_set_src(act->status_icon, &loading_icon_32);
+                lv_image_set_pivot(act->status_icon, 16, 16);
+                lv_image_set_rotation(act->status_icon, act->rot_angle);
+            }
+            lv_obj_remove_flag(act->status_icon, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(act->status_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (result_valid) {
+        if (show_result) {
+            ui_i18n_label_set_text(act->result_icon,
+                                   act->result_ok ? MDI_SYMBOL_CHECK_BOLD
+                                                  : MDI_SYMBOL_ALERT_OCTAGRAM);
+            lv_obj_set_style_text_color(
+                act->result_icon,
+                lv_color_hex(act->result_ok ? BUTTON_ACTION_SUCCESS_COLOR
+                                            : BUTTON_ACTION_ERROR_COLOR),
+                0);
+            lv_obj_center(act->result_icon);
+            lv_obj_remove_flag(act->result_icon, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(act->result_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+static void button_action_stop_busy(button_action_t *act)
+{
+    if (act->spinner_timer) {
+        lv_timer_del(act->spinner_timer);
+        act->spinner_timer = NULL;
+    }
+    if (act->timeout_timer) {
+        lv_timer_del(act->timeout_timer);
+        act->timeout_timer = NULL;
+    }
+    if (act->rot_timer) {
+        lv_timer_del(act->rot_timer);
+        act->rot_timer = NULL;
+    }
+}
+
+static void button_action_reset_cb(lv_timer_t *timer)
+{
+    button_action_t *act = lv_timer_get_user_data(timer);
+    if (!act) {
+        return;
+    }
+    act->reset_timer = NULL;
+    lv_timer_del(timer);
+    act->phase = BUTTON_ACTION_PHASE_IDLE;
+    act->rot_angle = 0;
+    if (act->result_icon && lv_obj_is_valid(act->result_icon)) {
+        lv_obj_set_style_transform_scale_x(act->result_icon, 256, 0);
+        lv_obj_set_style_transform_scale_y(act->result_icon, 256, 0);
+    }
+    button_action_apply_visual(act);
+}
+
+static void button_action_show_result(button_action_t *act, bool success)
+{
+    button_action_stop_busy(act);
+    act->phase = BUTTON_ACTION_PHASE_RESULT;
+    act->result_ok = success;
+    button_action_apply_visual(act);
+
+    if (act->result_icon && lv_obj_is_valid(act->result_icon)) {
+        lv_obj_set_style_transform_scale_x(act->result_icon, 0, 0);
+        lv_obj_set_style_transform_scale_y(act->result_icon, 0, 0);
+
+        lv_anim_t anim;
+        lv_anim_init(&anim);
+        lv_anim_set_var(&anim, act->result_icon);
+        lv_anim_set_exec_cb(&anim, button_action_scale_cb);
+        lv_anim_set_values(&anim, 0, 256);
+        lv_anim_set_duration(&anim, BUTTON_ACTION_RESULT_ANIM_MS);
+        lv_anim_set_path_cb(&anim, lv_anim_path_overshoot);
+        lv_anim_start(&anim);
+    }
+
+    if (act->reset_timer) {
+        lv_timer_del(act->reset_timer);
+    }
+    act->reset_timer = lv_timer_create(button_action_reset_cb,
+                                       BUTTON_ACTION_RESULT_DURATION_MS,
+                                       act);
+}
+
+static void button_action_rot_cb(lv_timer_t *timer)
+{
+    button_action_t *act = lv_timer_get_user_data(timer);
+    if (!act || act->phase != BUTTON_ACTION_PHASE_BUSY) {
+        return;
+    }
+    if (!act->status_icon || !lv_obj_is_valid(act->status_icon)) {
+        return;
+    }
+    act->rot_angle = (act->rot_angle + BUTTON_ACTION_SPIN_STEP) %
+                     BUTTON_ACTION_SPIN_FULL_ROTATION;
+    lv_image_set_rotation(act->status_icon, act->rot_angle);
+}
+
+static void button_action_spinner_cb(lv_timer_t *timer)
+{
+    button_action_t *act = lv_timer_get_user_data(timer);
+    if (!act) {
+        return;
+    }
+    act->spinner_timer = NULL;
+    lv_timer_del(timer);
+    if (act->phase != BUTTON_ACTION_PHASE_BUSY) {
+        return;
+    }
+    act->rot_angle = 0;
+    if (!act->rot_timer) {
+        act->rot_timer = lv_timer_create(button_action_rot_cb,
+                                         BUTTON_ACTION_SPIN_PERIOD_MS,
+                                         act);
+    }
+    button_action_apply_visual(act);
+}
+
+static void button_action_timeout_cb(lv_timer_t *timer)
+{
+    button_action_t *act = lv_timer_get_user_data(timer);
+    if (!act) {
+        return;
+    }
+    act->timeout_timer = NULL;
+    lv_timer_del(timer);
+    if (act->phase != BUTTON_ACTION_PHASE_BUSY) {
+        return;
+    }
+    act->pending_state[0] = '\0';
+    button_action_show_result(act, false);
+}
+
+static void button_action_reset_to_idle(button_action_t *act)
+{
+    button_action_stop_busy(act);
+    if (act->reset_timer) {
+        lv_timer_del(act->reset_timer);
+        act->reset_timer = NULL;
+    }
+    act->phase = BUTTON_ACTION_PHASE_IDLE;
+    act->pending_state[0] = '\0';
+    act->result_ok = false;
+    act->rot_angle = 0;
+}
+
+static void button_action_begin(button_action_t *act,
+                                const char *entity_id,
+                                const char *state)
+{
+    button_action_stop_busy(act);
+    if (act->reset_timer) {
+        lv_timer_del(act->reset_timer);
+        act->reset_timer = NULL;
+    }
+    act->phase = BUTTON_ACTION_PHASE_BUSY;
+    act->result_ok = false;
+    act->rot_angle = 0;
+    snprintf(act->entity_id, sizeof(act->entity_id), "%s",
+             entity_id ? entity_id : "");
+    snprintf(act->pending_state, sizeof(act->pending_state), "%s",
+             state ? state : "");
+    act->spinner_timer = lv_timer_create(button_action_spinner_cb,
+                                         BUTTON_ACTION_SPINNER_DELAY_MS,
+                                         act);
+    act->timeout_timer = lv_timer_create(button_action_timeout_cb,
+                                         BUTTON_ACTION_TIMEOUT_MS,
+                                         act);
+    button_action_apply_visual(act);
+}
+
+static void button_action_fail_immediate(button_action_t *act)
+{
+    if (act->phase != BUTTON_ACTION_PHASE_BUSY) {
+        return;
+    }
+    act->pending_state[0] = '\0';
+    button_action_show_result(act, false);
+}
+
+static void button_action_sync(button_action_t *act,
+                               const ha_entity_snapshot_t *snapshot)
+{
+    if (!snapshot || !snapshot->entity_id[0]) {
+        button_action_reset_to_idle(act);
+        button_action_apply_visual(act);
+        return;
+    }
+
+    if (strcmp(act->entity_id, snapshot->entity_id) != 0) {
+        button_action_reset_to_idle(act);
+        snprintf(act->entity_id, sizeof(act->entity_id), "%s",
+                 snapshot->entity_id);
+    }
+
+    if (act->phase == BUTTON_ACTION_PHASE_BUSY &&
+        act->pending_state[0] &&
+        strcmp(act->pending_state, snapshot->state) != 0) {
+        act->pending_state[0] = '\0';
+        button_action_show_result(act, true);
+    }
+
+    button_action_apply_visual(act);
+}
+
+static void button_action_icon_delete_cb(lv_event_t *event)
+{
+    lv_obj_t *icon = lv_event_get_target_obj(event);
+    lv_anim_delete(icon, button_action_scale_cb);
+}
+
+static void button_action_screen_delete_cb(lv_event_t *event)
+{
+    if (lv_event_get_target_obj(event) == s_button_action.screen) {
+        s_button_action.screen = NULL;
+        button_action_reset_to_idle(&s_button_action);
+        s_button_action.label = NULL;
+        s_button_action.status_icon = NULL;
+        s_button_action.result_icon = NULL;
+    }
+}
+
+static void button_action_prepare(const entity_more_info_context_t *context)
+{
+    if (s_button_action.screen != context->screen) {
+        button_action_reset_to_idle(&s_button_action);
+        s_button_action.screen = context->screen;
+        lv_obj_add_event_cb(context->screen,
+                            button_action_screen_delete_cb,
+                            LV_EVENT_DELETE,
+                            NULL);
+    }
+}
+
 static void button_more_info_press_event_cb(lv_event_t *event)
 {
     const entity_more_info_context_t *context = lv_event_get_user_data(event);
@@ -422,7 +751,22 @@ static void button_more_info_press_event_cb(lv_event_t *event)
         return;
     }
 
-    button_press(context->snapshot.entity_id);
+    if (s_button_action.phase != BUTTON_ACTION_PHASE_IDLE) {
+        return;
+    }
+
+    button_action_begin(&s_button_action,
+                        context->snapshot.entity_id,
+                        context->snapshot.state);
+
+    esp_err_t err = app_ha_call_entity_service("button",
+                                               "press",
+                                               context->snapshot.entity_id);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to call button.press for %s: %s",
+                 context->snapshot.entity_id, esp_err_to_name(err));
+        button_action_fail_immediate(&s_button_action);
+    }
 }
 
 static lv_obj_t *button_more_info_build_page(
@@ -465,7 +809,6 @@ static esp_err_t button_render_tile(ha_entity_store_t *store,
     model->icon_circle_background_color_light = model->icon_color;
     model->icon_circle_background_opa = LV_OPA_20;
     model->title_color = lv_color_hex(0xFFFFFF);
-    model->state_color = lv_color_hex(0x666666);
 
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
@@ -478,6 +821,10 @@ static esp_err_t button_render_tile(ha_entity_store_t *store,
         model->icon_color = lv_color_hex(unavailable_color);
         model->icon_circle_background_color = model->icon_color;
         model->icon_circle_background_color_light = lv_color_hex(BUTTON_TILE_ICON_UNAVAILABLE_LIGHT);
+    } else if (strcmp(snapshot->state, "unknown") == 0) {
+        entity_handler_copy_snapshot_state(model->state_text,
+                                           sizeof(model->state_text),
+                                           snapshot);
     } else {
         ha_datetime_format_relative_now(snapshot->state,
                                         model->state_text,
@@ -579,7 +926,7 @@ static esp_err_t button_render_more_info(
     lv_obj_t *tile_content_state = lv_label_create(tile_content_ctx);
     // 展示实体触发的 相对时间 ha_datetime_format_relative_now
     char state_text[HA_ENTITY_STORE_STATE_MAX] = {0};
-    if (unavailable) {
+    if (unavailable || strcmp(context->snapshot.state, "unknown") == 0) {
         entity_handler_copy_snapshot_state(state_text,
                                            sizeof(state_text),
                                            &context->snapshot);
@@ -627,12 +974,12 @@ static esp_err_t button_render_more_info(
     lv_obj_set_style_bg_color(press_button, lv_color_hex(light_detail_theme_color(0x1E2228, LIGHT_DETAIL_LIGHT_SURFACE)), 0);
     lv_obj_set_style_bg_opa(press_button, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(press_button,
-                              lv_color_hex(light_detail_theme_color(BUTTON_ACTION_PRESSED_BG_COLOR, 0xDFF3FC)),
+                              lv_color_hex(0x177FD),
                               LV_STATE_PRESSED);
     lv_obj_set_style_bg_color(press_button,
                               lv_color_hex(light_detail_theme_color(0x1E2228, LIGHT_DETAIL_LIGHT_SURFACE)),
                               LV_STATE_DISABLED);
-    lv_obj_set_style_bg_opa(press_button, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(press_button, LV_OPA_20, LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(press_button, LV_OPA_COVER, LV_STATE_DISABLED);
     lv_obj_add_event_cb(press_button,
                         button_more_info_press_event_cb,
@@ -658,6 +1005,37 @@ static esp_err_t button_render_more_info(
                                  : BUTTON_ACTION_COLOR),
         0);
     lv_obj_center(button_label);
+
+    lv_obj_t *status_icon = lv_image_create(press_button);
+    lv_image_set_src(status_icon, &loading_icon_32);
+    lv_image_set_pivot(status_icon, 16, 16);
+    lv_obj_set_style_transform_pivot_x(status_icon, LV_PCT(50), 0);
+    lv_obj_set_style_transform_pivot_y(status_icon, LV_PCT(50), 0);
+    lv_obj_add_flag(status_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_center(status_icon);
+    lv_obj_add_event_cb(status_icon,
+                        button_action_icon_delete_cb,
+                        LV_EVENT_DELETE,
+                        NULL);
+
+    lv_obj_t *result_icon = lv_label_create(press_button);
+    lv_obj_set_style_text_font(result_icon, &ha_font_mdi_20, 0);
+    lv_obj_set_style_transform_pivot_x(result_icon, LV_PCT(50), 0);
+    lv_obj_set_style_transform_pivot_y(result_icon, LV_PCT(50), 0);
+    lv_obj_add_flag(result_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_center(result_icon);
+    lv_obj_add_event_cb(result_icon,
+                        button_action_icon_delete_cb,
+                        LV_EVENT_DELETE,
+                        NULL);
+
+    button_action_prepare(context);
+
+    s_button_action.label = button_label;
+    s_button_action.status_icon = status_icon;
+    s_button_action.result_icon = result_icon;
+    button_action_sync(&s_button_action, &context->snapshot);
+
     if (landscape) {
         lv_obj_update_layout(content);
         const int32_t left_width = lv_obj_get_content_width(tile_content_ctx);

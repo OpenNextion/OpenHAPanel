@@ -3,17 +3,33 @@
 #include <math.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
+#include "screen_theme.h"
+
 #define HUI_TREND_MAX_SAMPLES 160
 #define HUI_TREND_BOTTOM_RADIUS 8
+#define HUI_TREND_FILL_OPA_LIGHT 26
+#define HUI_TREND_FILL_OPA_DARK 64
 
 typedef struct {
     lv_obj_t *obj;
+    lv_obj_t *canvas;
+    void *pixels;
+    int32_t cache_width;
+    int32_t cache_height;
+    bool cache_ready;
+    bool cache_queued;
+    bool animating;
+    bool dark_fill;
     lv_color_t color;
+    float fill_origin;
     size_t count;
-    float x[HUI_TREND_GRAPH_MAX_POINTS];
-    float from_y[HUI_TREND_GRAPH_MAX_POINTS];
-    float to_y[HUI_TREND_GRAPH_MAX_POINTS];
-    float display_y[HUI_TREND_GRAPH_MAX_POINTS];
+    float *x;
+    float *from_y;
+    float *to_y;
+    float *display_y;
+    float *storage;
+    float *scratch;
 } hui_trend_graph_ctx_t;
 
 static float clamp_unit(float value)
@@ -206,6 +222,137 @@ static void draw_curve_line(lv_layer_t *layer,
     }
 }
 
+static void graph_draw(lv_layer_t *layer, const hui_trend_graph_ctx_t *ctx,
+                       const lv_area_t *area)
+{
+    const int32_t width = lv_area_get_width(area);
+    const int32_t step = LV_MAX(3, (width + HUI_TREND_MAX_SAMPLES - 2) /
+                                  (HUI_TREND_MAX_SAMPLES - 1));
+    const float top = (float)area->y1 + 2.0f;
+    const float height = (float)lv_area_get_height(area) - 4.0f;
+    const int32_t origin = area->y1 + (int32_t)lroundf(
+        ctx->fill_origin * (lv_area_get_height(area) - 1));
+    lv_draw_rect_dsc_t fill;
+    lv_draw_rect_dsc_init(&fill);
+    fill.bg_color = ctx->color;
+    fill.bg_opa = ctx->dark_fill ? HUI_TREND_FILL_OPA_DARK
+                                 : HUI_TREND_FILL_OPA_LIGHT;
+    for (int32_t x = 0; x < width; x += step) {
+        const float y = top + graph_curve_y(ctx, (float)x /
+                                             (float)(width - 1)) * height;
+        const int32_t draw_y = LV_CLAMP(area->y1, (int32_t)lroundf(y), area->y2);
+        lv_area_t column = {
+            .x1 = area->x1 + x,
+            .y1 = LV_MIN(draw_y, origin),
+            .x2 = LV_MIN(area->x1 + x + step - 1, area->x2),
+            .y2 = LV_MAX(draw_y, origin),
+        };
+        if (column.x1 < area->x1 + HUI_TREND_BOTTOM_RADIUS ||
+            column.x2 > area->x2 - HUI_TREND_BOTTOM_RADIUS) {
+            const int32_t column_end = column.x2;
+            for (int32_t pixel_x = column.x1; pixel_x <= column_end;
+                 pixel_x++) {
+                const float corner_y = top +
+                    graph_curve_y(ctx,
+                                  (float)(pixel_x - area->x1) /
+                                  (float)(width - 1)) * height;
+                column.x1 = pixel_x;
+                column.x2 = pixel_x;
+                const int32_t curve_y = LV_CLAMP(area->y1,
+                    (int32_t)lroundf(corner_y), area->y2);
+                column.y1 = LV_MIN(curve_y, origin);
+                column.y2 = LV_MIN(LV_MAX(curve_y, origin),
+                    area->y2 - bottom_corner_inset(area, pixel_x));
+                if (column.y1 <= column.y2) {
+                    lv_draw_rect(layer, &fill, &column);
+                }
+            }
+        } else {
+            lv_draw_rect(layer, &fill, &column);
+        }
+    }
+    draw_curve_line(layer, ctx, area, top, height);
+}
+
+static void graph_rebuild_cache(hui_trend_graph_ctx_t *ctx)
+{
+    const int32_t width = lv_obj_get_width(ctx->obj);
+    const int32_t height = lv_obj_get_height(ctx->obj);
+    ctx->cache_ready = false;
+    if (!ctx->count || width < 2 || height < 5) {
+        if (ctx->canvas) lv_obj_add_flag(ctx->canvas, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    const uint32_t stride = lv_draw_buf_width_to_stride(
+        width, LV_COLOR_FORMAT_ARGB8888);
+    if (!stride || (size_t)stride > SIZE_MAX / (size_t)height) {
+        if (ctx->canvas) lv_obj_add_flag(ctx->canvas, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (!ctx->pixels || ctx->cache_width != width ||
+        ctx->cache_height != height) {
+        if (ctx->canvas) {
+            lv_obj_delete(ctx->canvas);
+            ctx->canvas = NULL;
+        }
+        heap_caps_free(ctx->pixels);
+        ctx->pixels = heap_caps_malloc((size_t)stride * (size_t)height,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!ctx->pixels) return;
+        ctx->canvas = lv_canvas_create(ctx->obj);
+        if (!ctx->canvas) {
+            heap_caps_free(ctx->pixels);
+            ctx->pixels = NULL;
+            return;
+        }
+        lv_obj_remove_style_all(ctx->canvas);
+        lv_canvas_set_buffer(ctx->canvas, ctx->pixels, width, height,
+                             LV_COLOR_FORMAT_ARGB8888);
+        lv_obj_remove_flag(ctx->canvas,
+                           LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_pos(ctx->canvas, 0, 0);
+        ctx->cache_width = width;
+        ctx->cache_height = height;
+    }
+    lv_canvas_fill_bg(ctx->canvas, lv_color_hex(0), LV_OPA_TRANSP);
+    lv_layer_t layer;
+    lv_canvas_init_layer(ctx->canvas, &layer);
+    const lv_area_t area = { .x1 = 0, .y1 = 0,
+                             .x2 = width - 1, .y2 = height - 1 };
+    graph_draw(&layer, ctx, &area);
+    lv_canvas_finish_layer(ctx->canvas, &layer);
+    ctx->cache_ready = true;
+    lv_obj_remove_flag(ctx->canvas, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_invalidate(ctx->obj);
+}
+
+static void graph_cache_async_cb(void *user_data)
+{
+    hui_trend_graph_ctx_t *ctx = user_data;
+    ctx->cache_queued = false;
+    if (!ctx->animating) {
+        graph_rebuild_cache(ctx);
+    }
+}
+
+static void graph_schedule_cache(hui_trend_graph_ctx_t *ctx)
+{
+    if (!ctx->cache_queued &&
+        lv_async_call(graph_cache_async_cb, ctx) == LV_RESULT_OK) {
+        ctx->cache_queued = true;
+    }
+}
+
+static void graph_anim_ready_cb(lv_anim_t *animation)
+{
+    lv_obj_t *obj = animation->var;
+    hui_trend_graph_ctx_t *ctx = lv_obj_get_user_data(obj);
+    if (ctx) {
+        ctx->animating = false;
+        graph_schedule_cache(ctx);
+    }
+}
+
 static void graph_event_cb(lv_event_t *event)
 {
     hui_trend_graph_ctx_t *ctx = lv_event_get_user_data(event);
@@ -215,11 +362,21 @@ static void graph_event_cb(lv_event_t *event)
     const lv_event_code_t code = lv_event_get_code(event);
     if (code == LV_EVENT_DELETE) {
         lv_anim_delete(ctx->obj, graph_anim_cb);
+        lv_async_call_cancel(graph_cache_async_cb, ctx);
+        if (ctx->canvas) lv_obj_delete(ctx->canvas);
+        heap_caps_free(ctx->pixels);
+        heap_caps_free(ctx->storage);
         lv_obj_set_user_data(ctx->obj, NULL);
         lv_free(ctx);
         return;
     }
-    if (code != LV_EVENT_DRAW_MAIN || !ctx->count) {
+    if (code == LV_EVENT_SIZE_CHANGED && !ctx->animating) {
+        ctx->cache_ready = false;
+        if (ctx->canvas) lv_obj_add_flag(ctx->canvas, LV_OBJ_FLAG_HIDDEN);
+        graph_schedule_cache(ctx);
+        return;
+    }
+    if (code != LV_EVENT_DRAW_MAIN || !ctx->count || ctx->cache_ready) {
         return;
     }
     lv_area_t area;
@@ -227,48 +384,7 @@ static void graph_event_cb(lv_event_t *event)
     if (lv_area_get_width(&area) < 2 || lv_area_get_height(&area) < 5) {
         return;
     }
-    const int32_t width = lv_area_get_width(&area);
-    const int32_t step = LV_MAX(3, (width + HUI_TREND_MAX_SAMPLES - 2) /
-                                  (HUI_TREND_MAX_SAMPLES - 1));
-    const float top = (float)area.y1 + 2.0f;
-    const float height = (float)lv_area_get_height(&area) - 4.0f;
-    lv_draw_rect_dsc_t fill;
-    lv_draw_rect_dsc_init(&fill);
-    fill.bg_color = ctx->color;
-    fill.bg_opa = 26; /* SVG area opacity: 0.1 */
-    for (int32_t x = 0; x < width; x += step) {
-        const float y = top + graph_curve_y(ctx, (float)x /
-                                             (float)(width - 1)) * height;
-        const int32_t draw_y = LV_CLAMP(area.y1, (int32_t)lroundf(y), area.y2);
-        lv_area_t column = {
-            .x1 = area.x1 + x,
-            .y1 = draw_y,
-            .x2 = LV_MIN(area.x1 + x + step - 1, area.x2),
-            .y2 = area.y2,
-        };
-        if (column.x1 < area.x1 + HUI_TREND_BOTTOM_RADIUS ||
-            column.x2 > area.x2 - HUI_TREND_BOTTOM_RADIUS) {
-            const int32_t column_end = column.x2;
-            for (int32_t pixel_x = column.x1; pixel_x <= column_end;
-                 pixel_x++) {
-                const float corner_y = top +
-                    graph_curve_y(ctx,
-                                  (float)(pixel_x - area.x1) /
-                                  (float)(width - 1)) * height;
-                column.x1 = pixel_x;
-                column.x2 = pixel_x;
-                column.y1 = LV_CLAMP(area.y1,
-                                     (int32_t)lroundf(corner_y), area.y2);
-                column.y2 = area.y2 - bottom_corner_inset(&area, pixel_x);
-                if (column.y1 <= column.y2) {
-                    lv_draw_rect(lv_event_get_layer(event), &fill, &column);
-                }
-            }
-        } else {
-            lv_draw_rect(lv_event_get_layer(event), &fill, &column);
-        }
-    }
-    draw_curve_line(lv_event_get_layer(event), ctx, &area, top, height);
+    graph_draw(lv_event_get_layer(event), ctx, &area);
 }
 
 lv_obj_t *hui_trend_graph_create(lv_obj_t *parent)
@@ -286,8 +402,22 @@ lv_obj_t *hui_trend_graph_create(lv_obj_t *parent)
         return NULL;
     }
     memset(ctx, 0, sizeof(*ctx));
+    ctx->storage = heap_caps_malloc(
+        7 * HUI_TREND_GRAPH_MAX_POINTS * sizeof(float),
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!ctx->storage) {
+        lv_free(ctx);
+        lv_obj_delete(obj);
+        return NULL;
+    }
+    ctx->x = ctx->storage;
+    ctx->from_y = ctx->x + HUI_TREND_GRAPH_MAX_POINTS;
+    ctx->to_y = ctx->from_y + HUI_TREND_GRAPH_MAX_POINTS;
+    ctx->display_y = ctx->to_y + HUI_TREND_GRAPH_MAX_POINTS;
+    ctx->scratch = ctx->display_y + HUI_TREND_GRAPH_MAX_POINTS;
     ctx->obj = obj;
     ctx->color = lv_color_hex(0x44739E);
+    ctx->dark_fill = screen_theme_get() == SCREEN_THEME_DARK;
     lv_obj_remove_style_all(obj);
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(obj, LV_PCT(100), 62);
@@ -301,8 +431,28 @@ void hui_trend_graph_set_color(lv_obj_t *graph, lv_color_t color)
     hui_trend_graph_ctx_t *ctx = graph ? lv_obj_get_user_data(graph) : NULL;
     if (ctx && lv_color_to_u16(ctx->color) != lv_color_to_u16(color)) {
         ctx->color = color;
-        lv_obj_invalidate(graph);
+        if (ctx->animating) {
+            lv_obj_invalidate(graph);
+        } else {
+            ctx->cache_ready = false;
+            if (ctx->canvas) lv_obj_add_flag(ctx->canvas, LV_OBJ_FLAG_HIDDEN);
+            graph_schedule_cache(ctx);
+            lv_obj_invalidate(graph);
+        }
     }
+}
+
+void hui_trend_graph_apply_theme(lv_obj_t *graph)
+{
+    hui_trend_graph_ctx_t *ctx = graph ? lv_obj_get_user_data(graph) : NULL;
+    if (!ctx) return;
+    const bool dark_fill = screen_theme_get() == SCREEN_THEME_DARK;
+    if (ctx->dark_fill == dark_fill) return;
+    ctx->dark_fill = dark_fill;
+    ctx->cache_ready = false;
+    if (ctx->canvas) lv_obj_add_flag(ctx->canvas, LV_OBJ_FLAG_HIDDEN);
+    if (!ctx->animating) graph_schedule_cache(ctx);
+    lv_obj_invalidate(graph);
 }
 
 void hui_trend_graph_set_points(lv_obj_t *graph,
@@ -318,8 +468,11 @@ void hui_trend_graph_set_points(lv_obj_t *graph,
         return;
     }
     lv_anim_delete(graph, graph_anim_cb);
+    ctx->animating = false;
     if (!count) {
         ctx->count = 0;
+        ctx->cache_ready = false;
+        if (ctx->canvas) lv_obj_add_flag(ctx->canvas, LV_OBJ_FLAG_HIDDEN);
         lv_obj_invalidate(graph);
         return;
     }
@@ -333,18 +486,26 @@ void hui_trend_graph_set_points(lv_obj_t *graph,
         minimum = fmin(minimum, points[i].value);
         maximum = fmax(maximum, points[i].value);
     }
-    const double range = maximum - minimum;
-    const double margin = (range > 0.0 ? range : fmax(fabs(minimum) * 0.1, 1.0)) * 0.1;
-    minimum -= margin;
-    maximum += margin;
-    if (minimum > 0.0) {
+    /* Match calcPoints() in the Home Assistant trend graph. */
+    const double range = maximum - minimum != 0.0
+        ? maximum - minimum : minimum * 0.1;
+    maximum += range * 0.1;
+    minimum -= range * 0.1;
+    if (maximum < 0.0) {
+        ctx->fill_origin = 0.0f;
+    } else if (minimum < 0.0) {
+        ctx->fill_origin = (float)(maximum /
+            (maximum - minimum != 0.0 ? maximum - minimum : 1.0));
+    } else {
         minimum = fmax(0.0, minimum);
+        ctx->fill_origin = 1.0f;
     }
-    const double denominator = maximum - minimum;
+    const double denominator = maximum - minimum != 0.0
+        ? maximum - minimum : 1.0;
     const bool had_points = ctx->count > 0;
-    float next_x[HUI_TREND_GRAPH_MAX_POINTS];
-    float next_y[HUI_TREND_GRAPH_MAX_POINTS];
-    float previous_y[HUI_TREND_GRAPH_MAX_POINTS];
+    float *next_x = ctx->scratch;
+    float *next_y = next_x + HUI_TREND_GRAPH_MAX_POINTS;
+    float *previous_y = next_y + HUI_TREND_GRAPH_MAX_POINTS;
     for (size_t i = 0; i < count; i++) {
         next_x[i] = clamp_unit((float)((double)(points[i].epoch - start_time) /
                                        (double)(end_time - start_time)));
@@ -359,8 +520,11 @@ void hui_trend_graph_set_points(lv_obj_t *graph,
         ctx->to_y[i] = next_y[i];
         ctx->display_y[i] = animate && had_points ? previous_y[i] : next_y[i];
     }
+    ctx->cache_ready = false;
+    if (ctx->canvas) lv_obj_add_flag(ctx->canvas, LV_OBJ_FLAG_HIDDEN);
     lv_obj_invalidate(graph);
     if (animate && had_points) {
+        ctx->animating = true;
         lv_anim_t animation;
         lv_anim_init(&animation);
         lv_anim_set_var(&animation, graph);
@@ -368,6 +532,9 @@ void hui_trend_graph_set_points(lv_obj_t *graph,
         lv_anim_set_values(&animation, 0, 1000);
         lv_anim_set_duration(&animation, 500);
         lv_anim_set_path_cb(&animation, cubic_ease_out);
+        lv_anim_set_completed_cb(&animation, graph_anim_ready_cb);
         lv_anim_start(&animation);
+    } else {
+        graph_schedule_cache(ctx);
     }
 }

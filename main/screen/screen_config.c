@@ -36,10 +36,16 @@ static const char *feature_type_to_string(screen_feature_type_t type)
     switch (type) {
     case SCREEN_FEATURE_LIGHT_COLOR_TEMP:
         return "light-color-temp";
+    case SCREEN_FEATURE_LIGHT_EFFECT:
+        return "light-effect";
+    case SCREEN_FEATURE_LIGHT_COLOR_FAVORITES:
+        return "light-color-favorites";
     case SCREEN_FEATURE_COVER_OPEN_CLOSE:
         return "cover-open-close";
     case SCREEN_FEATURE_COVER_POSITION:
         return "cover-position";
+    case SCREEN_FEATURE_COVER_FAVORITE_POSITIONS:
+        return "cover-position-favorite";
     case SCREEN_FEATURE_TOGGLE:
         return "toggle";
     case SCREEN_FEATURE_BUTTON:
@@ -56,6 +62,18 @@ static const char *feature_type_to_string(screen_feature_type_t type)
         return "climate-swing-modes";
     case SCREEN_FEATURE_CLIMATE_SWING_HORIZONTAL_MODES:
         return "climate-swing-horizontal-modes";
+    case SCREEN_FEATURE_CLIMATE_TARGET_TEMPERATURE:
+        return "target-temperature";
+    case SCREEN_FEATURE_CLIMATE_TARGET_HUMIDITY:
+        return "target-humidity";
+    case SCREEN_FEATURE_FAN_SPEED:
+        return "fan-speed";
+    case SCREEN_FEATURE_FAN_PRESET_MODES:
+        return "fan-preset-modes";
+    case SCREEN_FEATURE_FAN_DIRECTION:
+        return "fan-direction";
+    case SCREEN_FEATURE_FAN_OSCILLATION:
+        return "fan-oscillate";
     case SCREEN_FEATURE_LIGHT_BRIGHTNESS:
     default:
         return "light-brightness";
@@ -81,11 +99,20 @@ static screen_feature_type_t parse_feature_type(const char *type)
     if (strcmp(type, "light-color-temp") == 0) {
         return SCREEN_FEATURE_LIGHT_COLOR_TEMP;
     }
+    if (strcmp(type, "light-effect") == 0) {
+        return SCREEN_FEATURE_LIGHT_EFFECT;
+    }
+    if (strcmp(type, "light-color-favorites") == 0) {
+        return SCREEN_FEATURE_LIGHT_COLOR_FAVORITES;
+    }
     if (strcmp(type, "cover-open-close") == 0) {
         return SCREEN_FEATURE_COVER_OPEN_CLOSE;
     }
     if (strcmp(type, "cover-position") == 0) {
         return SCREEN_FEATURE_COVER_POSITION;
+    }
+    if (strcmp(type, "cover-position-favorite") == 0) {
+        return SCREEN_FEATURE_COVER_FAVORITE_POSITIONS;
     }
     if (strcmp(type, "toggle") == 0) {
         return SCREEN_FEATURE_TOGGLE;
@@ -110,6 +137,24 @@ static screen_feature_type_t parse_feature_type(const char *type)
     }
     if (strcmp(type, "climate-swing-horizontal-modes") == 0) {
         return SCREEN_FEATURE_CLIMATE_SWING_HORIZONTAL_MODES;
+    }
+    if (strcmp(type, "target-temperature") == 0) {
+        return SCREEN_FEATURE_CLIMATE_TARGET_TEMPERATURE;
+    }
+    if (strcmp(type, "target-humidity") == 0) {
+        return SCREEN_FEATURE_CLIMATE_TARGET_HUMIDITY;
+    }
+    if (strcmp(type, "fan-speed") == 0) {
+        return SCREEN_FEATURE_FAN_SPEED;
+    }
+    if (strcmp(type, "fan-preset-modes") == 0) {
+        return SCREEN_FEATURE_FAN_PRESET_MODES;
+    }
+    if (strcmp(type, "fan-direction") == 0) {
+        return SCREEN_FEATURE_FAN_DIRECTION;
+    }
+    if (strcmp(type, "fan-oscillate") == 0) {
+        return SCREEN_FEATURE_FAN_OSCILLATION;
     }
     return SCREEN_FEATURE_INVALID;
 }

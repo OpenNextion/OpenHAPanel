@@ -124,7 +124,6 @@ static esp_err_t scene_render_tile(ha_entity_store_t *store,
     model->icon_circle_background_color_light = model->icon_color;
     model->icon_circle_background_opa = LV_OPA_20;
     model->title_color = lv_color_hex(0xFFFFFF);
-    model->state_color = lv_color_hex(0x666666);
 
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
@@ -137,6 +136,10 @@ static esp_err_t scene_render_tile(ha_entity_store_t *store,
         model->icon_color = lv_color_hex(unavailable_color);
         model->icon_circle_background_color = model->icon_color;
         model->icon_circle_background_color_light = lv_color_hex(SCENE_TILE_ICON_UNAVAILABLE_LIGHT);
+    } else if (strcmp(snapshot->state, "unknown") == 0) {
+        entity_handler_copy_snapshot_state(model->state_text,
+                                           sizeof(model->state_text),
+                                           snapshot);
     } else {
         ha_datetime_format_relative_now(snapshot->state,
                                         model->state_text,
@@ -215,7 +218,7 @@ static esp_err_t scene_render_more_info(
     lv_obj_t *tile_content_state = lv_label_create(tile_content_ctx);
     // 展示实体触发的 相对时间 ha_datetime_format_relative_now
     char state_text[HA_ENTITY_STORE_STATE_MAX] = {0};
-    if (unavailable) {
+    if (unavailable || strcmp(context->snapshot.state, "unknown") == 0) {
         entity_handler_copy_snapshot_state(state_text,
                                            sizeof(state_text),
                                            &context->snapshot);
@@ -263,12 +266,12 @@ static esp_err_t scene_render_more_info(
     lv_obj_set_style_bg_color(press_button, lv_color_hex(light_detail_theme_color(0x1E2228, LIGHT_DETAIL_LIGHT_SURFACE)), 0);
     lv_obj_set_style_bg_opa(press_button, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(press_button,
-                              lv_color_hex(light_detail_theme_color(SCENE_ACTION_PRESSED_BG_COLOR, 0xDFF3FC)),
+                              lv_color_hex(0x0177FD),
                               LV_STATE_PRESSED);
     lv_obj_set_style_bg_color(press_button,
                               lv_color_hex(light_detail_theme_color(0x1E2228, LIGHT_DETAIL_LIGHT_SURFACE)),
                               LV_STATE_DISABLED);
-    lv_obj_set_style_bg_opa(press_button, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(press_button, LV_OPA_20, LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(press_button, LV_OPA_COVER, LV_STATE_DISABLED);
     lv_obj_add_event_cb(press_button,
                         scene_more_info_press_event_cb,

@@ -152,7 +152,7 @@ static esp_err_t validate_badges(const cJSON *screen)
 
 static esp_err_t validate_feature(const cJSON *feature)
 {
-    const char *allowed[] = {"light-brightness", "light-color-temp", "cover-open-close", "cover-position", "toggle", "button", "trend-graph", "climate-hvac-modes", "climate-fan-modes", "climate-preset-modes", "climate-swing-modes", "climate-swing-horizontal-modes"};
+    const char *allowed[] = {"light-brightness", "light-color-temp", "light-effect", "light-color-favorites", "cover-open-close", "cover-position", "cover-position-favorite", "toggle", "button", "trend-graph", "climate-hvac-modes", "climate-fan-modes", "climate-preset-modes", "climate-swing-modes", "climate-swing-horizontal-modes", "target-temperature", "target-humidity", "fan-speed", "fan-preset-modes", "fan-direction", "fan-oscillate"};
     if (!cJSON_IsObject(feature)) {
         ESP_LOGE(TAG, "Invalid feature");
         return ESP_FAIL;
@@ -187,6 +187,17 @@ static esp_err_t validate_feature(const cJSON *feature)
             (!cJSON_IsNumber(hours) || hours->valuedouble != (double)hours->valueint ||
              hours->valueint < 1 || hours->valueint > 168)) {
             ESP_LOGE(TAG, "Invalid trend-graph hours");
+            return ESP_FAIL;
+        }
+    }
+
+    if (strcmp(type->valuestring, "fan-preset-modes") == 0 && cJSON_IsObject(data)) {
+        const cJSON *style = cJSON_GetObjectItemCaseSensitive(data, "style");
+        if (!is_optional_null(style) &&
+            (!is_string_value(style) ||
+             (strcmp(style->valuestring, "icons") != 0 &&
+              strcmp(style->valuestring, "dropdown") != 0))) {
+            ESP_LOGE(TAG, "Invalid fan-preset-modes style");
             return ESP_FAIL;
         }
     }

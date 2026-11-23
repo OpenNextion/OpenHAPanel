@@ -26,6 +26,9 @@
 
 typedef struct {
     lv_obj_t *slider;
+    lv_obj_t *track;
+    lv_obj_t *fill;
+    lv_obj_t *handle;
     lv_obj_t *tip;
     lv_obj_t *tip_label;
     uint8_t committed_value;
@@ -33,6 +36,8 @@ typedef struct {
     lv_color_t display_color;
     lv_point_t press_origin;
     uint32_t press_tick;
+    int32_t last_drag_value;
+    bool has_last_drag_value;
     bool power_on;
     bool pressed;
     bool dragging;
@@ -123,110 +128,17 @@ static int32_t fill_top(const lv_area_t *area, int32_t value)
     return area->y1 + (99 - normalized) * travel / 99;
 }
 
-static void draw_rect(lv_layer_t *layer,
-                      const lv_area_t *area,
-                      lv_color_t color,
-                      lv_opa_t opacity,
-                      int32_t radius)
+/* Apply the current state to the track/fill/handle object tree. This mirrors
+ * the Cover/Fan sliders: an ordinary track object clips its children to its
+ * rounded corners natively, avoiding the previous full-area ARGB8888 layer. */
+static void update_visual(light_brightness_slider_context_t *context)
 {
-    if (area->x2 < area->x1 || area->y2 < area->y1) {
+    if (!context || !context->slider) {
         return;
     }
-    const lv_area_t *clip = &layer->_clip_area;
-    if (area->x1 > clip->x2 || area->x2 < clip->x1 ||
-        area->y1 > clip->y2 || area->y2 < clip->y1) {
-        return;
-    }
-    lv_draw_rect_dsc_t descriptor;
-    lv_draw_rect_dsc_init(&descriptor);
-    descriptor.bg_color = color;
-    descriptor.bg_opa = opacity;
-    descriptor.radius = radius;
-    lv_draw_rect(layer, &descriptor, area);
-}
-
-static void finish_draw_batch(lv_layer_t *layer)
-{
-    while (layer->draw_task_head) {
-        lv_draw_dispatch_wait_for_request();
-        lv_draw_dispatch();
-    }
-}
-
-static int32_t rounded_inset(const lv_area_t *area,
-                             int32_t radius,
-                             int32_t y)
-{
-    const int32_t delta =
-        y < area->y1 + radius
-            ? area->y1 + radius - y - 1
-            : y > area->y2 - radius
-                  ? y - (area->y2 - radius) - 1
-                  : -1;
-    return delta >= 0
-               ? radius -
-                     (int32_t)sqrtf((float)(radius * radius - delta * delta))
-               : 0;
-}
-
-typedef void (*rounded_draw_cb_t)(lv_layer_t *layer,
-                                  const lv_area_t *area,
-                                  void *user_data);
-
-static void draw_with_rounded_clip(lv_layer_t *layer,
-                                   const lv_area_t *area,
-                                   int32_t radius,
-                                   rounded_draw_cb_t callback,
-                                   void *user_data)
-{
-    const lv_area_t saved_clip = layer->_clip_area;
-    const lv_area_t clip = {
-        .x1 = LV_MAX(saved_clip.x1, area->x1),
-        .y1 = LV_MAX(saved_clip.y1, area->y1),
-        .x2 = LV_MIN(saved_clip.x2, area->x2),
-        .y2 = LV_MIN(saved_clip.y2, area->y2),
-    };
-    if (clip.x1 > clip.x2 || clip.y1 > clip.y2) {
-        return;
-    }
-    radius = LV_MIN(radius,
-                    LV_MIN(lv_area_get_width(area),
-                           lv_area_get_height(area)) /
-                        2);
-    unsigned batch_callbacks = 0;
-    for (int32_t y = clip.y1; y <= clip.y2;) {
-        const int32_t inset = rounded_inset(area, radius, y);
-        int32_t end = y;
-        while (end < clip.y2 &&
-               rounded_inset(area, radius, end + 1) == inset) {
-            end++;
-        }
-        layer->_clip_area = (lv_area_t) {
-            .x1 = LV_MAX(clip.x1, area->x1 + inset),
-            .y1 = y,
-            .x2 = LV_MIN(clip.x2, area->x2 - inset),
-            .y2 = end,
-        };
-        if (layer->_clip_area.x1 <= layer->_clip_area.x2) {
-            callback(layer, area, user_data);
-            /* A brightness callback creates at most three draw tasks. Drain
-             * every four clipped bands without inspecting LVGL's private
-             * lv_draw_task_t linked-list fields. */
-            if (++batch_callbacks == 4U) {
-                finish_draw_batch(layer);
-                batch_callbacks = 0;
-            }
-        }
-        y = end + 1;
-    }
-    layer->_clip_area = saved_clip;
-}
-
-static void draw_slider(lv_layer_t *layer,
-                        const lv_area_t *area,
-                        void *user_data)
-{
-    light_brightness_slider_context_t *context = user_data;
+    const int32_t width = lv_obj_get_width(context->slider);
+    const int32_t height = lv_obj_get_height(context->slider);
+    lv_obj_set_size(context->track, width, height);
     const bool light = light_detail_is_light_theme();
     const lv_opa_t opacity = context->disabled ? LV_OPA_40 : LV_OPA_COVER;
     const bool effective_on = context->dragging
@@ -241,59 +153,45 @@ static void draw_slider(lv_layer_t *layer,
             : (effective_on
                    ? active_track_color(fill_color)
                    : lv_color_hex(BRIGHTNESS_OFF_TRACK_COLOR));
-    draw_rect(layer,
-              area,
-              track_color,
-              light ? (context->disabled ? LV_OPA_10 : LV_OPA_20)
-                    : opacity,
-              BRIGHTNESS_SLIDER_RADIUS);
+    lv_obj_set_style_bg_color(context->track, track_color, 0);
+    lv_obj_set_style_bg_opa(context->track,
+                            light ? (context->disabled ? LV_OPA_10
+                                                       : LV_OPA_20)
+                                  : opacity,
+                            0);
+
     if (!effective_on || context->visual_value <= 0) {
+        lv_obj_add_flag(context->fill, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(context->handle, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
-    const int32_t y = fill_top(area, context->visual_value);
-    lv_area_t fill = {
-        .x1 = area->x1,
-        .y1 = y,
-        .x2 = area->x2,
-        /* Keep the fill's lower small-radius corners below the track. The
-         * outer clip supplies the track's larger bottom radius. */
-        .y2 = area->y2 + BRIGHTNESS_SLIDER_RADIUS,
+    lv_area_t local_area = {
+        .x1 = 0,
+        .y1 = 0,
+        .x2 = width - 1,
+        .y2 = height - 1,
     };
-    draw_rect(layer,
-              &fill,
-              fill_color,
-              opacity,
-              BRIGHTNESS_FILL_TOP_RADIUS);
+    const int32_t y = fill_top(&local_area, context->visual_value);
 
-    lv_area_t handle = {
-        .x1 = area->x1 + BRIGHTNESS_HANDLE_INSET,
-        .y1 = y + BRIGHTNESS_HANDLE_Y_OFFSET,
-        .x2 = area->x2 - BRIGHTNESS_HANDLE_INSET,
-        .y2 = y + BRIGHTNESS_HANDLE_Y_OFFSET +
-              BRIGHTNESS_HANDLE_HEIGHT - 1,
-    };
-    draw_rect(layer,
-              &handle,
-              lv_color_white(),
-              opacity,
-              BRIGHTNESS_HANDLE_HEIGHT / 2);
-}
+    lv_obj_set_style_bg_color(context->fill, fill_color, 0);
+    lv_obj_set_style_bg_opa(context->fill, opacity, 0);
+    lv_obj_set_pos(context->fill, 0, y);
+    /* Keep the fill's lower small-radius corners below the track; the track's
+     * corner clip supplies its larger bottom radius. */
+    lv_obj_set_size(context->fill,
+                    width,
+                    height - y + BRIGHTNESS_SLIDER_RADIUS);
+    lv_obj_remove_flag(context->fill, LV_OBJ_FLAG_HIDDEN);
 
-static void draw_cb(lv_event_t *event)
-{
-    light_brightness_slider_context_t *context =
-        lv_event_get_user_data(event);
-    if (!context) {
-        return;
-    }
-    lv_area_t area;
-    lv_obj_get_coords(context->slider, &area);
-    draw_with_rounded_clip(lv_event_get_layer(event),
-                           &area,
-                           BRIGHTNESS_SLIDER_RADIUS,
-                           draw_slider,
-                           context);
+    lv_obj_set_style_bg_opa(context->handle, opacity, 0);
+    lv_obj_set_pos(context->handle,
+                   BRIGHTNESS_HANDLE_INSET,
+                   y + BRIGHTNESS_HANDLE_Y_OFFSET);
+    lv_obj_set_size(context->handle,
+                    width - BRIGHTNESS_HANDLE_INSET * 2,
+                    BRIGHTNESS_HANDLE_HEIGHT);
+    lv_obj_remove_flag(context->handle, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void update_tip(light_brightness_slider_context_t *context)
@@ -338,8 +236,25 @@ static void set_visual_value(light_brightness_slider_context_t *context,
 {
     context->visual_value = clamp_percent(value);
     set_native_value(context, context->visual_value);
-    lv_obj_invalidate(context->slider);
+    update_visual(context);
     update_tip(context);
+}
+
+static int32_t point_value(light_brightness_slider_context_t *context,
+                           const lv_point_t *point)
+{
+    lv_area_t area;
+    lv_obj_get_coords(context->slider, &area);
+    const int32_t travel = lv_area_get_height(&area) -
+                           BRIGHTNESS_END_CAP * 2 - 1;
+    if (travel <= 0) {
+        return context->visual_value;
+    }
+    const float position =
+        (float)(point->y - area.y1 - BRIGHTNESS_END_CAP);
+    const int32_t value =
+        100 - (int32_t)lroundf(position * 99.0f / travel);
+    return clamp_active_percent(value);
 }
 
 static int32_t pointer_value(light_brightness_slider_context_t *context)
@@ -350,18 +265,7 @@ static int32_t pointer_value(light_brightness_slider_context_t *context)
     }
     lv_point_t point;
     lv_indev_get_point(input, &point);
-    lv_area_t area;
-    lv_obj_get_coords(context->slider, &area);
-    const int32_t travel = lv_area_get_height(&area) -
-                           BRIGHTNESS_END_CAP * 2 - 1;
-    if (travel <= 0) {
-        return context->visual_value;
-    }
-    const float position =
-        (float)(point.y - area.y1 - BRIGHTNESS_END_CAP);
-    const int32_t value =
-        100 - (int32_t)lroundf(position * 99.0f / travel);
-    return clamp_active_percent(value);
+    return point_value(context, &point);
 }
 
 static void apply_pointer(light_brightness_slider_context_t *context,
@@ -384,7 +288,7 @@ static void visual_anim_cb(void *var, int32_t value)
         return;
     }
     context->visual_value = value;
-    lv_obj_invalidate(context->slider);
+    update_visual(context);
 }
 
 static void animate_visual_to(light_brightness_slider_context_t *context,
@@ -392,7 +296,7 @@ static void animate_visual_to(light_brightness_slider_context_t *context,
 {
     lv_anim_delete(context, visual_anim_cb);
     if (context->visual_value == value) {
-        lv_obj_invalidate(context->slider);
+        update_visual(context);
         return;
     }
     lv_anim_t animation;
@@ -423,8 +327,8 @@ static void event_cb(lv_event_t *event)
         lv_free(context);
         return;
     }
-    if (code == LV_EVENT_DRAW_MAIN) {
-        draw_cb(event);
+    if (code == LV_EVENT_SIZE_CHANGED) {
+        update_visual(context);
         return;
     }
     if (context->disabled || context->suppress_callback) {
@@ -434,6 +338,7 @@ static void event_cb(lv_event_t *event)
     if (code == LV_EVENT_PRESSED) {
         context->pressed = true;
         context->dragging = false;
+        context->has_last_drag_value = false;
         context->press_tick = lv_tick_get();
         lv_indev_t *input = lv_indev_active();
         if (input) {
@@ -458,6 +363,12 @@ static void event_cb(lv_event_t *event)
         }
         if (context->dragging) {
             apply_pointer(context, true);
+            /* Cache the last stable sample while the finger is still touching
+             * the glass. The release event samples one final point as the
+             * finger lifts, where capacitive coordinates can drift, so the
+             * commit must reuse this cached value instead. */
+            context->last_drag_value = context->visual_value;
+            context->has_last_drag_value = true;
         }
         return;
     }
@@ -468,7 +379,7 @@ static void event_cb(lv_event_t *event)
                 lv_slider_get_value(context->slider));
             set_native_value(context, value);
             context->visual_value = value;
-            lv_obj_invalidate(context->slider);
+            update_visual(context);
             if (context->callback) {
                 context->callback((uint8_t)context->visual_value,
                                   LIGHT_CONTROL_PREVIEW,
@@ -479,20 +390,27 @@ static void event_cb(lv_event_t *event)
     }
     if (code == LV_EVENT_RELEASED && context->pressed) {
         const bool was_dragging = context->dragging;
-        const int32_t value = pointer_value(context);
+        int32_t value;
+        if (was_dragging && context->has_last_drag_value) {
+            value = context->last_drag_value;
+        }
+        else {
+            value = point_value(context, &context->press_origin);
+        }
         if (was_dragging) {
-            apply_pointer(context, true);
+            set_visual_value(context, value);
         }
         else {
             set_native_value(context, value);
         }
         context->pressed = false;
         context->dragging = false;
+        context->has_last_drag_value = false;
         context->committed_value = (uint8_t)value;
         context->power_on = context->committed_value > 0;
         update_tip(context);
         if (was_dragging) {
-            lv_obj_invalidate(context->slider);
+            update_visual(context);
         }
         else {
             animate_visual_to(context, value);
@@ -507,6 +425,7 @@ static void event_cb(lv_event_t *event)
     if (code == LV_EVENT_PRESS_LOST && context->pressed) {
         context->pressed = false;
         context->dragging = false;
+        context->has_last_drag_value = false;
         set_visual_value(context, context->committed_value);
         update_tip(context);
         if (context->callback) {
@@ -515,6 +434,19 @@ static void event_cb(lv_event_t *event)
                               context->user_data);
         }
     }
+}
+
+/* The native slider recomputes its value from the release coordinate before
+ * regular event callbacks run. Own pointer input in the preprocess phase so
+ * that a drifting release sample cannot replace the displayed value. */
+static void pointer_event_cb(lv_event_t *event)
+{
+    lv_indev_t *input = lv_indev_active();
+    if (!input || lv_indev_get_type(input) != LV_INDEV_TYPE_POINTER) {
+        return;
+    }
+    event_cb(event);
+    lv_event_stop_processing(event);
 }
 
 lv_obj_t *light_brightness_slider_create(lv_obj_t *parent)
@@ -554,6 +486,40 @@ lv_obj_t *light_brightness_slider_create(lv_obj_t *parent)
     lv_obj_set_style_shadow_width(slider, 0, LV_PART_KNOB);
     lv_obj_set_style_pad_all(slider, 0, LV_PART_MAIN);
 
+    context->track = lv_obj_create(slider);
+    lv_obj_remove_style_all(context->track);
+    lv_obj_remove_flag(context->track,
+                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(context->track, 0, 0);
+    lv_obj_set_size(context->track,
+                    BRIGHTNESS_SLIDER_WIDTH,
+                    BRIGHTNESS_SLIDER_HEIGHT);
+    lv_obj_set_style_radius(context->track, BRIGHTNESS_SLIDER_RADIUS, 0);
+    lv_obj_set_style_clip_corner(context->track, true, 0);
+    lv_obj_set_style_border_width(context->track, 0, 0);
+    lv_obj_set_style_pad_all(context->track, 0, 0);
+
+    context->fill = lv_obj_create(context->track);
+    lv_obj_remove_style_all(context->fill);
+    lv_obj_remove_flag(context->fill,
+                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(context->fill, BRIGHTNESS_FILL_TOP_RADIUS, 0);
+    lv_obj_set_style_border_width(context->fill, 0, 0);
+    lv_obj_set_style_pad_all(context->fill, 0, 0);
+    lv_obj_add_flag(context->fill, LV_OBJ_FLAG_HIDDEN);
+
+    context->handle = lv_obj_create(context->track);
+    lv_obj_remove_style_all(context->handle);
+    lv_obj_remove_flag(context->handle,
+                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(context->handle,
+                            BRIGHTNESS_HANDLE_HEIGHT / 2,
+                            0);
+    lv_obj_set_style_bg_color(context->handle, lv_color_white(), 0);
+    lv_obj_set_style_border_width(context->handle, 0, 0);
+    lv_obj_set_style_pad_all(context->handle, 0, 0);
+    lv_obj_add_flag(context->handle, LV_OBJ_FLAG_HIDDEN);
+
     context->tip = lv_obj_create(slider);
     if (context->tip) {
         lv_obj_remove_flag(context->tip, LV_OBJ_FLAG_SCROLLABLE);
@@ -576,7 +542,16 @@ lv_obj_t *light_brightness_slider_create(lv_obj_t *parent)
     }
 
     lv_obj_add_event_cb(slider, event_cb, LV_EVENT_ALL, context);
+    lv_obj_add_event_cb(slider, pointer_event_cb,
+                        LV_EVENT_PRESSED | LV_EVENT_PREPROCESS, context);
+    lv_obj_add_event_cb(slider, pointer_event_cb,
+                        LV_EVENT_PRESSING | LV_EVENT_PREPROCESS, context);
+    lv_obj_add_event_cb(slider, pointer_event_cb,
+                        LV_EVENT_RELEASED | LV_EVENT_PREPROCESS, context);
+    lv_obj_add_event_cb(slider, pointer_event_cb,
+                        LV_EVENT_PRESS_LOST | LV_EVENT_PREPROCESS, context);
     lv_obj_refresh_ext_draw_size(slider);
+    update_visual(context);
     return slider;
 }
 
@@ -598,7 +573,7 @@ void light_brightness_slider_set_value(lv_obj_t *obj,
     }
     else {
         context->visual_value = percent;
-        lv_obj_invalidate(obj);
+        update_visual(context);
     }
 }
 
@@ -607,7 +582,7 @@ void light_brightness_slider_set_active_color(lv_obj_t *obj, lv_color_t color)
     light_brightness_slider_context_t *context = get_context(obj);
     if (context) {
         context->display_color = contrast_color(color);
-        lv_obj_invalidate(obj);
+        update_visual(context);
     }
 }
 
@@ -621,7 +596,7 @@ void light_brightness_slider_set_power(lv_obj_t *obj, bool on)
             context->visual_value = on ? context->committed_value : 0;
             set_native_value(context, context->visual_value);
         }
-        lv_obj_invalidate(obj);
+        update_visual(context);
     }
 }
 
@@ -643,7 +618,7 @@ void light_brightness_slider_set_disabled(lv_obj_t *obj, bool disabled)
     if (context->tip) {
         lv_obj_add_flag(context->tip, LV_OBJ_FLAG_HIDDEN);
     }
-    lv_obj_invalidate(obj);
+    update_visual(context);
 }
 
 void light_brightness_slider_set_change_cb(

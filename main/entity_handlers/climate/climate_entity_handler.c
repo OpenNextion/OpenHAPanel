@@ -11,6 +11,7 @@
 #include "climate_more_info.h"
 #include "climate_feature_handler.h"
 #include "esp_log.h"
+#include "screen_theme.h"
 
 static const char *TAG = "climate_entity_handler";
 
@@ -114,15 +115,18 @@ static esp_err_t climate_render_tile(ha_entity_store_t *store,
     model->icon_circle_background_color_light = model->icon_color;
     model->icon_circle_background_opa = LV_OPA_20;
     model->title_color = lv_color_hex(0xFFFFFF);
-    model->state_color = lv_color_hex(0x666666);
 
     if (entity_handler_snapshot_is_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
                                            sizeof(model->state_text),
                                            snapshot);
-        model->icon_color = lv_color_hex(0x6f6f6f);
+        const uint32_t unavailable_color =
+            screen_theme_get() == SCREEN_THEME_LIGHT
+                ? 0xBDBDBD
+                : 0x6F6F6F;
+        model->icon_color = lv_color_hex(unavailable_color);
         model->icon_circle_background_color = model->icon_color;
-        model->icon_circle_background_color_light = lv_color_hex(0xCDD0D6);
+        model->icon_circle_background_color_light = model->icon_color;
         return ESP_OK;
     }
 
@@ -163,11 +167,22 @@ static esp_err_t climate_render_tile(ha_entity_store_t *store,
                                         "current_temperature",
                                         &current_temperature) == ESP_OK &&
         isfinite(current_temperature)) {
-        size_t length = strlen(model->state_text);
-        snprintf(model->state_text + length,
-                 sizeof(model->state_text) - length,
-                 " · %.1f °C",
-                 current_temperature);
+        char value[32];
+        const i18n_number_options_t options = {
+            true, I18N_NUMBER_FRACTION_FIXED, 1
+        };
+        if (i18n_format_number_double(value, sizeof(value),
+                                      current_temperature, &options)) {
+            char state[sizeof(model->state_text)];
+            const i18n_arg_t args[] = {
+                {"mode", model->state_text},
+                {"value", value},
+            };
+            if (i18n_format(state, sizeof(state),
+                            "{mode} · {value} °C", args, 2)) {
+                i18n_copy(model->state_text, sizeof(model->state_text), state);
+            }
+        }
     }
 
     return ESP_OK;

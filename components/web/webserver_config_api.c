@@ -1,4 +1,5 @@
 #include <esp_log.h>
+#include <stdint.h>
 #include <time.h>
 #include <esp_wifi.h>
 #include "sys_time.h"
@@ -13,6 +14,8 @@
 #include "login_session.h"
 #include "screen_state.h"
 #include "ui_preferences.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #ifndef CONFIG_FIRMWARE_VERSION_STRING
 #ifdef CONFIG_APP_PROJECT_VER
@@ -30,6 +33,9 @@
  * @brief Logger tag
  */
 static const char *TAG = "webserver_config_api";
+
+static portMUX_TYPE s_factory_reset_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool s_factory_reset_in_progress;
 
 extern webserver_config_t config_info;
 extern device_info_t device_info;
@@ -281,7 +287,7 @@ int webserver_device_info_notify_to_client(uint8_t update_info, int socket_fd)
  *
  * Deletes configuration files and factory-resettable NVS state, then reboots.
  */
-void webserver_config_restore_factory_settings(void)
+static void webserver_config_execute_factory_reset(void)
 {
     ESP_LOGI(TAG, "RESTORE_FACTORY_SETTINGS");
     screen_state_request_transition(SCREEN_PAGE_RESTARTING);
@@ -318,4 +324,70 @@ void webserver_config_restore_factory_settings(void)
     webserver_force_free_all_clients();
     // notification_manage_esp32_reboot_notify_tigger();
     esp_restart();
+}
+
+static void webserver_config_factory_reset_task(void *arg)
+{
+    factory_reset_source_t source = (factory_reset_source_t)(intptr_t)arg;
+    ESP_LOGW(TAG,
+             "Factory reset accepted: source=%s",
+             source == FACTORY_RESET_SOURCE_BUTTON ? "button" : "web");
+
+    /* Give the WebSocket handler a short opportunity to send its response. */
+    if (source == FACTORY_RESET_SOURCE_WEB) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    /* Close the race where OTA starts after the request-side check but before
+     * this worker begins destructive operations. */
+    if (firmware_update_is_busy()) {
+        ESP_LOGW(TAG, "Factory reset canceled because firmware update became active");
+        taskENTER_CRITICAL(&s_factory_reset_lock);
+        s_factory_reset_in_progress = false;
+        taskEXIT_CRITICAL(&s_factory_reset_lock);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    webserver_config_execute_factory_reset();
+
+    /* esp_restart() normally never returns. Keep the guard recoverable if a
+     * platform error ever makes the executor return. */
+    taskENTER_CRITICAL(&s_factory_reset_lock);
+    s_factory_reset_in_progress = false;
+    taskEXIT_CRITICAL(&s_factory_reset_lock);
+    vTaskDelete(NULL);
+}
+
+esp_err_t webserver_config_request_factory_reset(factory_reset_source_t source)
+{
+    if (firmware_update_is_busy()) {
+        ESP_LOGW(TAG, "Factory reset rejected while firmware update is active");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    taskENTER_CRITICAL(&s_factory_reset_lock);
+    if (s_factory_reset_in_progress) {
+        taskEXIT_CRITICAL(&s_factory_reset_lock);
+        ESP_LOGW(TAG, "Duplicate factory reset request ignored");
+        return ESP_ERR_NOT_FINISHED;
+    }
+    s_factory_reset_in_progress = true;
+    taskEXIT_CRITICAL(&s_factory_reset_lock);
+
+    BaseType_t created = xTaskCreate(webserver_config_factory_reset_task,
+                                     "factory_reset",
+                                     4096,
+                                     (void *)(intptr_t)source,
+                                     5,
+                                     NULL);
+    if (created != pdPASS) {
+        taskENTER_CRITICAL(&s_factory_reset_lock);
+        s_factory_reset_in_progress = false;
+        taskEXIT_CRITICAL(&s_factory_reset_lock);
+        ESP_LOGE(TAG, "Failed to create factory reset task");
+        return ESP_ERR_NO_MEM;
+    }
+
+    return ESP_OK;
 }

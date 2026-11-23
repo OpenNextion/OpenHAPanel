@@ -137,7 +137,7 @@
     }
     .time-picker.open .time-picker-trigger {
         border-color: var(--primary-button-bg);
-        box-shadow: 0 0 0 0.125rem color-mix(in srgb, var(--primary-button-bg) 20%, transparent);
+        box-shadow: 0 0 0 0.125rem rgba(1, 119, 253, 0.2);
     }
     .time-picker-trigger:disabled {
         opacity: 0.5;
@@ -197,7 +197,7 @@
         font-size: 0.8125rem;
     }
     .time-picker-column button:hover {
-        background: color-mix(in srgb, var(--primary-button-bg) 10%, transparent);
+        background: rgba(1, 119, 253, 0.1);
     }
     .time-picker-column button.selected {
         background: var(--web-20, rgba(1, 119, 253, 0.2));

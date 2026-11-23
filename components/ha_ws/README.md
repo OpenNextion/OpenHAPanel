@@ -235,10 +235,10 @@ cJSON_Delete(message);
 
 | Kconfig 选项 | 默认值 | 说明 |
 | --- | ---: | --- |
-| `CONFIG_HA_WS_MAX_PENDING` | `8` | 同时等待响应的命令数量上限 |
-| `CONFIG_HA_WS_MAX_SUBSCRIPTIONS` | `8` | 活跃事件订阅数量上限 |
 | `CONFIG_HA_WS_RX_BUFFER_SIZE` | `262144` | 单条完整 WebSocket JSON 消息的最大字节数 |
 | `CONFIG_HA_WS_TX_TIMEOUT_MS` | `5000` | WebSocket 文本发送超时时间，单位为毫秒 |
+
+命令和订阅记录按需分配，数量由设备可用内存决定；内存不足时返回 `ESP_ERR_NO_MEM`。
 
 `get_states` 和 `get_services` 的响应可能较大。如果日志出现丢弃超大 payload 的提示，
 应提高 `CONFIG_HA_WS_RX_BUFFER_SIZE`，同时确认设备有足够的可用内存。
@@ -273,7 +273,6 @@ I (12345) ha_ws: Received HA JSON payload: 18432 bytes
 | 错误码 | 含义 |
 | --- | --- |
 | `HA_WS_ERR_NOT_AUTHENTICATED` | 客户端尚未完成认证 |
-| `HA_WS_ERR_NO_FREE_SLOT` | 待处理命令或订阅槽位已满 |
 | `HA_WS_ERR_INVALID_RESPONSE` | 无效响应（当前版本保留） |
 | `HA_WS_ERR_AUTH_INVALID` | 认证失败（当前版本保留） |
 

@@ -138,7 +138,6 @@
     .page-heading h1 {
         margin: 0;
         color: var(--bs-secondary-color);
-        font-family: 'PingFang SC', sans-serif;
         font-size: 0.75rem;
         font-style: normal;
         font-weight: 400;
@@ -157,7 +156,6 @@
     .connection-title {
         margin: 0.2rem 0 1rem;
         color: var(--bs-secondary-color);
-        font-family: 'PingFang SC', sans-serif;
         font-size: 0.75rem;
         font-style: normal;
         font-weight: 400;

@@ -10,6 +10,7 @@ extern const lv_font_t ha_font_mdi_26;
 extern const lv_font_t ha_font_mdi_36;
 
 extern const lv_font_t ha_font_misan_medium_12;
+extern const lv_font_t ha_font_misan_medium_14;
 extern const lv_font_t ha_font_misan_medium_16;
 extern const lv_font_t ha_font_misan_medium_20;
 extern const lv_font_t ha_font_misan_medium_24;

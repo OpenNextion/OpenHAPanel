@@ -3,12 +3,13 @@
     import HassEntityRow from '@/component/HassEntityRow/HassEntityRow.svelte';
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
     import Modal from '@/component/Modal/Modal.svelte';
-    import { addEntityToScreen, searchScreenEntities, type TEntityPickerMode } from '@/hooks/useScreenConfiguration';
+    import { addEntityToScreen, getDefaultScreenEntityFullWidth, searchScreenEntities, type TEntityPickerMode } from '@/hooks/useScreenConfiguration';
     import { getHassEntityPresentation } from '@/hooks/useHassEntity';
     import { getTileFeatureSuggestions } from '@/constant/tileFeatureRules';
     import type { IHassScreenConfigFeature } from '@/types/screenConfig';
     import { haRegistryStore, haRegistryTreeStore } from '@/stores/haRegistry';
     import { homeAssistantStore } from '@/stores/homeassistant';
+    import { deviceStore } from '@/stores/device';
     import { isHomeAssistantAvailable } from '@/hooks/useHomeAssistant.svelte';
     import type { IHassRegistryTreeArea, IHassRegistryTreeDevice, IHassRegistryTreeDomain, IHassRegistryTreeEntity } from '@/types/haRegistry';
     import { homeAssistantWebSocket } from '@/wsForHA';
@@ -30,6 +31,7 @@
     const selectedEntityPresentation = $derived(selectedEntity ? getHassEntityPresentation(selectedEntity.id, $haRegistryStore, { variant: mode }) : null);
     const selectedEntitySupported = $derived(selectedEntityPresentation?.supported ?? false);
     const selectedEntitySuggestions = $derived(selectedEntity ? getTileFeatureSuggestions(selectedEntity.id, $haRegistryStore.statesById.get(selectedEntity.id)) : []);
+    const defaultEntityFullWidth = $derived(getDefaultScreenEntityFullWidth($deviceStore.screenRotation.rotation));
 
     $effect(() => {
         if (visible && !wasVisible) {
@@ -207,19 +209,20 @@
                     {#if selectedEntity}<span class="preview-title">{$_('page.screen.suggestions')}</span>{/if}
                     <div
                         class:badge-preview={mode === 'badge'}
-                        class:multiple-tile-previews={mode === 'entity' && selectedEntitySuggestions.length > 1}
+                        class:tile-suggestion-preview={mode === 'entity' && selectedEntitySuggestions.length > 0}
                         class:unsupported-preview={selectedEntity !== null && !selectedEntitySupported}
                         class="preview-surface"
                     >
                         {#if selectedEntity && selectedEntitySupported}
-                            {#if mode === 'entity' && selectedEntitySuggestions.length > 1}
-                                <div class="tile-suggestions">
+                            {#if mode === 'entity' && selectedEntitySuggestions.length > 0}
+                                <div class:single-suggestion={selectedEntitySuggestions.length === 1} class="tile-suggestions">
                                     {#each selectedEntitySuggestions as suggestion (suggestion.id)}
                                         <div class="tile-suggestion">
                                             <span class="tile-suggestion-title">Tile{suggestion.labelKey ? ` - ${$_(suggestion.labelKey)}` : ''}</span>
                                             <HassEntityRow
                                                 entityId={selectedEntity.id}
                                                 features={suggestion.features}
+                                                fullWidth={defaultEntityFullWidth}
                                                 onclick={() => addSelected(suggestion.features)}
                                                 onFeatureToggle={() => addSelected(suggestion.features)}
                                                 onFeatureActivate={() => addSelected(suggestion.features)}
@@ -413,7 +416,7 @@
     .tree-node summary:hover,
     .tree-entity:hover,
     .tree-entity.selected {
-        background: color-mix(in srgb, var(--primary-button-bg) 12%, transparent);
+        background: rgba(1, 119, 253, 0.12);
     }
     .tree-entity.selected {
         color: var(--primary-button-bg);
@@ -500,6 +503,7 @@
         margin-bottom: 0.5rem;
         color: var(--picker-muted);
         font-size: var(--picker-detail-size);
+		font-weight: 700;
     }
     .preview-surface {
         display: flex;
@@ -524,7 +528,7 @@
         min-height: 5.25rem;
         padding-block: 1.6875rem;
     }
-    .has-selection .preview-surface.multiple-tile-previews {
+    .has-selection .preview-surface.tile-suggestion-preview {
         padding: 0;
         background: transparent;
     }
@@ -535,6 +539,9 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.75rem;
     }
+    .tile-suggestions.single-suggestion {
+        grid-template-columns: minmax(0, 1fr);
+    }
     .tile-suggestion {
         display: flex;
         min-width: 0;
@@ -542,18 +549,20 @@
         padding: 0.75rem;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
+        justify-content: flex-start;
         gap: 1rem;
         border: 0.0625rem solid var(--picker-border);
         border-radius: 0.75rem;
         background: var(--selected-preview-bg);
     }
     .tile-suggestion-title {
-        color: var(--picker-text);
+        color: var(--web-text-secondary);
         text-align: center;
+		font-weight: 500
     }
     .tile-suggestion :global(.hass-entity-row) {
         width: 100%;
+        margin-block: auto;
     }
     .preview-surface :global(.hass-entity-row.badge) {
         min-height: 1.875rem;

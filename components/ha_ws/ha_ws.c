@@ -1,7 +1,10 @@
 #include "ha_ws.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
+#include <time.h>
 
 #include "esp_check.h"
 #include "esp_heap_caps.h"
@@ -13,20 +16,22 @@
 
 #define HA_WS_PINGPONG_TIMEOUT_SEC 60
 
-typedef struct {
-    bool active;
+typedef struct ha_ws_pending_cmd {
+    struct ha_ws_pending_cmd *next;
     bool is_subscription;
     int id;
     ha_ws_result_cb_t cb;
     void *user_ctx;
 } ha_ws_pending_cmd_t;
 
-typedef struct {
-    bool active;
+typedef struct ha_ws_subscription {
+    struct ha_ws_subscription *next;
     int id;
     char *event_type;
     char **entity_ids;
     size_t entity_id_count;
+    unsigned history_hours;
+    bool history_stream;
     ha_ws_event_cb_t event_cb;
     ha_ws_result_cb_t result_cb;
     void *user_ctx;
@@ -52,8 +57,8 @@ struct ha_ws_client {
     char *rx_buf;
     size_t rx_capacity;
     size_t rx_len;
-    ha_ws_pending_cmd_t pending[CONFIG_HA_WS_MAX_PENDING];
-    ha_ws_subscription_t subscriptions[CONFIG_HA_WS_MAX_SUBSCRIPTIONS];
+    ha_ws_pending_cmd_t *pending;
+    ha_ws_subscription_t *subscriptions;
 };
 
 static const char *TAG = "ha_ws";
@@ -118,6 +123,19 @@ static char *ha_ws_strdup(const char *value)
     }
     size_t len = strlen(value) + 1;
     char *copy = malloc(len);
+    if (copy) {
+        memcpy(copy, value, len);
+    }
+    return copy;
+}
+
+static char *ha_ws_psram_strdup(const char *value)
+{
+    if (!value) {
+        return NULL;
+    }
+    size_t len = strlen(value) + 1;
+    char *copy = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (copy) {
         memcpy(copy, value, len);
     }
@@ -191,70 +209,95 @@ static void ha_ws_fire_connection_event(ha_ws_client_t *client, ha_ws_event_t ev
 
 static ha_ws_pending_cmd_t *ha_ws_find_pending(ha_ws_client_t *client, int id)
 {
-    for (size_t i = 0; i < CONFIG_HA_WS_MAX_PENDING; i++) {
-        if (client->pending[i].active && client->pending[i].id == id) {
-            return &client->pending[i];
-        }
+    for (ha_ws_pending_cmd_t *pending = client->pending; pending; pending = pending->next) {
+        if (pending->id == id) return pending;
     }
     return NULL;
 }
 
 static ha_ws_pending_cmd_t *ha_ws_alloc_pending(ha_ws_client_t *client)
 {
-    for (size_t i = 0; i < CONFIG_HA_WS_MAX_PENDING; i++) {
-        if (!client->pending[i].active) {
-            return &client->pending[i];
+    ha_ws_pending_cmd_t *pending = heap_caps_calloc(1, sizeof(*pending),
+                                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (pending) {
+        pending->next = client->pending;
+        client->pending = pending;
+    }
+    return pending;
+}
+
+static void ha_ws_remove_pending(ha_ws_client_t *client, ha_ws_pending_cmd_t *pending)
+{
+    for (ha_ws_pending_cmd_t **link = &client->pending; *link; link = &(*link)->next) {
+        if (*link == pending) {
+            *link = pending->next;
+            free(pending);
+            return;
         }
     }
-    return NULL;
 }
 
 static ha_ws_subscription_t *ha_ws_find_subscription(ha_ws_client_t *client, int id)
 {
-    for (size_t i = 0; i < CONFIG_HA_WS_MAX_SUBSCRIPTIONS; i++) {
-        if (client->subscriptions[i].active && client->subscriptions[i].id == id) {
-            return &client->subscriptions[i];
-        }
+    for (ha_ws_subscription_t *subscription = client->subscriptions;
+         subscription; subscription = subscription->next) {
+        if (subscription->id == id) return subscription;
     }
     return NULL;
 }
 
 static ha_ws_subscription_t *ha_ws_alloc_subscription(ha_ws_client_t *client)
 {
-    for (size_t i = 0; i < CONFIG_HA_WS_MAX_SUBSCRIPTIONS; i++) {
-        if (!client->subscriptions[i].active) {
-            return &client->subscriptions[i];
-        }
+    ha_ws_subscription_t *subscription = heap_caps_calloc(1, sizeof(*subscription),
+                                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (subscription) {
+        subscription->next = client->subscriptions;
+        client->subscriptions = subscription;
     }
-    return NULL;
+    return subscription;
 }
 
-static void ha_ws_free_subscription(ha_ws_subscription_t *subscription)
+static void ha_ws_clear_subscription(ha_ws_subscription_t *subscription)
 {
-    if (!subscription) {
-        return;
-    }
     free(subscription->event_type);
     for (size_t i = 0; i < subscription->entity_id_count; i++) {
         free(subscription->entity_ids[i]);
     }
     free(subscription->entity_ids);
-    memset(subscription, 0, sizeof(*subscription));
+    subscription->event_type = NULL;
+    subscription->entity_ids = NULL;
+    subscription->entity_id_count = 0;
+}
+
+static void ha_ws_remove_subscription(ha_ws_client_t *client,
+                                      ha_ws_subscription_t *subscription)
+{
+    for (ha_ws_subscription_t **link = &client->subscriptions;
+         *link; link = &(*link)->next) {
+        if (*link == subscription) {
+            *link = subscription->next;
+            ha_ws_clear_subscription(subscription);
+            free(subscription);
+            return;
+        }
+    }
 }
 
 static esp_err_t ha_ws_copy_entity_ids(ha_ws_subscription_t *subscription,
                                        const char *const *entity_ids,
                                        size_t entity_id_count)
 {
-    subscription->entity_ids = calloc(entity_id_count, sizeof(*subscription->entity_ids));
+    subscription->entity_ids = heap_caps_calloc(entity_id_count,
+                                               sizeof(*subscription->entity_ids),
+                                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!subscription->entity_ids) {
         return ESP_ERR_NO_MEM;
     }
     subscription->entity_id_count = entity_id_count;
     for (size_t i = 0; i < entity_id_count; i++) {
-        subscription->entity_ids[i] = ha_ws_strdup(entity_ids[i]);
+        subscription->entity_ids[i] = ha_ws_psram_strdup(entity_ids[i]);
         if (!subscription->entity_ids[i]) {
-            ha_ws_free_subscription(subscription);
+            ha_ws_clear_subscription(subscription);
             return ESP_ERR_NO_MEM;
         }
     }
@@ -279,17 +322,44 @@ static bool ha_ws_add_entity_ids(cJSON *message,
     return true;
 }
 
+static bool ha_ws_add_history_stream_fields(cJSON *message,
+                                            const char *const *entity_ids,
+                                            size_t entity_id_count,
+                                            unsigned hours)
+{
+    struct timeval now;
+    if (!hours || gettimeofday(&now, NULL) != 0 ||
+        now.tv_sec <= (time_t)hours * 3600) return false;
+    const time_t start = now.tv_sec - (time_t)hours * 3600;
+    struct tm utc;
+    char start_base[24];
+    char start_iso[32];
+    if (!gmtime_r(&start, &utc) ||
+        !strftime(start_base, sizeof(start_base),
+                  "%Y-%m-%dT%H:%M:%S", &utc)) {
+        return false;
+    }
+    const int written = snprintf(start_iso, sizeof(start_iso),
+                                 "%s.%03ldZ", start_base,
+                                 (long)(now.tv_usec / 1000));
+    if (written < 0 || (size_t)written >= sizeof(start_iso)) return false;
+    return cJSON_AddStringToObject(message, "type", "history/stream") &&
+           ha_ws_add_entity_ids(message, entity_ids, entity_id_count) &&
+           cJSON_AddStringToObject(message, "start_time", start_iso) &&
+           cJSON_AddBoolToObject(message, "minimal_response", true) &&
+           cJSON_AddBoolToObject(message, "significant_changes_only", true) &&
+           cJSON_AddBoolToObject(message, "no_attributes", true);
+}
+
 static void ha_ws_reject_pending_locked(ha_ws_client_t *client, esp_err_t err)
 {
-    for (size_t i = 0; i < CONFIG_HA_WS_MAX_PENDING; i++) {
-        ha_ws_pending_cmd_t *pending = &client->pending[i];
-        if (!pending->active) {
-            continue;
-        }
+    while (client->pending) {
+        ha_ws_pending_cmd_t *pending = client->pending;
+        client->pending = pending->next;
         if (pending->cb) {
             pending->cb(client, pending->id, err, NULL, NULL, pending->user_ctx);
         }
-        memset(pending, 0, sizeof(*pending));
+        free(pending);
     }
 }
 
@@ -371,7 +441,11 @@ static void ha_ws_handle_auth_ok_locked(ha_ws_client_t *client, const cJSON *mes
             ESP_LOGW(TAG, "Failed to enable coalesced messages: %s", esp_err_to_name(err));
         }
     }
-    ha_ws_resubscribe_locked(client);
+    esp_err_t resubscribe_err = ha_ws_resubscribe_locked(client);
+    if (resubscribe_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to restore HA subscriptions: %s",
+                 esp_err_to_name(resubscribe_err));
+    }
     ha_ws_fire_connection_event(client, HA_WS_EVENT_AUTHENTICATED);
 }
 
@@ -402,8 +476,14 @@ static void ha_ws_handle_result_locked(ha_ws_client_t *client, const cJSON *mess
         pending->cb(client, id, success ? ESP_OK : ESP_FAIL, result, error, pending->user_ctx);
     }
 
-    if (!success || !pending->is_subscription) {
-        memset(pending, 0, sizeof(*pending));
+    /* A callback may unsubscribe and free these records. Look them up again. */
+    pending = ha_ws_find_pending(client, id);
+    if (!success) {
+        ha_ws_subscription_t *subscription = ha_ws_find_subscription(client, id);
+        if (subscription) ha_ws_remove_subscription(client, subscription);
+    }
+    if (pending && (!success || !pending->is_subscription)) {
+        ha_ws_remove_pending(client, pending);
     }
 }
 
@@ -425,7 +505,8 @@ static void ha_ws_handle_pong_locked(ha_ws_client_t *client, const cJSON *messag
     if (pending->cb) {
         pending->cb(client, id, ESP_OK, NULL, NULL, pending->user_ctx);
     }
-    memset(pending, 0, sizeof(*pending));
+    pending = ha_ws_find_pending(client, id);
+    if (pending) ha_ws_remove_pending(client, pending);
 }
 
 static void ha_ws_handle_event_locked(ha_ws_client_t *client, const cJSON *message)
@@ -722,8 +803,11 @@ esp_err_t ha_ws_destroy(ha_ws_client_t *client)
     if (client->lock) {
         vSemaphoreDelete(client->lock);
     }
-    for (size_t i = 0; i < CONFIG_HA_WS_MAX_SUBSCRIPTIONS; i++) {
-        ha_ws_free_subscription(&client->subscriptions[i]);
+    while (client->subscriptions) {
+        ha_ws_remove_subscription(client, client->subscriptions);
+    }
+    while (client->pending) {
+        ha_ws_remove_pending(client, client->pending);
     }
     free(client->hass_url);
     free(client->ws_url);
@@ -766,12 +850,11 @@ esp_err_t ha_ws_send_command(ha_ws_client_t *client,
     ha_ws_pending_cmd_t *pending = ha_ws_alloc_pending(client);
     if (!pending) {
         xSemaphoreGiveRecursive(client->lock);
-        return HA_WS_ERR_NO_FREE_SLOT;
+        return ESP_ERR_NO_MEM;
     }
 
     int id = ++client->next_id;
     cJSON_AddNumberToObject(message, "id", id);
-    pending->active = true;
     pending->is_subscription = false;
     pending->id = id;
     pending->cb = cb;
@@ -779,7 +862,7 @@ esp_err_t ha_ws_send_command(ha_ws_client_t *client,
 
     esp_err_t err = ha_ws_send_json_locked(client, message);
     if (err != ESP_OK) {
-        memset(pending, 0, sizeof(*pending));
+        ha_ws_remove_pending(client, pending);
     } else if (id_out) {
         *id_out = id;
     }
@@ -884,21 +967,28 @@ esp_err_t ha_ws_subscribe_events(ha_ws_client_t *client,
     ha_ws_pending_cmd_t *pending = ha_ws_alloc_pending(client);
     ha_ws_subscription_t *subscription = ha_ws_alloc_subscription(client);
     if (!pending || !subscription) {
+        if (pending) ha_ws_remove_pending(client, pending);
+        if (subscription) ha_ws_remove_subscription(client, subscription);
         xSemaphoreGiveRecursive(client->lock);
         cJSON_Delete(message);
-        return HA_WS_ERR_NO_FREE_SLOT;
+        return ESP_ERR_NO_MEM;
     }
 
     int id = ++client->next_id;
     cJSON_AddNumberToObject(message, "id", id);
-    subscription->active = true;
     subscription->id = id;
-    subscription->event_type = ha_ws_strdup(event_type);
+    subscription->event_type = ha_ws_psram_strdup(event_type);
+    if (event_type && !subscription->event_type) {
+        ha_ws_remove_subscription(client, subscription);
+        ha_ws_remove_pending(client, pending);
+        xSemaphoreGiveRecursive(client->lock);
+        cJSON_Delete(message);
+        return ESP_ERR_NO_MEM;
+    }
     subscription->event_cb = event_cb;
     subscription->result_cb = result_cb;
     subscription->user_ctx = user_ctx;
 
-    pending->active = true;
     pending->is_subscription = true;
     pending->id = id;
     pending->cb = result_cb;
@@ -906,9 +996,8 @@ esp_err_t ha_ws_subscribe_events(ha_ws_client_t *client,
 
     esp_err_t err = ha_ws_send_json_locked(client, message);
     if (err != ESP_OK) {
-        free(subscription->event_type);
-        memset(subscription, 0, sizeof(*subscription));
-        memset(pending, 0, sizeof(*pending));
+        ha_ws_remove_subscription(client, subscription);
+        ha_ws_remove_pending(client, pending);
     } else if (subscription_id_out) {
         *subscription_id_out = id;
     }
@@ -955,13 +1044,17 @@ esp_err_t ha_ws_subscribe_entities(ha_ws_client_t *client,
     ha_ws_pending_cmd_t *pending = ha_ws_alloc_pending(client);
     ha_ws_subscription_t *subscription = ha_ws_alloc_subscription(client);
     if (!pending || !subscription) {
+        if (pending) ha_ws_remove_pending(client, pending);
+        if (subscription) ha_ws_remove_subscription(client, subscription);
         xSemaphoreGiveRecursive(client->lock);
         cJSON_Delete(message);
-        return HA_WS_ERR_NO_FREE_SLOT;
+        return ESP_ERR_NO_MEM;
     }
 
     esp_err_t err = ha_ws_copy_entity_ids(subscription, entity_ids, entity_id_count);
     if (err != ESP_OK) {
+        ha_ws_remove_pending(client, pending);
+        ha_ws_remove_subscription(client, subscription);
         xSemaphoreGiveRecursive(client->lock);
         cJSON_Delete(message);
         return err;
@@ -969,13 +1062,11 @@ esp_err_t ha_ws_subscribe_entities(ha_ws_client_t *client,
 
     int id = ++client->next_id;
     cJSON_AddNumberToObject(message, "id", id);
-    subscription->active = true;
     subscription->id = id;
     subscription->event_cb = event_cb;
     subscription->result_cb = result_cb;
     subscription->user_ctx = user_ctx;
 
-    pending->active = true;
     pending->is_subscription = true;
     pending->id = id;
     pending->cb = result_cb;
@@ -983,13 +1074,80 @@ esp_err_t ha_ws_subscribe_entities(ha_ws_client_t *client,
 
     err = ha_ws_send_json_locked(client, message);
     if (err != ESP_OK) {
-        ha_ws_free_subscription(subscription);
-        memset(pending, 0, sizeof(*pending));
+        ha_ws_remove_subscription(client, subscription);
+        ha_ws_remove_pending(client, pending);
     } else if (subscription_id_out) {
         *subscription_id_out = id;
     }
     xSemaphoreGiveRecursive(client->lock);
 
+    cJSON_Delete(message);
+    return err;
+}
+
+esp_err_t ha_ws_subscribe_history_stream(ha_ws_client_t *client,
+                                         const char *entity_id,
+                                         unsigned hours_to_show,
+                                         ha_ws_event_cb_t event_cb,
+                                         ha_ws_result_cb_t result_cb,
+                                         void *user_ctx,
+                                         int *subscription_id_out)
+{
+    ESP_RETURN_ON_FALSE(client && entity_id && entity_id[0] &&
+                        hours_to_show > 0 && event_cb,
+                        ESP_ERR_INVALID_ARG, TAG, "Invalid history subscription");
+    const char *entity_ids[] = { entity_id };
+    cJSON *message = cJSON_CreateObject();
+    if (!message) return ESP_ERR_NO_MEM;
+    if (!ha_ws_add_history_stream_fields(message, entity_ids, 1,
+                                         hours_to_show)) {
+        cJSON_Delete(message);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    xSemaphoreTakeRecursive(client->lock, portMAX_DELAY);
+    if (!client->authenticated) {
+        xSemaphoreGiveRecursive(client->lock);
+        cJSON_Delete(message);
+        return HA_WS_ERR_NOT_AUTHENTICATED;
+    }
+    ha_ws_pending_cmd_t *pending = ha_ws_alloc_pending(client);
+    ha_ws_subscription_t *subscription = ha_ws_alloc_subscription(client);
+    if (!pending || !subscription) {
+        if (pending) ha_ws_remove_pending(client, pending);
+        if (subscription) ha_ws_remove_subscription(client, subscription);
+        xSemaphoreGiveRecursive(client->lock);
+        cJSON_Delete(message);
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t err = ha_ws_copy_entity_ids(subscription, entity_ids, 1);
+    if (err != ESP_OK) {
+        ha_ws_remove_pending(client, pending);
+        ha_ws_remove_subscription(client, subscription);
+        xSemaphoreGiveRecursive(client->lock);
+        cJSON_Delete(message);
+        return err;
+    }
+    const int id = ++client->next_id;
+    cJSON_AddNumberToObject(message, "id", id);
+    subscription->id = id;
+    subscription->history_stream = true;
+    subscription->history_hours = hours_to_show;
+    subscription->event_cb = event_cb;
+    subscription->result_cb = result_cb;
+    subscription->user_ctx = user_ctx;
+    pending->is_subscription = true;
+    pending->id = id;
+    pending->cb = result_cb;
+    pending->user_ctx = user_ctx;
+    err = ha_ws_send_json_locked(client, message);
+    if (err != ESP_OK) {
+        ha_ws_remove_subscription(client, subscription);
+        ha_ws_remove_pending(client, pending);
+    } else if (subscription_id_out) {
+        *subscription_id_out = id;
+    }
+    xSemaphoreGiveRecursive(client->lock);
     cJSON_Delete(message);
     return err;
 }
@@ -1008,11 +1166,11 @@ esp_err_t ha_ws_unsubscribe_events(ha_ws_client_t *client,
         xSemaphoreGiveRecursive(client->lock);
         return ESP_ERR_NOT_FOUND;
     }
-    ha_ws_free_subscription(subscription);
+    ha_ws_remove_subscription(client, subscription);
 
     ha_ws_pending_cmd_t *pending_subscription = ha_ws_find_pending(client, subscription_id);
     if (pending_subscription) {
-        memset(pending_subscription, 0, sizeof(*pending_subscription));
+        ha_ws_remove_pending(client, pending_subscription);
     }
     xSemaphoreGiveRecursive(client->lock);
 
@@ -1031,56 +1189,56 @@ esp_err_t ha_ws_unsubscribe_events_by_callback(ha_ws_client_t *client,
 {
     ESP_RETURN_ON_FALSE(client && event_cb, ESP_ERR_INVALID_ARG, TAG, "Invalid argument");
 
-    int subscription_ids[CONFIG_HA_WS_MAX_SUBSCRIPTIONS] = {0};
-    size_t match_count = 0;
-    bool authenticated = false;
-
+    /* Collect IDs before removing records. Allocation failure leaves state unchanged. */
     xSemaphoreTakeRecursive(client->lock, portMAX_DELAY);
-    for (size_t i = 0; i < CONFIG_HA_WS_MAX_SUBSCRIPTIONS; i++) {
-        ha_ws_subscription_t *subscription = &client->subscriptions[i];
-        if (subscription->active && subscription->event_cb == event_cb &&
-            subscription->user_ctx == event_user_ctx) {
-            int subscription_id = subscription->id;
-            subscription_ids[match_count++] = subscription_id;
-            ha_ws_free_subscription(subscription);
-
-            ha_ws_pending_cmd_t *pending_subscription =
-                ha_ws_find_pending(client, subscription_id);
-            if (pending_subscription) {
-                memset(pending_subscription, 0, sizeof(*pending_subscription));
-            }
-        }
+    size_t match_count = 0;
+    for (ha_ws_subscription_t *subscription = client->subscriptions;
+         subscription; subscription = subscription->next) {
+        if (subscription->event_cb == event_cb &&
+            subscription->user_ctx == event_user_ctx) match_count++;
     }
-
     if (match_count == 0) {
         xSemaphoreGiveRecursive(client->lock);
         return ESP_ERR_NOT_FOUND;
     }
-
-    authenticated = client->authenticated;
+    int *subscription_ids = heap_caps_calloc(match_count, sizeof(*subscription_ids),
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!subscription_ids) {
+        xSemaphoreGiveRecursive(client->lock);
+        return ESP_ERR_NO_MEM;
+    }
+    size_t index = 0;
+    for (ha_ws_subscription_t *subscription = client->subscriptions, *next;
+         subscription; subscription = next) {
+        next = subscription->next;
+        if (subscription->event_cb == event_cb &&
+            subscription->user_ctx == event_user_ctx) {
+            int id = subscription->id;
+            subscription_ids[index++] = id;
+            ha_ws_remove_subscription(client, subscription);
+            ha_ws_pending_cmd_t *pending = ha_ws_find_pending(client, id);
+            if (pending) ha_ws_remove_pending(client, pending);
+        }
+    }
+    bool authenticated = client->authenticated;
     xSemaphoreGiveRecursive(client->lock);
 
-    if (!authenticated) {
-        return ESP_OK;
-    }
-
     esp_err_t first_error = ESP_OK;
-    for (size_t i = 0; i < match_count; i++) {
-        cJSON *message = cJSON_CreateObject();
-        if (!message) {
-            if (first_error == ESP_OK) {
-                first_error = ESP_ERR_NO_MEM;
+    if (authenticated) {
+        for (size_t i = 0; i < index; i++) {
+            cJSON *message = cJSON_CreateObject();
+            if (!message) {
+                if (first_error == ESP_OK) first_error = ESP_ERR_NO_MEM;
+                continue;
             }
-            continue;
-        }
-        cJSON_AddStringToObject(message, "type", "unsubscribe_events");
-        cJSON_AddNumberToObject(message, "subscription", subscription_ids[i]);
-        esp_err_t err = ha_ws_send_command(client, message, NULL, NULL, NULL);
-        cJSON_Delete(message);
-        if (first_error == ESP_OK && err != ESP_OK) {
-            first_error = err;
+            cJSON_AddStringToObject(message, "type", "unsubscribe_events");
+            cJSON_AddNumberToObject(message, "subscription", subscription_ids[i]);
+            esp_err_t err = ha_ws_send_command(client, message, NULL, NULL, NULL);
+            cJSON_Delete(message);
+            if (first_error == ESP_OK && err != ESP_OK) first_error = err;
         }
     }
+    free(subscription_ids);
     return first_error;
 }
 
@@ -1089,15 +1247,15 @@ esp_err_t ha_ws_cancel_pending_by_context(ha_ws_client_t *client, void *user_ctx
     ESP_RETURN_ON_FALSE(client, ESP_ERR_INVALID_ARG, TAG, "Invalid client");
 
     xSemaphoreTakeRecursive(client->lock, portMAX_DELAY);
-    for (size_t i = 0; i < CONFIG_HA_WS_MAX_PENDING; i++) {
-        ha_ws_pending_cmd_t *pending = &client->pending[i];
-        if (pending->active && pending->user_ctx == user_ctx) {
+    for (ha_ws_pending_cmd_t *pending = client->pending, *next; pending; pending = next) {
+        next = pending->next;
+        if (pending->user_ctx == user_ctx) {
             /* Keep an active subscription command owned by its subscription. */
             if (pending->is_subscription && ha_ws_find_subscription(client, pending->id)) {
                 pending->cb = NULL;
                 pending->user_ctx = NULL;
             } else {
-                memset(pending, 0, sizeof(*pending));
+                ha_ws_remove_pending(client, pending);
             }
         }
     }
@@ -1107,17 +1265,22 @@ esp_err_t ha_ws_cancel_pending_by_context(ha_ws_client_t *client, void *user_ctx
 
 static esp_err_t ha_ws_resubscribe_locked(ha_ws_client_t *client)
 {
-    for (size_t i = 0; i < CONFIG_HA_WS_MAX_SUBSCRIPTIONS; i++) {
-        ha_ws_subscription_t *subscription = &client->subscriptions[i];
-        if (!subscription->active) {
-            continue;
-        }
+    for (ha_ws_subscription_t *subscription = client->subscriptions;
+         subscription; subscription = subscription->next) {
 
         cJSON *message = cJSON_CreateObject();
         if (!message) {
             return ESP_ERR_NO_MEM;
         }
-        if (subscription->entity_ids) {
+        if (subscription->history_stream) {
+            if (!ha_ws_add_history_stream_fields(message,
+                    (const char *const *)subscription->entity_ids,
+                    subscription->entity_id_count,
+                    subscription->history_hours)) {
+                cJSON_Delete(message);
+                return ESP_ERR_INVALID_STATE;
+            }
+        } else if (subscription->entity_ids) {
             cJSON_AddStringToObject(message, "type", "subscribe_entities");
             if (!ha_ws_add_entity_ids(message,
                                       (const char *const *)subscription->entity_ids,
@@ -1133,25 +1296,25 @@ static esp_err_t ha_ws_resubscribe_locked(ha_ws_client_t *client)
         }
 
         int old_id = subscription->id;
+        ha_ws_pending_cmd_t *pending = ha_ws_find_pending(client, old_id);
+        if (!pending) pending = ha_ws_alloc_pending(client);
+        if (!pending) {
+            cJSON_Delete(message);
+            return ESP_ERR_NO_MEM;
+        }
+
         int new_id = ++client->next_id;
         cJSON_AddNumberToObject(message, "id", new_id);
         subscription->id = new_id;
-
-        ha_ws_pending_cmd_t *pending = ha_ws_find_pending(client, old_id);
-        if (!pending) {
-            pending = ha_ws_alloc_pending(client);
-        }
-        if (pending) {
-            pending->active = true;
-            pending->is_subscription = true;
-            pending->id = new_id;
-            pending->cb = subscription->result_cb;
-            pending->user_ctx = subscription->user_ctx;
-        }
+        pending->is_subscription = true;
+        pending->id = new_id;
+        pending->cb = subscription->result_cb;
+        pending->user_ctx = subscription->user_ctx;
 
         esp_err_t err = ha_ws_send_json_locked(client, message);
         cJSON_Delete(message);
         if (err != ESP_OK) {
+            ha_ws_remove_pending(client, pending);
             return err;
         }
     }

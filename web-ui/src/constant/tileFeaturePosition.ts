@@ -2,6 +2,11 @@ import type { IHassScreenConfigCard } from '@/types/screenConfig';
 
 export type TTileFeaturePosition = 'bottom' | 'inline';
 
+export function getTileFavoriteVisibleCount(kind: 'light' | 'cover', isLandscape: boolean, spansFullRow: boolean) {
+    if (spansFullRow) return isLandscape ? 8 : kind === 'cover' ? 6 : 5;
+    return isLandscape ? 4 : 3;
+}
+
 /** An omitted card-level position uses the default bottom layout. */
 export function getTileFeaturePosition(position?: unknown): TTileFeaturePosition {
     return position === 'inline' ? 'inline' : 'bottom';

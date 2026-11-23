@@ -180,9 +180,9 @@ export const HASS_ENTITY_SUPPORT_CONFIG: Readonly<Record<string, IHassEntitySupp
             entity: 'sensor',
             badge: 'sensor',
             byDeviceClass: {
-                date: { entity: 'raw', badge: 'date-short' },
+                date: { entity: 'raw', badge: 'raw' },
                 enum: { entity: 'enum' },
-                timestamp: { entity: 'relative-time', badge: 'date-short' },
+                timestamp: { entity: 'relative-time', badge: 'relative-time' },
                 uptime: { entity: 'relative-time' },
             },
         },
@@ -232,7 +232,7 @@ export const HASS_ENTITY_SUPPORT_CONFIG: Readonly<Record<string, IHassEntitySupp
     climate: {
         interactions: { tap: MORE_INFO_DEFAULT, hold: NOTHING_DEFAULT, iconTap: NOTHING_DEFAULT },
         badgeInteractions: { tap: BADGE_TOGGLE_TAP, hold: BADGE_MORE_INFO_HOLD },
-        stateDisplay: { entity: 'climate', badge: 'climate-badge' },
+        stateDisplay: { entity: 'climate-badge', badge: 'climate-badge' },
         preview: { tone: 'cyan' },
     },
     event: {
@@ -254,6 +254,12 @@ export const HASS_ENTITY_SUPPORT_CONFIG: Readonly<Record<string, IHassEntitySupp
         preview: { tone: 'blue' },
     },
 });
+
+export function shouldShowHassEntityIconBackground(entityId: string, iconTapAction?: THassScreenAction) {
+    const domain = entityId.split('.', 1)[0];
+    const config = HASS_ENTITY_SUPPORT_CONFIG[domain];
+    return (iconTapAction ?? config?.interactions.iconTap.default ?? 'nothing') !== 'nothing';
+}
 
 function matchesSupportConfig(entityId: string, deviceClass?: unknown) {
     const domain = entityId.split('.', 1)[0];

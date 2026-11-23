@@ -18,6 +18,7 @@
         id: string
         ariaLabel: string
         searchable: boolean
+        searchInMenu: boolean
         searchValue: string
         searchPlaceholder: string
         noOptionsText: string
@@ -34,6 +35,7 @@
         id,
         ariaLabel,
         searchable = false,
+        searchInMenu = false,
         searchValue = $bindable(''),
         searchPlaceholder = '',
         noOptionsText = '',
@@ -75,17 +77,17 @@
     };
 </script>
 
-<div class="dropdown" class:disabled>
+<div class="dropdown" class:disabled class:search-in-menu={searchable && searchInMenu && !!children}>
     {#if searchable}
-        {#if children && !expanded}
+        {#if children && (searchInMenu || !expanded)}
             <button
                 {id}
                 class="dropdown-trigger custom-searchable-trigger"
                 type="button"
-                aria-expanded="false"
+                aria-expanded={expanded}
                 aria-label={ariaLabel}
                 {disabled}
-                onclick={openSearch}
+                onclick={searchInMenu ? () => (expanded = !expanded) : openSearch}
             >
                 {@render children()}
             </button>
@@ -166,6 +168,38 @@
             }}
         ></button>
         <ul bind:this={menuElement} id={id ? `${id}-menu` : undefined} class="show w-100 dropdown-menu">
+            {#if searchable && searchInMenu}
+                <li class="dropdown-search" role="none">
+                    <div class="dropdown-search-field">
+                        <SvgIcon name="mdi:magnify" />
+                        <input
+                            bind:this={searchInput}
+                            value={searchValue}
+                            placeholder={searchPlaceholder || String(selectedLabel ?? '')}
+                            {disabled}
+                            aria-label={ariaLabel}
+                            oninput={(event) => updateSearch(event.currentTarget.value)}
+                            onkeydown={(event) => {
+                                if (event.key === 'Escape') expanded = false;
+                            }}
+                        />
+                        {#if searchValue}
+                            <button
+                                type="button"
+                                class="searchable-clear"
+                                aria-label={$_('common.clearSearch')}
+                                onclick={(event) => {
+                                    event.stopPropagation();
+                                    updateSearch('');
+                                    void tick().then(() => searchInput?.focus());
+                                }}
+                            >
+                                <SvgIcon name="mdi:close" />
+                            </button>
+                        {/if}
+                    </div>
+                </li>
+            {/if}
             {#each options as option, index (`${option.label}-${index}`)}
                 <li class="dropdown-item" class:active={option.value === value} onclick={(event) => handleSelected(event, option.value)} data-value={option.value} role="none">
                     {#if optionSnippet}
@@ -188,6 +222,9 @@
     &.disabled {
         cursor: default;
         opacity: 0.7;
+    }
+    &.search-in-menu {
+        position: relative;
     }
     .dropdown-trigger {
         padding: 0;
@@ -275,6 +312,55 @@
     .dropdown-menu {
         --bs-dropdown-link-active-color: var(--body-text-color-highlight);
         z-index: 1000;
+    }
+    &.search-in-menu .dropdown-menu {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        max-height: 19.5rem;
+        padding: 0;
+        margin-top: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+    }
+    .dropdown-search {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        padding: 0.5rem 0.75rem 0.625rem;
+        background: var(--body-inner-level-2);
+        list-style: none;
+    }
+    .dropdown-search-field {
+        display: flex;
+        min-height: 2.5rem;
+        padding: 0 0.625rem;
+        align-items: center;
+        gap: 0.5rem;
+        border: 0.0625rem solid var(--bs-border-color);
+        border-radius: 0.625rem;
+    }
+    .dropdown-search-field:focus-within {
+        border-color: var(--primary-button-bg);
+    }
+    .dropdown-search-field > :global(.sf-icon) {
+        flex: 0 0 auto;
+        font-size: 1.25rem;
+    }
+    .dropdown-search-field input {
+        min-width: 0;
+        padding: 0;
+        flex: 1;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+    }
+    .dropdown-search-field .searchable-clear {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
     }
     .dropdown-empty {
         padding: 0.75rem;

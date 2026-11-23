@@ -16,12 +16,11 @@
 static const char *TAG = "siren_entity_handler";
 
 #define SIREN_TILE_BG              0x1E2228
-#define SIREN_TILE_ICON_OFF        0x999999
+#define SIREN_TILE_ICON_OFF        0x9e9e9e
 #define SIREN_TILE_ICON_ON         0xF44336
 #define SIREN_TILE_CIRCLE_OFF      0x363636
 #define SIREN_TILE_CIRCLE_ON       0x472421
 #define SIREN_TILE_TITLE           0xFFFFFF
-#define SIREN_TILE_STATE           0x666666
 #define SIREN_DETAIL_CONTENT_WIDTH 280
 /* track: rgba(153,153,153,.2) off / rgba(244,66,54,.2) on */
 #define SIREN_TRACK_COLOR_OFF 0x999999
@@ -35,6 +34,8 @@ static const char *TAG = "siren_entity_handler";
 #define SIREN_KNOB_COLOR_OFF_LIGHT 0x999999
 #define SIREN_KNOB_COLOR_ON  0xF44236
 #define SIREN_KNOB_COLOR_ON_LIGHT 0xF44336
+#define SIREN_TILE_ICON_UNAVAILABLE_DARK 0x6F6F6F
+#define SIREN_TILE_ICON_UNAVAILABLE_LIGHT 0xBDBDBD
 
 
 #define SIREN_TRACK_RADIUS  20
@@ -194,18 +195,22 @@ static esp_err_t siren_render_tile(ha_entity_store_t *store,
     model->icon_color =
         lv_color_hex(is_on ? SIREN_TILE_ICON_ON : SIREN_TILE_ICON_OFF);
     model->icon_circle_background_color =
-        lv_color_hex(is_on ? SIREN_TILE_CIRCLE_ON : SIREN_TILE_CIRCLE_OFF);
+        lv_color_hex(is_on ? SIREN_TILE_ICON_ON : SIREN_TILE_ICON_OFF);
     model->icon_circle_background_color_light =
-        lv_color_hex(is_on ? 0xE0C7CB : 0xD2D5DA);
+        lv_color_hex(is_on ? SIREN_TILE_ICON_ON : SIREN_TILE_ICON_OFF);
+    model->icon_circle_background_opa = LV_OPA_20;
     model->title_color = lv_color_hex(SIREN_TILE_TITLE);
-    model->state_color = lv_color_hex(SIREN_TILE_STATE);
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
                                            sizeof(model->state_text),
                                            snapshot);
-        model->icon_color = lv_color_hex(0x6f6f6f);
-        model->icon_circle_background_color = lv_color_hex(0x2d2d2d);
-        model->icon_circle_background_color_light = lv_color_hex(0xCDD0D6);
+        const uint32_t unavailable_color =
+            screen_theme_get() == SCREEN_THEME_LIGHT
+                ? SIREN_TILE_ICON_UNAVAILABLE_LIGHT
+                : SIREN_TILE_ICON_UNAVAILABLE_DARK;
+        model->icon_color = lv_color_hex(unavailable_color);
+        model->icon_circle_background_color = model->icon_color;
+        model->icon_circle_background_color_light = model->icon_color;
         return ESP_OK;
     }
     entity_handler_copy_snapshot_state(model->state_text,

@@ -21,7 +21,8 @@
 #define EVENT_TILE_BG           0x1E2228
 #define EVENT_TILE_ICON         0x44739E
 #define EVENT_TILE_TITLE        0xFFFFFF
-#define EVENT_TILE_STATE        0x666666
+#define EVENT_TILE_ICON_UNAVAILABLE_DARK 0x6F6F6F
+#define EVENT_TILE_ICON_UNAVAILABLE_LIGHT 0xBDBDBD
 
 #define SCREEN_DEFAULT_CONTENT_WIDTH_PORTAIT 280
 #define SCREEN_DEFAULT_CONTENT_WIDTH_LANDSCAPE 440
@@ -43,9 +44,6 @@ static bool event_history_parse_epoch(const cJSON *item,
 static void event_history_insert(time_t epoch,
                                   const char *state,
                                   const char *event_type);
-static const char *event_history_format_event_type(
-    const char *event_type,
-    const char *device_class);
 static void event_history_observe_state(
     const ha_entity_snapshot_t *snapshot);
 static void event_history_screen_delete_cb(lv_event_t *event);
@@ -397,39 +395,6 @@ static void event_history_render(lv_obj_t *parent)
     }
 }
 
-static const char *event_history_format_event_type(
-    const char *event_type,
-    const char *device_class)
-{
-    if (event_type && event_type[0]) {
-        static char formatted[64];
-        size_t pos = 0;
-        bool new_word = true;
-        for (const char *p = event_type; *p && pos < sizeof(formatted) - 1;
-             p++) {
-            if (*p == '_') {
-                formatted[pos++] = ' ';
-                new_word = true;
-            } else if (new_word) {
-                formatted[pos++] =
-                    (char)((*p >= 'a' && *p <= 'z') ? *p - 'a' + 'A' : *p);
-                new_word = false;
-            } else {
-                formatted[pos++] = *p;
-            }
-        }
-        formatted[pos] = '\0';
-        return formatted;
-    }
-
-    if (device_class) {
-        if (strcmp(device_class, "doorbell") == 0) return i18n_get(I18N_EVENT_RING);
-        if (strcmp(device_class, "button") == 0) return i18n_get(I18N_ACTION_PRESS);
-        if (strcmp(device_class, "motion") == 0) return i18n_get(I18N_STATE_DETECTED);
-    }
-    return i18n_get(I18N_EVENT_DETECTED);
-}
-
 static const char *event_get_icon(const ha_entity_snapshot_t *snapshot)
 {
     if (snapshot && snapshot->device_class[0]) {
@@ -486,18 +451,22 @@ static esp_err_t event_render_tile(ha_entity_store_t *store,
     model->icon = event_get_icon(snapshot);
     model->background_color = lv_color_hex(EVENT_TILE_BG);
     model->icon_color = lv_color_hex(EVENT_TILE_ICON);
-    model->icon_circle_background_color = lv_color_hex(0x273039);
-    model->icon_circle_background_color_light = lv_color_hex(0xBFCBD9);
+    model->icon_circle_background_color = model->icon_color;
+    model->icon_circle_background_color_light = model->icon_color;
     model->title_color = lv_color_hex(EVENT_TILE_TITLE);
-    model->state_color = lv_color_hex(EVENT_TILE_STATE);
+    model->icon_circle_background_opa = LV_OPA_20;
 
     if (entity_handler_snapshot_is_service_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
                                            sizeof(model->state_text),
                                            snapshot);
-        model->icon_color = lv_color_hex(0x6f6f6f);
-        model->icon_circle_background_color = lv_color_hex(0x353536);
-        model->icon_circle_background_color_light = lv_color_hex(0xCDD0D6);
+        const uint32_t unavailable_color =
+            screen_theme_get() == SCREEN_THEME_LIGHT
+                ? EVENT_TILE_ICON_UNAVAILABLE_LIGHT
+                : EVENT_TILE_ICON_UNAVAILABLE_DARK;
+        model->icon_color = lv_color_hex(unavailable_color);
+        model->icon_circle_background_color = lv_color_hex(unavailable_color);
+        model->icon_circle_background_color_light = lv_color_hex(unavailable_color);
     } else {
         ha_datetime_format_relative_now(snapshot->state,
                                         model->state_text,

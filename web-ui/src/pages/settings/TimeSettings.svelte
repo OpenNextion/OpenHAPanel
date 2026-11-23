@@ -140,9 +140,13 @@
         <SettingRow title={$_('settingsDetail.dateTime')} content={currentTime.format('YYYY-MM-DD HH:mm')} margin={0} titleCol={6} contentCol={6}/>
         <SettingRowGroup>
             <SettingRow title={$_('settingsDetail.timezone')} content={timeInfo.tzInfo.timeZone || '--'} route={ROUTES_PATH.SETTINGS_TIME_ZONE} />
-            <SettingRow disable={loading || !hasInternetConnect} onclick={handleDetect} titleCol={12}>
-                {#snippet titleSnippet()}<span class="auto-detect-title">{$_('settingsDetail.autoDetect')}</span>{/snippet}
-                {#snippet contentSnippet()}{#if loading}<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>{/if}{/snippet}
+            <SettingRow disable={loading || !hasInternetConnect} onclick={handleDetect} titleCol={11} contentCol={1}>
+                {#snippet titleSnippet()}
+                    <span class="auto-detect-title">
+                        {$_('settingsDetail.autoDetect')}
+                        {#if loading}<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>{/if}
+                    </span>
+                {/snippet}
             </SettingRow>
         </SettingRowGroup>
         <SettingRowGroup>
@@ -161,6 +165,9 @@
     }
 
     .auto-detect-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
         color: var(--body-text-color-blue, #0199df);
     }
 </style>

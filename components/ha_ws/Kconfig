@@ -8,20 +8,6 @@ config HA_WS_TASK_STACK_SIZE
         Stack size used by the WebSocket client task. TLS handshakes and JSON
         callbacks can exceed the esp_websocket_client default of 4096 bytes.
 
-config HA_WS_MAX_PENDING
-    int "Maximum pending commands"
-    default 8
-    range 1 32
-    help
-        Number of in-flight request/response commands tracked by the SDK.
-
-config HA_WS_MAX_SUBSCRIPTIONS
-    int "Maximum active subscriptions"
-    default 8
-    range 1 32
-    help
-        Number of long-lived Home Assistant event subscriptions tracked by the SDK.
-
 config HA_WS_RX_BUFFER_SIZE
     int "Maximum received JSON payload size"
     default 262144

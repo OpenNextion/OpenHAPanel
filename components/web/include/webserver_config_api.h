@@ -80,14 +80,18 @@ int webserver_language_notify_to_client(int socket_fd);
 int webserver_device_info_notify(uint8_t update_info);
 int webserver_device_info_notify_to_client(uint8_t update_info, int socket_fd);
 
+typedef enum {
+    FACTORY_RESET_SOURCE_WEB,
+    FACTORY_RESET_SOURCE_BUTTON,
+} factory_reset_source_t;
+
 /**
- * @brief Restore device factory settings and reboot.
+ * @brief Request an asynchronous factory reset.
  *
- * This function disconnects from Wi-Fi if connected, stops and restores the Wi-Fi driver,
- * deletes all config files, restores notifications and wireless_controller settings,
- * then reboots the device.
+ * Rejects duplicate requests and requests made while firmware update work is
+ * active. Destructive work is always performed by a dedicated task.
  */
-void webserver_config_restore_factory_settings(void);
+esp_err_t webserver_config_request_factory_reset(factory_reset_source_t source);
 
 #endif // OPEN_NEXTION_COMPONENTS_WEB_INCLUDE_WEBSERVER_CONFIG_API_H
 

@@ -1,9 +1,20 @@
 :root[data-bs-theme='dark'] {
     --bs-body-bg: #1e1f20;
+    --web-translucent-surface-88: rgba(30, 31, 32, 0.88);
+    --web-translucent-surface-92: rgba(30, 31, 32, 0.92);
+    --web-hover-bg: #22232c;
+    --web-button-hover-bg: #0169df;
+    --web-sidebar-link-border: rgba(73, 80, 87, 0.55);
     --content-background: rgba(30, 31, 32, 1);
     --sidebar-background: rgba(22, 22, 22, 1);
     --body-inner-level-2: #2c2d2f;
     --body-text-color-highlight: #f2f2f7;
     --body-text-color-grey: #98989d;
     --setting-row-active-bg: #3a3b3c;
+    --screen-feature-position-active-background: rgba(22, 53, 62, 1);
+    --feature-position-example-primary: rgb(82, 82, 82);
+    --feature-position-example-secondary: rgb(137, 137, 137);
+    --bs-text-secondary: rgba(225, 225, 225, 1);
+	--feature-icon-color: rgb(3, 155, 229);
+    --web-text-secondary: rgba(225, 225, 225, 1);
 }

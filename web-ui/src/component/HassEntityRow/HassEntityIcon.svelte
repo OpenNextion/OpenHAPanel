@@ -14,7 +14,7 @@
 </script>
 
 <span
-    class:unavailable={entity.isUnavailable}
+    class:unavailable={entity.isUnavailable && entity.domain !== 'scene' && entity.domain !== 'light'}
     class:no-icon-background={!showBackground}
     class="entity-icon tone-{entity.preview.tone}"
     style={entity.iconStyle}

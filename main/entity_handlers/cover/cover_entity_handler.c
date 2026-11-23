@@ -1,4 +1,6 @@
 #include "cover_entity_handler.h"
+#include "cover_feature_handler.h"
+#include "cover_favorite_positions_store.h"
 #include "ha_ui_font.h"
 
 #include <stdint.h>
@@ -43,6 +45,7 @@ static const char *TAG = "cover_entity_handler";
 #define COVER_MODE_WIDTH            104
 #define COVER_MODE_HEIGHT           48
 #define COVER_PRESET_HEIGHT         40
+#define COVER_PRESET_GAP            12
 #define COVER_PAGER_GESTURE_RELEASE_POLL_MS 20
 
 #define COVER_BG                    0x010203
@@ -97,6 +100,8 @@ static const char *TAG = "cover_entity_handler";
 #define COVER_LIGHT_DISABLED_FG        0xBDBDBD
 #define COVER_LIGHT_POSITION_DISABLED  0xBDBDBD
 #define COVER_LIGHT_DOT_INACTIVE       0xBDBDBD
+#define COVER_TILE_ICON_UNAVAILABLE_DARK 0x6F6F6F
+#define COVER_TILE_ICON_UNAVAILABLE_LIGHT 0xBDBDBD
 
 static bool s_cover_detail_light_theme;
 
@@ -1560,7 +1565,19 @@ static void cover_build_presets(
     lv_obj_t *parent,
     const entity_more_info_context_t *context)
 {
-    static const int positions[] = {0, 25, 75, 100};
+    uint8_t positions[COVER_FAVORITE_POSITION_MAX];
+    size_t count = cover_favorite_positions_store_resolve(
+                       context->snapshot.entity_id,
+                       positions,
+                       COVER_FAVORITE_POSITION_MAX);
+    /* The detail page renders at most the first four favorite positions. */
+    if (count > 4) {
+        count = 4;
+    }
+    if (count == 0) {
+        return;
+    }
+
     const bool unavailable = cover_snapshot_is_unavailable(
         &context->snapshot);
     int current_position = -1;
@@ -1583,12 +1600,16 @@ static void cover_build_presets(
     lv_obj_set_layout(row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row,
-                          LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          count == 4 ? LV_FLEX_ALIGN_SPACE_BETWEEN
+                                     : LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(row, 0, 0);
+    if (count < 4) {
+        lv_obj_set_style_pad_gap(row, COVER_PRESET_GAP, 0);
+    }
 
-    for (size_t i = 0; i < sizeof(positions) / sizeof(positions[0]); i++) {
+    for (size_t i = 0; i < count; i++) {
         const bool selected = !unavailable && current_position == positions[i];
         const bool light = cover_light_theme();
         const uint32_t background_color =
@@ -1860,26 +1881,29 @@ static esp_err_t cover_render_tile(ha_entity_store_t *store,
     model->icon = cover_resolve_tile_icon(snapshot);
     model->background_color = lv_color_hex(0x1E2228);
     model->title_color = lv_color_hex(0xFFFFFF);
-    model->state_color = lv_color_hex(0x666666);
     model->icon_color = lv_color_hex(0x9E9E9E);
     model->icon_circle_background_color = model->icon_color;
-    model->icon_circle_background_color_light = lv_color_hex(0xD2D5DA);
+    model->icon_circle_background_color_light = model->icon_color;
     model->icon_circle_background_opa = LV_OPA_20;
 
     if (entity_handler_snapshot_is_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
                                            sizeof(model->state_text),
                                            snapshot);
-        model->icon_color = lv_color_hex(0x6F6F6F);
+        const uint32_t unavailable_color =
+            screen_theme_get() == SCREEN_THEME_LIGHT
+                ? COVER_TILE_ICON_UNAVAILABLE_LIGHT
+                : COVER_TILE_ICON_UNAVAILABLE_DARK;
+        model->icon_color = lv_color_hex(unavailable_color);
         model->icon_circle_background_color = model->icon_color;
-        model->icon_circle_background_color_light = lv_color_hex(0xCDD0D6);
+        model->icon_circle_background_color_light = model->icon_color;
         return ESP_OK;
     }
 
     if (strcmp(snapshot->state, "closed") != 0) {
         model->icon_color = lv_color_hex(0x926BC7);
         model->icon_circle_background_color = model->icon_color;
-        model->icon_circle_background_color_light = lv_color_hex(0xCEC9E1);
+        model->icon_circle_background_color_light = model->icon_color;
     }
 
     double position = 0;
@@ -2020,5 +2044,6 @@ const entity_handler_t cover_entity_handler = {
     },
     .handle_action = cover_handle_action,
     .render_tile = cover_render_tile,
+    .feature_handler = &cover_feature_handler,
     .render_more_info = cover_render_more_info,
 };

@@ -18,6 +18,11 @@ const i18n_locale_t *i18n_locale_at(size_t index)
     return index < i18n_locale_count() ? &s_locales[index] : NULL;
 }
 
+const i18n_locale_t *i18n_current_locale(void)
+{
+    return &s_locales[atomic_load(&s_locale)];
+}
+
 static unsigned locale_index(const char *code)
 {
     if (!code || !*code) return 0;

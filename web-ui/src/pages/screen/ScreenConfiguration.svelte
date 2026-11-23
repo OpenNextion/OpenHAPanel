@@ -47,13 +47,6 @@
     const MAX_SCREEN_COUNT = 5;
     const MAX_SCREEN_TITLE_LENGTH = 20;
 
-    type TScreenTitleMessages = { page: { screen: { defaultSplit: string } } };
-    const defaultScreenTranslations = import.meta.glob<TScreenTitleMessages>('../../assets/i18n/*.json', { eager: true, import: 'default' });
-    const DEFAULT_SCREEN_TITLE_ALIASES = new Set([
-        'default',
-        ...Object.values(defaultScreenTranslations).map((messages) => messages.page.screen.defaultSplit),
-    ]);
-
     const DEFAULT_SCREEN: IHassScreenConfigItem = $derived({
         index: 0,
         title: $_('page.screen.defaultSplit'),
@@ -73,7 +66,7 @@
         return $screenConfigStore.screens.length ? $screenConfigStore.screens : [DEFAULT_SCREEN];
     });
     function getScreenTitle(screen: IHassScreenConfigItem) {
-        return screen.index === 0 && DEFAULT_SCREEN_TITLE_ALIASES.has(screen.title) ? $_('page.screen.defaultSplit') : screen.title;
+        return screen.title;
     }
 
     function startEditing() {
@@ -194,12 +187,12 @@
         saving = true;
         try {
             const screens: IHassScreenConfigItem[] = $screenConfigStore.screens.map((screen) => ({ ...screen, columns: isLandscape ? 2 : 1 }));
-            const response = await sendForReply<{ screens: IHassScreenConfigItem[] }>({
+            const response = await sendForReply<{ screens: IHassScreenConfigItem[] }, { screens: IHassScreenConfigItem[] }>({
                 method: EWsMethods.SET_SCREEN_SETTING,
                 data: { screens },
             });
             if (response.error === 0) {
-                updateScreenConfigs(screens);
+                if (Array.isArray(response.data?.screens)) updateScreenConfigs(response.data.screens);
                 editing = false;
                 editingSnapshot = null;
                 sendMessage(EMessageType.SUCCESS, $_('TIPS.SAVED'));

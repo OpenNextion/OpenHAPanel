@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include "draw/lv_draw_image.h"
+#include "draw/lv_draw_mask.h"
+
 #include "../../../assets/ha_ui_assets.h"
 
 #define COLOR_TEMP_SLIDER_WIDTH         88
@@ -96,73 +99,56 @@ static bool area_is_visible(lv_layer_t *layer, const lv_area_t *area)
            area->y1 <= clip->y2 && area->y2 >= clip->y1;
 }
 
-static void finish_draw_batch(lv_layer_t *layer)
-{
-    while (layer->draw_task_head) {
-        lv_draw_dispatch_wait_for_request();
-        lv_draw_dispatch();
-    }
-}
-
-static int32_t rounded_inset(const lv_area_t *area,
-                             int32_t radius,
-                             int32_t y)
-{
-    const int32_t delta =
-        y < area->y1 + radius
-            ? area->y1 + radius - y - 1
-            : y > area->y2 - radius
-                  ? y - (area->y2 - radius) - 1
-                  : -1;
-    return delta >= 0
-               ? radius -
-                     (int32_t)sqrtf((float)(radius * radius - delta * delta))
-               : 0;
-}
-
 typedef void (*rounded_draw_cb_t)(lv_layer_t *layer,
                                   const lv_area_t *area,
                                   void *user_data);
 
+/* Render `area` once into an ARGB8888 off-screen layer and apply a native
+ * anti-aliased rounded-rectangle mask. This replaces the previous per-row
+ * integer inset clipping, whose discrete steps produced jagged top/bottom
+ * corners. */
 static void draw_with_rounded_clip(lv_layer_t *layer,
                                    const lv_area_t *area,
                                    int32_t radius,
                                    rounded_draw_cb_t callback,
                                    void *user_data)
 {
-    lv_area_t saved_clip = layer->_clip_area;
-    lv_area_t clip = {
-        .x1 = LV_MAX(saved_clip.x1, area->x1),
-        .y1 = LV_MAX(saved_clip.y1, area->y1),
-        .x2 = LV_MIN(saved_clip.x2, area->x2),
-        .y2 = LV_MIN(saved_clip.y2, area->y2),
-    };
-    if (clip.x1 > clip.x2 || clip.y1 > clip.y2) {
+    if (area->x2 < area->x1 || area->y2 < area->y1) {
+        return;
+    }
+    const lv_area_t *clip = &layer->_clip_area;
+    if (area->x1 > clip->x2 || area->x2 < clip->x1 ||
+        area->y1 > clip->y2 || area->y2 < clip->y1) {
         return;
     }
     radius = LV_MIN(radius,
                     LV_MIN(lv_area_get_width(area),
                            lv_area_get_height(area)) /
                         2);
-    for (int32_t y = clip.y1; y <= clip.y2;) {
-        const int32_t inset = rounded_inset(area, radius, y);
-        int32_t end = y;
-        while (end < clip.y2 &&
-               rounded_inset(area, radius, end + 1) == inset) {
-            end++;
-        }
-        layer->_clip_area = (lv_area_t) {
-            .x1 = LV_MAX(clip.x1, area->x1 + inset),
-            .y1 = y,
-            .x2 = LV_MIN(clip.x2, area->x2 - inset),
-            .y2 = end,
-        };
-        if (layer->_clip_area.x1 <= layer->_clip_area.x2) {
-            callback(layer, area, user_data);
-        }
-        y = end + 1;
+    if (radius <= 0) {
+        callback(layer, area, user_data);
+        return;
     }
-    layer->_clip_area = saved_clip;
+
+    lv_layer_t *rounded_layer =
+        lv_draw_layer_create(layer, LV_COLOR_FORMAT_ARGB8888, area);
+    if (rounded_layer == NULL) {
+        callback(layer, area, user_data);
+        return;
+    }
+
+    callback(rounded_layer, area, user_data);
+
+    lv_draw_mask_rect_dsc_t mask_dsc;
+    lv_draw_mask_rect_dsc_init(&mask_dsc);
+    mask_dsc.area = *area;
+    mask_dsc.radius = radius;
+    lv_draw_mask_rect(rounded_layer, &mask_dsc);
+
+    lv_draw_image_dsc_t layer_dsc;
+    lv_draw_image_dsc_init(&layer_dsc);
+    layer_dsc.src = rounded_layer;
+    lv_draw_layer(layer, &layer_dsc, area);
 }
 
 static void draw_gradient(lv_layer_t *layer,
@@ -172,7 +158,6 @@ static void draw_gradient(lv_layer_t *layer,
     light_color_temp_slider_context_t *context = user_data;
     const int32_t height = lv_area_get_height(area);
     const lv_opa_t opacity = context->disabled ? LV_OPA_40 : LV_OPA_COVER;
-    unsigned pending = 0;
     for (size_t i = 0; i < COLOR_TEMP_GRADIENT_SEGMENTS; i++) {
         lv_area_t band = {
             .x1 = area->x1,
@@ -203,13 +188,6 @@ static void draw_gradient(lv_layer_t *layer,
             .frac = 255,
         };
         lv_draw_rect(layer, &gradient, &band);
-        if (++pending == 2) {
-            finish_draw_batch(layer);
-            pending = 0;
-        }
-    }
-    if (pending > 0) {
-        finish_draw_batch(layer);
     }
 }
 

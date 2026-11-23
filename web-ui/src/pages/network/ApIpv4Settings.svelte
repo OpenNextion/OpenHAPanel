@@ -6,6 +6,8 @@
     import Button from '@/component/Button/Button.svelte';
     import ApInUseConfirmModal from './ApInUseConfirmModal.svelte';
     import { REG_EXP_IPV4, REG_EXP_IPV4_NETMASK } from '@/constant/regRex';
+    import { ROUTES_PATH } from '@/constant';
+    import { connectWithAp } from '@/stores/connectionStatus';
     let address = $state('');
     let netmask = $state('');
     let initialized = false;
@@ -35,9 +37,21 @@
         if (loading || !addressValid || !netmaskValid) return;
         loading = true;
         try {
-            const response = await setApConfig({ gateway: address.trim(), subnetMask: netmask.trim() });
+            const targetIp = address.trim();
+            const ipChanged = targetIp !== $networkStore.ap?.gateway;
+            const connectedThroughAp = $connectWithAp;
+            const response = await setApConfig({ gateway: targetIp, subnetMask: netmask.trim() });
             if (response.error === 0) {
                 confirmVisible = false;
+                if (connectedThroughAp && ipChanged) {
+                    const target = new URL(window.location.href);
+                    target.hostname = targetIp;
+                    target.hash = `#${ROUTES_PATH.NETWORK_AP}`;
+					setTimeout(() => {
+						window.location.replace(target.toString());
+					}, 500)
+                    return;
+                }
                 await pop();
             }
         } catch (error) {

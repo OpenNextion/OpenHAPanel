@@ -6,7 +6,6 @@ import ETimerType from '@/types/timer';
 import type { IDeviceInfoNotify, IScreenRotationNotify, IScreenThemeNotify, ILanguageNotify } from '@/types/device';
 import type { IResponse } from '@/types/websocket';
 import { get, has } from 'lodash-es';
-import { get as getSvelteStoreValue } from 'svelte/store';
 
 export async function handleDeviceInfoNotify(params: IResponse<IDeviceInfoNotify>) {
     console.log('device info notify coming message', params);

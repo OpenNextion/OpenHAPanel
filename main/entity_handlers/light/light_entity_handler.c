@@ -671,8 +671,8 @@ static void light_rgb_changed(light_rgb_t rgb,
     cJSON_Delete(data);
 }
 
-static void light_send_preset_color(const char *entity_id,
-                                    const light_favorite_color_t *color)
+void light_send_preset_color(const char *entity_id,
+                             const light_favorite_color_t *color)
 {
     if (!entity_id || !entity_id[0] || !color) {
         return;
@@ -1442,6 +1442,44 @@ static size_t light_build_default_favorite_colors(
     return count;
 }
 
+size_t light_entity_favorite_palette(ha_entity_store_t *store,
+                                     const char *entity_id,
+                                     light_favorite_color_t colors[LIGHT_FAVORITE_COLOR_MAX])
+{
+    if (!store || !entity_id || !colors) {
+        return 0;
+    }
+    light_more_info_page_t page = {0};
+    page.min_kelvin = 2000;
+    page.max_kelvin = 6535;
+    double kelvin = 0;
+    if (light_get_number(store, entity_id, "min_color_temp_kelvin", &kelvin) &&
+        isfinite(kelvin)) {
+        page.min_kelvin = (uint16_t)LV_CLAMP(1, (int)kelvin, 65535);
+    }
+    if (light_get_number(store, entity_id, "max_color_temp_kelvin", &kelvin) &&
+        isfinite(kelvin)) {
+        page.max_kelvin = (uint16_t)LV_CLAMP(1, (int)kelvin, 65535);
+    }
+    page.has_custom_favorite_colors = light_favorite_colors_store_get(
+        entity_id, page.favorite_colors, LIGHT_FAVORITE_COLOR_MAX,
+        &page.favorite_color_count);
+    if (page.has_custom_favorite_colors) {
+        light_prepare_favorite_display_colors(&page);
+        memcpy(colors, page.favorite_colors,
+               page.favorite_color_count * sizeof(colors[0]));
+        return page.favorite_color_count;
+    }
+
+    cJSON *modes = NULL;
+    if (ha_entity_store_dup_attr_json(store, entity_id,
+                                      "supported_color_modes", &modes) == ESP_OK) {
+        light_analyze_supported_modes(modes, &page.capabilities);
+    }
+    cJSON_Delete(modes);
+    return light_build_default_favorite_colors(&page, colors);
+}
+
 static lv_color_t light_brightness_display_color(
     const light_more_info_page_t *page)
 {
@@ -1637,6 +1675,30 @@ lv_color_t light_entity_active_color(ha_entity_store_t *store,
         return unknown_color;
     }
     return default_color;
+}
+
+static lv_color_t light_tile_contrast_color(lv_color_t input);
+
+lv_color_t light_entity_toggle_color(ha_entity_store_t *store,
+                                     const char *entity_id)
+{
+    lv_color_t color = light_entity_active_color(store, entity_id);
+    /* Match the brightness slider's fill: darken near-white color-temp
+     * colors so a 6500K light stays visible on a light background. */
+    color = light_tile_contrast_color(color);
+    /* active_color falls back to a neutral grey for white lights that are
+     * off; the toggle keeps its amber identity in that case. */
+    if (lv_color_eq(color, lv_color_hex(0xE1E1E1))) {
+        return lv_color_hex(0xFFC107);
+    }
+    return color;
+}
+
+bool light_entity_has_rgb_color(ha_entity_store_t *store,
+                                const char *entity_id)
+{
+    lv_color_t color;
+    return light_tile_read_rgb_color(store, entity_id, &color);
 }
 
 static lv_color_t light_tile_contrast_color(lv_color_t input)
@@ -2083,29 +2145,6 @@ static bool light_handle_action(const entity_action_context_t *context)
     return true;
 }
 
-static bool light_tile_icon_color_near_white(lv_color_t color)
-{
-    const uint32_t value = lv_color_to_u32(color) & 0x00FFFFFFU;
-    const uint8_t r = (uint8_t)((value >> 16) & 0xFF);
-    const uint8_t g = (uint8_t)((value >> 8) & 0xFF);
-    const uint8_t b = (uint8_t)(value & 0xFF);
-    const uint8_t min_ch = LV_MIN(LV_MIN(r, g), b);
-    const uint8_t max_ch = LV_MAX(LV_MAX(r, g), b);
-    return min_ch >= 200 && (max_ch - min_ch) <= 60;
-}
-
-static lv_color_t light_tile_icon_color_for_light_theme(lv_color_t color)
-{
-    if (light_tile_icon_color_near_white(color)) {
-        const uint32_t value = lv_color_to_u32(color) & 0x00FFFFFFU;
-        const uint8_t r = (uint8_t)(((value >> 16) & 0xFF) * 165 / 255);
-        const uint8_t g = (uint8_t)(((value >> 8) & 0xFF) * 165 / 255);
-        const uint8_t b = (uint8_t)((value & 0xFF) * 165 / 255);
-        return lv_color_make(r, g, b);
-    }
-    return color;
-}
-
 static esp_err_t light_render_tile(ha_entity_store_t *store,
                                    const ha_entity_snapshot_t *snapshot,
                                    entity_display_model_t *model)
@@ -2118,7 +2157,6 @@ static esp_err_t light_render_tile(ha_entity_store_t *store,
     model->icon_circle_background_color_light = model->icon_color;
     model->icon_circle_background_opa = LV_OPA_20;
     model->title_color = lv_color_hex(0xFFFFFF);
-    model->state_color = lv_color_hex(0x666666);
 
     if (entity_handler_snapshot_is_unavailable(snapshot)) {
         entity_handler_copy_snapshot_state(model->state_text,
@@ -2142,10 +2180,6 @@ static esp_err_t light_render_tile(ha_entity_store_t *store,
     if (has_rgb_color) {
         model->icon_color = light_tile_contrast_color(rgb_color);
         model->icon_circle_background_color = model->icon_color;
-        if (screen_theme_get() == SCREEN_THEME_LIGHT) {
-            model->icon_color =
-                light_tile_icon_color_for_light_theme(model->icon_color);
-        }
         model->icon_circle_background_color_light = model->icon_color;
     }
 

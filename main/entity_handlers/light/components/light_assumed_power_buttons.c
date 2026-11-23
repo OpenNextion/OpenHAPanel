@@ -19,6 +19,8 @@ typedef struct {
     lv_obj_t *root;
     lv_obj_t *on_button;
     lv_obj_t *off_button;
+    lv_obj_t *on_icon;
+    lv_obj_t *off_icon;
     bool known;
     bool on;
     bool disabled;
@@ -55,6 +57,28 @@ static void refresh_visual(light_assumed_power_buttons_context_t *context)
     lv_obj_set_style_bg_color(context->off_button,
                               lv_color_hex(off_color),
                               0);
+
+    const uint32_t selected_icon = 0xFFFFFF;
+    const uint32_t unselected_icon = light_detail_theme_color(
+        0xFFFFFF,
+        LIGHT_DETAIL_LIGHT_TEXT_PRIMARY);
+    if (context->on_icon) {
+        lv_obj_set_style_text_color(
+            context->on_icon,
+            lv_color_hex(context->known && context->on
+                             ? selected_icon
+                             : unselected_icon),
+            0);
+    }
+    if (context->off_icon) {
+        lv_obj_set_style_text_color(
+            context->off_icon,
+            lv_color_hex(context->known && !context->on
+                             ? selected_icon
+                             : unselected_icon),
+            0);
+    }
+
     lv_obj_set_style_opa(context->root,
                          context->disabled ? LV_OPA_40 : LV_OPA_COVER,
                          0);
@@ -83,11 +107,15 @@ static void root_delete_cb(lv_event_t *event)
 
 static lv_obj_t *create_button(lv_obj_t *parent,
                                light_assumed_power_buttons_context_t *context,
-                               const char *symbol)
+                               const char *symbol,
+                               lv_obj_t **icon_out)
 {
     lv_obj_t *button = lv_obj_create(parent);
     if (!button) {
         return NULL;
+    }
+    if (icon_out) {
+        *icon_out = NULL;
     }
     lv_obj_remove_style_all(button);
     lv_obj_remove_flag(button,
@@ -106,6 +134,9 @@ static lv_obj_t *create_button(lv_obj_t *parent,
     if (!icon) {
         lv_obj_delete(button);
         return NULL;
+    }
+    if (icon_out) {
+        *icon_out = icon;
     }
     lv_label_set_text_static(icon, symbol);
     lv_obj_set_style_text_font(icon, &ha_font_mdi_20, 0);
@@ -154,10 +185,12 @@ lv_obj_t *light_assumed_power_buttons_create(lv_obj_t *parent)
 
     context->on_button = create_button(root,
                                        context,
-                                       MDI_SYMBOL_LIGHTBULB_ON);
+                                       MDI_SYMBOL_LIGHTBULB_ON,
+                                       &context->on_icon);
     context->off_button = create_button(root,
                                         context,
-                                        MDI_SYMBOL_LIGHTBULB_OFF);
+                                        MDI_SYMBOL_LIGHTBULB_OFF,
+                                        &context->off_icon);
     if (!context->on_button || !context->off_button) {
         lv_obj_delete(root);
         return NULL;

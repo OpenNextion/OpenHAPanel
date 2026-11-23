@@ -27,15 +27,17 @@
 
 <button
     class="tile-action-feature"
+    class:read-only={readOnly}
+    class:unavailable={disabled}
     type="button"
     aria-busy={busy}
     aria-disabled={readOnly || disabled || busy}
-    disabled={disabled || busy}
+    disabled={readOnly || disabled || busy}
     tabindex={readOnly ? -1 : 0}
     style={`--action-background: ${backgroundColor}; --action-color: ${textColor}`}
     onpointerdown={(event) => event.stopPropagation()}
     onkeydown={(event) => event.stopPropagation()}
-    onclick={(event) => { event.stopPropagation(); if (!readOnly) onActivate(); }}
+    onclick={(event) => { event.stopPropagation(); if (!disabled && !readOnly && !busy) onActivate(); }}
 >
     {#if busy}<span class="action-spinner" aria-hidden="true"></span>{:else if icon}<SvgIcon name={icon} />{/if}
     <span>{label}</span>
@@ -68,6 +70,9 @@
 
     .tile-action-feature:disabled {
         cursor: not-allowed;
+    }
+
+    .tile-action-feature.unavailable {
         opacity: 0.5;
     }
 

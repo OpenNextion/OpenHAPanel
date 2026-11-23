@@ -1,14 +1,14 @@
 # 设备 i18n 组件
 
-设备翻译集中维护在 `locales/`。目前提供英文 `en` 和德语 `de`，默认英文。字体按完整字体处理，本组件不检查、不生成、不修改字体。`web-ui/` 不属于本次改动范围。
+设备翻译集中维护在 `locales/`。支持的语言以 `locales/manifest.json` 为准，默认英文。字体按完整字体处理，本组件不检查、不生成、不修改字体。`web-ui/` 不属于本次改动范围。
 
 任务进度、用户约束及恢复入口见 [实施工作流](../../docs/i18n-workflow.md)。
 
 ## 维护翻译
 
 - `locales/en.json`：基准 key 和英文文本。
-- `locales/de.json`：德语翻译。
-- `locales/manifest.json`：语言代码、自称名称、文件和复数规则。
+- `locales/<language>.json`：各语言翻译；缺失消息时回退英文。
+- `locales/manifest.json`：语言代码、自称名称、文件、复数规则和数字格式规则。
 - `tools/generate_i18n.py`：校验并生成 C 常量表和 `i18n_keys.h`。
 
 新增文案时先向英文添加稳定的语义 key，例如 `common.cancel`，再补充各语言的对应翻译。代码使用生成的 `I18N_COMMON_CANCEL`；不要用英文句子作 key，不要在页面中判断语言。
@@ -27,7 +27,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 components/i18n/tools/test_generate_i18n.py
 ## 增加语言
 
 1. 在 `locales/` 增加 UTF-8 JSON 文件；建议复制英文 key 后翻译。
-2. 在 `manifest.json` 的 `languages` 登记 `code`、`name`、`file` 和 `plural_rule`。英文保持第一项和默认项。
+2. 在 `manifest.json` 的 `languages` 登记 `code`、`name`、`file`、`plural_rule` 和 `number_format`。英文保持第一项和默认项。
 3. 检查参数、日期语序及时间表达。当前支持 `one_other`（数字 1 使用 one）和 `other`（全部使用 other）两种复数规则。
 4. 执行资源校验，再由维护者编译和设备验证。
 
@@ -41,11 +41,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 components/i18n/tools/test_generate_i18n.py
 {"language": "de"}
 ```
 
-规范化规则：不区分大小写的完整匹配，其次匹配基础语言，最后回退 `en`。例如 `de-DE`、`de_AT` 使用 `de`，`zh`、`fr`、空值使用 `en`。设备保存规范化后的代码，通知中也返回规范化值。JSON 参数类型错误仍沿用原接口错误处理。
+规范化规则：不区分大小写的完整匹配，其次匹配基础语言，最后回退 `en`。例如 `de-DE`、`de_AT` 使用 `de`，`fr-FR` 使用 `fr`，`zh`、`ja`、空值使用 `en`。设备保存规范化后的代码，通知中也返回规范化值。JSON 参数类型错误仍沿用原接口错误处理。
 
 语言字段扩大到 32 字节。加载旧配置和保存配置均经过同一规范化规则，不另设 NVS 语言值。只有配置保存成功后才更改运行中的语言；启动从已有配置恢复。
 
-Web 项目代码、语言选项和资源没有改动，所以本次不会在现有 Web 设置页新增德语选项。可以使用现有语言设置协议指定 `de`。
+Web 项目代码、语言选项和资源不由本组件维护；屏端语言仍通过现有语言设置协议指定。
 
 ## 使用接口
 
@@ -77,7 +77,27 @@ ui_i18n_label_set_text(label, i18n_get(I18N_COMMON_CANCEL));
 
 为接入已有 UI 格式化代码，部分设备提示保留 printf 格式。各语言必须使用与英文完全相同的格式符和参数顺序。生成器拒绝 `%n`、动态宽度、位置参数及参数不匹配。新文案需要调整参数顺序时应使用命名模板；不要直接将用户文本作为格式串。
 
-相对时间按单位、过去/将来/时长、复数类别选择完整句子。例如德语的 `vor {count} Tagen` 与 `{count} Tage` 分开维护，不能简单拼接后缀。时间戳解析和时区计算继续使用原逻辑。数值测量、温度单位和协议数字格式保持原有行为。
+相对时间按单位、过去/将来/时长、复数类别选择完整句子。例如德语的 `vor {count} Tagen` 与 `{count} Tage` 分开维护，不能简单拼接后缀。时间戳解析和时区计算继续使用原逻辑。
+
+## 数字格式
+
+每种语言在 `manifest.json` 中声明千位分隔符、小数分隔符和分组宽度：
+
+```json
+"number_format": {
+  "group_separator": ",",
+  "decimal_separator": ".",
+  "group_size": 3
+}
+```
+
+统一入口是 `i18n_format_number()` 和 `i18n_format_number_double()`。调用方可选择保留输入小数位、固定小数位或限制最大小数位，并选择是否进行千位分组。格式化器不使用动态内存，支持多字节 UTF-8 分隔符。为改善小尺寸屏幕的辨识度，法语和俄语均使用不换行空格 `U+00A0`。
+
+第一阶段已接入 sensor 卡片、sensor 详情值及其历史图表坐标和提示值。`display_precision` 仍决定 sensor 固定显示的小数位；未指定时保留 HA 状态字符串已有的有效小数位，历史浮点数据最多显示两位小数。
+
+第二阶段已接入 climate 卡片当前温度、详情页当前温湿度、Arc 中央目标值以及卡片内目标温度控制。当前温湿度保持原有一位小数，目标温度按 `target_temp_step` 保持固定小数位。只有展示字符串被本地化，发送给 HA 的温度和湿度仍是数值类型。
+
+本地化仅用于展示层。HA 状态解析、服务参数、WebSocket/JSON、配置文件和日志中的数字仍使用协议规定的 `.` 小数点；不得把已本地化的展示字符串传回 HA。
 
 ## 界面更新和协议边界
 
@@ -91,6 +111,6 @@ ui_i18n_label_set_text(label, i18n_get(I18N_COMMON_CANCEL));
 
 ## 验证状态
 
-资源生成器的 9 项 Python 测试覆盖词库完整性、确定性、缺失翻译回退槽、参数契约、危险格式、重复/未知 key、C 标识符冲突和增加语言。它们不编译 C，也不代替设备验收。
+资源生成器的 Python 测试覆盖词库有效性、确定性、缺失翻译回退槽、参数契约、危险格式、重复/未知 key、C 标识符冲突、增加语言及数字格式元数据。C 格式化器另有 Unity 边界测试，但本任务没有执行 C 编译。两者都不能代替设备验收。
 
 本次未运行固件编译、前端构建或设备实测。请按工作流中的验收清单自行编译验证。

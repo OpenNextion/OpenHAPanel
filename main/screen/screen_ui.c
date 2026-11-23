@@ -128,7 +128,11 @@ static const char *TAG = "screen_ui";
 static lv_timer_t *s_language_timer;
 static uint32_t s_rendered_language_revision;
 static bool s_language_detail_pending;
+static bool s_theme_apply_pending;
+static bool s_rotation_apply_pending;
 static void screen_ui_language_timer_cb(lv_timer_t *timer);
+static void screen_ui_apply_theme_async(void *user_data);
+static void screen_ui_complete_rotation_async(void *user_data);
 static void screen_ui_theme_event_handler(void *arg,
                                           esp_event_base_t event_base,
                                           int32_t event_id,
@@ -570,32 +574,39 @@ static void screen_ui_orientation_event_handler(void *arg,
         return;
     }
 
-    bool home_screen_hidden = false;
-    esp_err_t device_info_err = ESP_OK;
-    if (lvgl_port_lock(0)) {
-        home_screen_hidden =
-            screen_state_get_current() == SCREEN_PAGE_SPLIT_VIEW &&
-            s_screen_ctx && s_screen_ctx->root_screen &&
-            lv_screen_active() != s_screen_ctx->root_screen;
-        if (home_screen_hidden) {
-            s_rotation_home_rebuild_deferred = true;
-            device_info_err = screen_complete_device_info_rotation();
-        }
-        lvgl_port_unlock();
-    }
-    if (home_screen_hidden) {
-        if (device_info_err != ESP_OK) {
-            ESP_LOGW(TAG,
-                     "Failed to rebuild device information controls after rotation: %s",
-                     esp_err_to_name(device_info_err));
-        }
+    if (!lvgl_port_lock(1000)) {
+        ESP_LOGW(TAG, "Failed to acquire LVGL lock for screen rotation update");
         return;
+    }
+
+    if (!s_rotation_apply_pending) {
+        if (lv_async_call(screen_ui_complete_rotation_async, NULL) ==
+            LV_RESULT_OK) {
+            s_rotation_apply_pending = true;
+        } else {
+            ESP_LOGW(TAG, "Failed to queue screen rotation update");
+        }
+    }
+    lvgl_port_unlock();
+}
+
+static void screen_ui_complete_rotation_async(void *user_data)
+{
+    (void)user_data;
+    s_rotation_apply_pending = false;
+
+    const bool home_screen_hidden =
+        screen_state_get_current() == SCREEN_PAGE_SPLIT_VIEW &&
+        s_screen_ctx && s_screen_ctx->root_screen &&
+        lv_screen_active() != s_screen_ctx->root_screen;
+    if (home_screen_hidden) {
+        s_rotation_home_rebuild_deferred = true;
     }
 
     esp_err_t err = screen_ui_complete_rotation();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(TAG,
-                 "Failed to rebuild split-view home screen after rotation: %s",
+                 "Failed to rebuild screen after rotation: %s",
                  esp_err_to_name(err));
     }
 }
@@ -623,6 +634,23 @@ static void screen_ui_theme_event_handler(void *arg,
         ESP_LOGW(TAG, "Failed to acquire LVGL lock for screen theme update");
         return;
     }
+
+    /* The default event task has a 4 KB stack. Rebuilding themed screens from
+     * this callback can exhaust it, especially while More Info is open. */
+    if (!s_theme_apply_pending) {
+        if (lv_async_call(screen_ui_apply_theme_async, NULL) == LV_RESULT_OK) {
+            s_theme_apply_pending = true;
+        } else {
+            ESP_LOGW(TAG, "Failed to queue screen theme update");
+        }
+    }
+    lvgl_port_unlock();
+}
+
+static void screen_ui_apply_theme_async(void *user_data)
+{
+    (void)user_data;
+    s_theme_apply_pending = false;
 
     system_status_bar_apply_theme_all();
 
@@ -662,8 +690,6 @@ static void screen_ui_theme_event_handler(void *arg,
         notification_close(previous);
     }
     screen_ui_sync_notification();
-
-    lvgl_port_unlock();
 }
 
 static void screen_ui_root_screen_event_cb(lv_event_t *event)
@@ -1401,7 +1427,7 @@ static void screen_create_components(screen_ctx_t *ctx, lv_obj_t *screen, const 
 
     screen_create_status_bar(ctx, screen);
     if (ctx->page_count == 0) {
-        system_status_bar_set_title(ctx->status_bar, "Default Screen");
+        system_status_bar_set_title(ctx->status_bar, i18n_get(I18N_DEVICE_DEFAULT_SPLIT));
         screen_create_default_content(ctx, screen, 0);
         screen_ui_apply_home_theme(ctx);
         return;

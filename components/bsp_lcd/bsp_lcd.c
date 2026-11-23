@@ -4,6 +4,7 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "driver/spi_common.h"
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
@@ -18,6 +19,7 @@
 #include "esp_lvgl_port_disp.h"
 #include "esp_lvgl_port_touch.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "bsp_lcd.h"
 #include "exio_pcf8574.h"
@@ -32,6 +34,16 @@
 #define BOOT_GLYPH_HEIGHT 7
 #define BOOT_GLYPH_ADVANCE 6
 #define BOOT_TEXT_LENGTH 11
+#define BOOT_DOT_WIDTH 48
+#define BOOT_DOT_HEIGHT 12
+#define BOOT_DOT_PERIOD_MS 300
+#define BOOT_DOT_GAP 18
+#define BOOT_TEXT_WIDTH ((BOOT_TEXT_LENGTH * BOOT_GLYPH_ADVANCE - 1) * BOOT_TEXT_SCALE)
+#define BOOT_TEXT_HEIGHT (BOOT_GLYPH_HEIGHT * BOOT_TEXT_SCALE)
+#define BOOT_TEXT_X ((LCD_H_RES - BOOT_TEXT_WIDTH) / 2)
+#define BOOT_TEXT_Y ((LCD_V_RES - BOOT_TEXT_HEIGHT - BOOT_DOT_GAP - BOOT_DOT_HEIGHT) / 2)
+#define BOOT_DOT_X ((LCD_H_RES - BOOT_DOT_WIDTH) / 2)
+#define BOOT_DOT_Y (BOOT_TEXT_Y + BOOT_TEXT_HEIGHT + BOOT_DOT_GAP)
 
 static esp_err_t bsp_lcd_i2c_init(void);
 static esp_err_t bsp_lcd_spi_init(void);
@@ -63,7 +75,13 @@ static lv_indev_t *s_lvgl_touch = NULL;
 static void *s_lvgl_extra_memory_pools[LVGL_EXTRA_MEMORY_POOL_COUNT];
 static bool s_lcd_flush_faulted;
 static bool s_lcd_hardware_ready;
-static bool s_boot_screen_active;
+static volatile bool s_boot_screen_active;
+static volatile bool s_boot_animation_running;
+static SemaphoreHandle_t s_boot_panel_lock;
+static SemaphoreHandle_t s_boot_animation_done;
+static TaskHandle_t s_boot_animation_task;
+DMA_ATTR static uint16_t s_boot_dot_pixels[BOOT_DOT_WIDTH * BOOT_DOT_HEIGHT]
+    __attribute__((aligned(64)));
 
 /* 5x7 bitmap for "OpenHAPanel"; independent of LVGL and the TTF file. */
 static const uint8_t s_boot_text[BOOT_TEXT_LENGTH][BOOT_GLYPH_HEIGHT] = {
@@ -80,6 +98,68 @@ static const uint8_t s_boot_text[BOOT_TEXT_LENGTH][BOOT_GLYPH_HEIGHT] = {
     {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x0E}, /* l */
 };
 
+static uint16_t bsp_lcd_boot_dot_pixel(int x, int y, unsigned frame)
+{
+    for (unsigned dot = 0; dot < 3; ++dot) {
+        const int dx = x - (8 + (int)dot * 16);
+        const int dy = y - 5;
+        if (dx * dx + dy * dy <= 9) {
+            /* WWW, BWW, BBW, BBB, WBB, WWB, then repeat. */
+            const unsigned phase = frame % 6;
+            return phase > dot && phase <= dot + 3 ? 0x0000 : 0xFFFF;
+        }
+    }
+    return 0x0000;
+}
+
+static esp_err_t bsp_lcd_boot_panel_rotation(bsp_lcd_rotation_t rotation)
+{
+    bool swap_xy = rotation == BSP_LCD_ROTATION_90 || rotation == BSP_LCD_ROTATION_270;
+    bool mirror_x = rotation == BSP_LCD_ROTATION_0 || rotation == BSP_LCD_ROTATION_90;
+    bool mirror_y = rotation == BSP_LCD_ROTATION_90 || rotation == BSP_LCD_ROTATION_180;
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_swap_xy(s_lcd_panel_handle, swap_xy),
+                        TAG, "Set LCD axis direction failed");
+    return esp_lcd_panel_mirror(s_lcd_panel_handle, mirror_x, mirror_y);
+}
+
+static void bsp_lcd_boot_animation(void *arg)
+{
+    (void)arg;
+    unsigned frame = 1;
+    while (s_boot_animation_running) {
+        vTaskDelay(pdMS_TO_TICKS(BOOT_DOT_PERIOD_MS));
+        if (!s_boot_animation_running) break;
+        xSemaphoreTake(s_boot_panel_lock, portMAX_DELAY);
+        if (!s_boot_animation_running) {
+            xSemaphoreGive(s_boot_panel_lock);
+            break;
+        }
+
+        for (int y = 0; y < BOOT_DOT_HEIGHT; ++y) {
+            for (int x = 0; x < BOOT_DOT_WIDTH; ++x) {
+                s_boot_dot_pixels[y * BOOT_DOT_WIDTH + x] =
+                    bsp_lcd_boot_dot_pixel(x, y, frame);
+            }
+        }
+        esp_err_t err = esp_lcd_panel_draw_bitmap(s_lcd_panel_handle,
+                                                   BOOT_DOT_X, BOOT_DOT_Y,
+                                                   BOOT_DOT_X + BOOT_DOT_WIDTH,
+                                                   BOOT_DOT_Y + BOOT_DOT_HEIGHT,
+                                                   s_boot_dot_pixels);
+        /* The panel IO may still be reading pixels after draw_bitmap returns. */
+        esp_err_t wait_err = esp_lcd_panel_io_tx_param(s_lcd_io_handle, -1, NULL, 0);
+        if (err == ESP_OK) err = wait_err;
+        xSemaphoreGive(s_boot_panel_lock);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Boot animation stopped: %s", esp_err_to_name(err));
+            break;
+        }
+        ++frame;
+    }
+    xSemaphoreGive(s_boot_animation_done);
+    vTaskDelete(NULL);
+}
+
 static esp_err_t bsp_lcd_boot_screen_draw(void)
 {
     const size_t pixel_count = LCD_H_RES * LCD_FLUSH_LINES;
@@ -87,10 +167,10 @@ static esp_err_t bsp_lcd_boot_screen_draw(void)
                                               MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     if (!pixels) return ESP_ERR_NO_MEM;
 
-    const int text_width = (BOOT_TEXT_LENGTH * BOOT_GLYPH_ADVANCE - 1) * BOOT_TEXT_SCALE;
-    const int text_height = BOOT_GLYPH_HEIGHT * BOOT_TEXT_SCALE;
-    const int text_x = (LCD_H_RES - text_width) / 2;
-    const int text_y = (LCD_V_RES - text_height) / 2;
+    const int text_width = BOOT_TEXT_WIDTH;
+    const int text_height = BOOT_TEXT_HEIGHT;
+    const int text_x = BOOT_TEXT_X;
+    const int text_y = BOOT_TEXT_Y;
     /* RGB565 rounds 0x010203 to black on this 16-bit panel. */
     const uint16_t background = 0x0000;
     const uint16_t foreground = 0xFFFF;
@@ -98,7 +178,8 @@ static esp_err_t bsp_lcd_boot_screen_draw(void)
 
     for (int top = 0; top < LCD_V_RES; top += LCD_FLUSH_LINES) {
         for (int row = 0; row < LCD_FLUSH_LINES; ++row) {
-            const int y = top + row - text_y;
+            const int screen_y = top + row;
+            const int y = screen_y - text_y;
             for (int x = 0; x < LCD_H_RES; ++x) {
                 bool text_pixel = false;
                 const int tx = x - text_x;
@@ -110,7 +191,14 @@ static esp_err_t bsp_lcd_boot_screen_draw(void)
                                       (1U << (BOOT_GLYPH_WIDTH - 1 - column))) != 0;
                     }
                 }
-                pixels[row * LCD_H_RES + x] = text_pixel ? foreground : background;
+                const int dot_x = x - BOOT_DOT_X;
+                const int dot_y = screen_y - BOOT_DOT_Y;
+                uint16_t color = text_pixel ? foreground : background;
+                if (dot_x >= 0 && dot_x < BOOT_DOT_WIDTH &&
+                    dot_y >= 0 && dot_y < BOOT_DOT_HEIGHT) {
+                    color = bsp_lcd_boot_dot_pixel(dot_x, dot_y, 0);
+                }
+                pixels[row * LCD_H_RES + x] = color;
             }
         }
         err = esp_lcd_panel_draw_bitmap(s_lcd_panel_handle, 0, top,
@@ -148,6 +236,20 @@ esp_err_t bsp_lcd_boot_screen_show(void)
     vTaskDelay(pdMS_TO_TICKS(50));
     ESP_RETURN_ON_ERROR(bsp_lcd_br_set(50), TAG, "Enable boot screen backlight failed");
     s_boot_screen_active = true;
+    s_boot_panel_lock = xSemaphoreCreateMutex();
+    if (s_boot_panel_lock) s_boot_animation_done = xSemaphoreCreateBinary();
+    if (s_boot_animation_done) s_boot_animation_running = true;
+    if (!s_boot_animation_done ||
+        xTaskCreate(bsp_lcd_boot_animation, "boot_dots", 3072, NULL, 2,
+                    &s_boot_animation_task) != pdPASS) {
+        s_boot_animation_running = false;
+        s_boot_animation_task = NULL;
+        if (s_boot_animation_done) vSemaphoreDelete(s_boot_animation_done);
+        if (s_boot_panel_lock) vSemaphoreDelete(s_boot_panel_lock);
+        s_boot_animation_done = NULL;
+        s_boot_panel_lock = NULL;
+        ESP_LOGW(TAG, "Boot animation task unavailable");
+    }
     return ESP_OK;
 }
 
@@ -158,6 +260,19 @@ bool bsp_lcd_boot_screen_active(void)
 
 void bsp_lcd_boot_screen_finish(void)
 {
+    s_boot_animation_running = false;
+    if (s_boot_animation_task) {
+        xSemaphoreTake(s_boot_animation_done, portMAX_DELAY);
+        s_boot_animation_task = NULL;
+        vSemaphoreDelete(s_boot_animation_done);
+        s_boot_animation_done = NULL;
+        vSemaphoreDelete(s_boot_panel_lock);
+        s_boot_panel_lock = NULL;
+    }
+    /* Hide the native portrait image before applying the saved rotation.
+     * The application restores brightness after the first LVGL frame. */
+    ESP_ERROR_CHECK(bsp_lcd_br_set(0));
+    ESP_ERROR_CHECK(bsp_lcd_boot_panel_rotation(s_applied_rotation));
     s_boot_screen_active = false;
 }
 
@@ -172,7 +287,10 @@ esp_err_t bsp_lcd_init(void)
         s_lcd_hardware_ready = true;
     }
     ESP_ERROR_CHECK(bsp_lcd_touch_init());
-    ESP_ERROR_CHECK(bsp_lcd_lvgl_init());
+    if (s_boot_panel_lock) xSemaphoreTake(s_boot_panel_lock, portMAX_DELAY);
+    esp_err_t lvgl_err = bsp_lcd_lvgl_init();
+    if (s_boot_panel_lock) xSemaphoreGive(s_boot_panel_lock);
+    ESP_ERROR_CHECK(lvgl_err);
 
     /* The native boot screen keeps the backlight on until the first UI frame. */
 
@@ -207,7 +325,9 @@ esp_err_t bsp_lcd_set_rotation(bsp_lcd_rotation_t rotation)
         return ESP_OK;
     }
 
+    if (s_boot_panel_lock) xSemaphoreTake(s_boot_panel_lock, portMAX_DELAY);
     if (!lvgl_port_lock(0)) {
+        if (s_boot_panel_lock) xSemaphoreGive(s_boot_panel_lock);
         return ESP_ERR_TIMEOUT;
     }
     lv_display_set_rotation(s_lvgl_display, lv_rotation);
@@ -215,6 +335,16 @@ esp_err_t bsp_lcd_set_rotation(bsp_lcd_rotation_t rotation)
     const int32_t height = lv_display_get_vertical_resolution(s_lvgl_display);
     s_applied_rotation = rotation;
     lvgl_port_unlock();
+    if (s_boot_screen_active) {
+        /* esp_lvgl_port rotates the panel immediately; keep the boot image
+         * and its animation in native portrait coordinates until handoff. */
+        esp_err_t restore_err = bsp_lcd_boot_panel_rotation(BSP_LCD_ROTATION_0);
+        if (restore_err != ESP_OK) {
+            if (s_boot_panel_lock) xSemaphoreGive(s_boot_panel_lock);
+            return restore_err;
+        }
+    }
+    if (s_boot_panel_lock) xSemaphoreGive(s_boot_panel_lock);
 
     ESP_LOGI(TAG,
              "LCD rotation applied: rotation=%d logical_resolution=%" PRId32

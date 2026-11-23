@@ -14,5 +14,5 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
         message(FATAL_ERROR "i18n resource validation failed")
     endif()
 endif()
-idf_component_register(SRCS "i18n.c" "i18n_format.c" "i18n_compose.c"
+idf_component_register(SRCS "i18n.c" "i18n_format.c" "i18n_number.c" "i18n_compose.c"
     INCLUDE_DIRS "include" "${I18N_GENERATED}")

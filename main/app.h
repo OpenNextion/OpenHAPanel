@@ -1,11 +1,14 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <time.h>
 
 #include "cJSON.h"
 #include "esp_err.h"
 #include "ha_entity_store_type.h"
+#include "ha_ws_types.h"
+#include "common/ha_history_stream/ha_history_stream.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,6 +57,34 @@ esp_err_t app_ha_get_entity_history(const char *entity_id,
                                     app_ha_history_result_cb_t callback,
                                     void *user_ctx,
                                     int *request_id_out);
+
+/** Subscribe to More Info state history for a moving time window. */
+esp_err_t app_ha_subscribe_entity_history(
+    const char *entity_id, unsigned hours_to_show,
+    ha_history_stream_cb_t callback, void *user_ctx,
+    ha_history_stream_t **stream_out, int *subscription_id_out);
+void app_ha_unsubscribe_entity_history(ha_history_stream_t *stream);
+
+esp_err_t app_ha_subscribe_trend_history(const char *entity_id,
+                                         unsigned hours_to_show,
+                                         ha_ws_event_cb_t event_cb,
+                                         ha_ws_result_cb_t result_cb,
+                                         void *user_ctx,
+                                         int *subscription_id_out);
+esp_err_t app_ha_unsubscribe_trend_history(ha_ws_event_cb_t event_cb,
+                                           void *user_ctx);
+bool app_ha_trend_history_connected(void);
+
+/** Fetch the statistics metadata array for one sensor. */
+esp_err_t app_ha_get_entity_statistics_metadata(
+    const char *entity_id, app_ha_history_result_cb_t callback,
+    void *user_ctx, int *request_id_out);
+
+/** Fetch 5-minute recorder statistics starting at start_time. */
+esp_err_t app_ha_get_entity_statistics(
+    const char *entity_id, time_t start_time,
+    app_ha_history_result_cb_t callback, void *user_ctx,
+    int *request_id_out);
 
 #ifdef __cplusplus
 }

@@ -1,54 +1,46 @@
-/* SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+/* SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifdef __cplusplus
-extern "C" {
-
-#endif
-
 #ifndef OPEN_NEXTION_COMPONENTS_KEY_INCLUDE_KEY_H
 #define OPEN_NEXTION_COMPONENTS_KEY_INCLUDE_KEY_H
 
-#include "sdkconfig.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_event.h"
 
 ESP_EVENT_DECLARE_BASE(KEY_EVENT);
 
-#define BUTTON_ACTIVE_LEVEL (0)
-#define BUTTON_IO_NUM GPIO_NUM_0
+#define KEY_BUTTON_ACTIVE_LEVEL 0
+#define KEY_BUTTON_GPIO         GPIO_NUM_0
 
-/**
- * @brief Button events
- *
- */
-typedef enum
-{
-	BUTTON_SINGLE_CLICK,
-	BUTTON_DOUBLE_CLICK,
-	BUTTON_LONG_PRESS_START,
-	BUTTON_EVENT_MAX,
-} button_event_e;
+typedef enum {
+    KEY_EVENT_SINGLE_CLICK,
+    KEY_EVENT_DOUBLE_CLICK,
+    KEY_EVENT_FACTORY_RESET_TRIGGERED,
+    KEY_EVENT_MAX,
+} key_event_id_t;
 
-/**
- * @brief Initialize the button input and software handling
- *
- * This function must be called before using the button. It sets up GPIO
- * and software logic to detect button presses and generate events.
- */
-void key_init(void);
+typedef struct {
+    uint32_t pressed_duration_ms;
+    int gpio_level;
+} key_factory_reset_event_data_t;
 
-/**
- * @brief De-initialize button input and stop background processing
- *
- * Stops the internal timer and releases GPIO resources associated with the button.
- * Should be called when the button is no longer needed.
- */
-void key_de_init(void);
+/** Initialize the BOOT button using the official espressif/button component. */
+esp_err_t key_init(void);
 
-#endif // OPEN_NEXTION_COMPONENTS_KEY_INCLUDE_KEY_H
+/** Delete the official button handle and release its resources. */
+esp_err_t key_de_init(void);
 
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* OPEN_NEXTION_COMPONENTS_KEY_INCLUDE_KEY_H */

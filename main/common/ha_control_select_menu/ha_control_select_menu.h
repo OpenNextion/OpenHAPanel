@@ -34,6 +34,7 @@ bool ha_control_select_menu_set_options(lv_obj_t *obj,
                                         const ha_control_select_menu_option_t *options,
                                         size_t count);
 void ha_control_select_menu_set_value(lv_obj_t *obj, const char *value);
+const char *ha_control_select_menu_get_value(lv_obj_t *obj);
 size_t ha_control_select_menu_get_option_count(lv_obj_t *obj);
 void ha_control_select_menu_set_disabled(lv_obj_t *obj, bool disabled);
 void ha_control_select_menu_set_change_cb(lv_obj_t *obj,

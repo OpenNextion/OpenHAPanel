@@ -4,6 +4,7 @@
     import SettingPageHeader from '@/component/PageHeader/PageHeader.svelte';
     import SettingRow from '@/component/SettingRow/SettingRow.svelte';
     import SettingRowGroup from '@/component/SettingRow/SettingRowGroup.svelte';
+    import SettingSwitch from '@/component/SettingSwitch/SettingSwitch.svelte';
     import SvgIcon from '@/component/Icon/SvgIcon.svelte';
     import { deviceStore, updateDeviceField, updateTheme } from '@/stores/device';
     import { EMessageType, sendMessage } from '@/stores/message';
@@ -76,15 +77,12 @@
                 </div>
             {/snippet}
             {#snippet contentSnippet()}
-                <span class="form-check form-switch">
-                    <input
-                        class="form-check-input"
-                        type="checkbox"
-                        aria-label={$_('settingsDetail.followSystem')}
-                        bind:checked={followSystem}
-                        disabled={loading}
-                    />
-                </span>
+                <SettingSwitch
+                    ariaLabel={$_('settingsDetail.followSystem')}
+                    checked={followSystem}
+                    disabled={loading}
+                    onchange={(event) => (followSystem = event.currentTarget.checked)}
+                />
             {/snippet}
         </SettingRow>
     </SettingRowGroup>

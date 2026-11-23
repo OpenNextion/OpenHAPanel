@@ -74,6 +74,8 @@ typedef struct entity_feature_instance {
     lv_obj_t *control;
     const char *entity_id;
     const screen_feature_config_t *config;
+    size_t visible_limit;
+    bool half_width;
 } entity_feature_instance_t;
 
 typedef struct {

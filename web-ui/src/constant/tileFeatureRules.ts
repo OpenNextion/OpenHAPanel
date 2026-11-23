@@ -2,32 +2,37 @@ import { isHassEntitySupported } from '@/constant/hassEntity';
 import type { IHassStateEntry } from '@/types/haRegistry';
 import type { IHassScreenConfigFeature } from '@/types/screenConfig';
 
-export type THassTileFeatureType =
-    | 'toggle'
-    | 'button'
-    | 'light-brightness'
-    | 'light-color-temp'
-    | 'light-color-favorites'
-    | 'light-effect'
-    | 'cover-open-close'
-    | 'cover-position'
-    | 'cover-position-favorite'
-    | 'cover-tilt'
-    | 'cover-tilt-position'
-    | 'cover-tilt-favorite'
-    | 'trend-graph'
-    | 'bar-gauge'
-    | 'climate-hvac-modes'
-    | 'climate-preset-modes'
-    | 'climate-fan-modes'
-    | 'climate-swing-modes'
-    | 'climate-swing-horizontal-modes'
-    | 'target-temperature'
-    | 'target-humidity'
-    | 'fan-speed'
-    | 'fan-preset-modes'
-    | 'fan-direction'
-    | 'fan-oscillate';
+// Define every supported HA feature once. An editor value also means the Web UI
+// can render that feature; null keeps capability detection without exposing it yet.
+const TILE_FEATURE_DEFINITIONS = {
+    toggle: { editor: 'checkbox' },
+    button: { editor: 'checkbox' },
+    'light-color': { editor: 'checkbox' },
+    'light-brightness': { editor: 'checkbox' },
+    'light-color-temp': { editor: 'checkbox' },
+    'light-color-favorites': { editor: 'checkbox' },
+    'light-effect': { editor: 'checkbox' },
+    'cover-open-close': { editor: 'checkbox' },
+    'cover-position': { editor: 'checkbox' },
+    'cover-position-favorite': { editor: 'checkbox' },
+    'cover-tilt': { editor: 'checkbox' },
+    'cover-tilt-position': { editor: 'checkbox' },
+    'cover-tilt-favorite': { editor: 'checkbox' },
+    'trend-graph': { editor: 'checkbox' },
+    'climate-hvac-modes': { editor: 'checkbox' },
+    'climate-preset-modes': { editor: 'checkbox' },
+    'climate-fan-modes': { editor: 'checkbox' },
+    'climate-swing-modes': { editor: 'checkbox' },
+    'climate-swing-horizontal-modes': { editor: 'checkbox' },
+    'target-temperature': { editor: 'checkbox' },
+    'target-humidity': { editor: 'checkbox' },
+    'fan-speed': { editor: 'checkbox' },
+    'fan-preset-modes': { editor: 'checkbox' },
+    'fan-direction': { editor: 'checkbox' },
+    'fan-oscillate': { editor: 'checkbox' },
+} as const satisfies Record<string, { editor: 'checkbox' | null }>;
+
+export type THassTileFeatureType = keyof typeof TILE_FEATURE_DEFINITIONS;
 
 export interface ITileFeatureSuggestion {
     id: string;
@@ -41,13 +46,12 @@ export type TTileFeatureEditorDefinition = {
     editor: 'checkbox';
 };
 
-// Only features with a Web renderer may be offered in the picker. Capability
-// detection below can already recognize other HA features independently.
-const RENDERABLE_TILE_FEATURE_TYPES = new Set<THassTileFeatureType>(['toggle', 'button']);
-const FEATURE_EDITORS: readonly TTileFeatureEditorDefinition[] = [
-    { type: 'toggle', labelKey: 'page.screen.actionToggle', editor: 'checkbox' },
-    { type: 'button', labelKey: 'page.screen.actionButton', editor: 'checkbox' },
-];
+const RENDERABLE_TILE_FEATURE_TYPES = new Set((Object.keys(TILE_FEATURE_DEFINITIONS) as THassTileFeatureType[]).filter((type) => TILE_FEATURE_DEFINITIONS[type].editor !== null));
+
+export function getTileFeatureLabelKey(type: string): string | undefined {
+    if (!Object.prototype.hasOwnProperty.call(TILE_FEATURE_DEFINITIONS, type)) return undefined;
+    return `page.screen.tileFeatures.${type}`;
+}
 
 type TAttributes = IHassStateEntry['attributes'];
 
@@ -113,11 +117,13 @@ export function getAvailableTileFeatureTypes(entityId: string, state?: IHassStat
             const brightness = modes.some((mode) => LIGHT_BRIGHTNESS_MODES.has(mode))
                 || (!modes.length && typeof attributes?.brightness === 'number');
             return [
+                'toggle',
                 ...(brightness ? ['light-brightness' as const] : []),
+                //...(color ? ['light-color' as const] : []),
                 ...(temperature ? ['light-color-temp' as const] : []),
                 // Favorite entries live outside the state object; this only checks the underlying color capability.
                 ...(color || temperature ? ['light-color-favorites' as const] : []),
-                ...(hasFlag(flags, LIGHT.EFFECT) && hasStringList(attributes, 'effect_list') ? ['light-effect' as const] : []),
+                ...(hasFlag(flags, LIGHT.EFFECT) ? ['light-effect' as const] : []),
             ];
         }
         case 'cover':
@@ -125,13 +131,13 @@ export function getAvailableTileFeatureTypes(entityId: string, state?: IHassStat
                 ...(flags & (COVER.OPEN | COVER.CLOSE | COVER.STOP) ? ['cover-open-close' as const] : []),
                 // As with lights, favorites still need their separate saved data before a UI can show them.
                 ...(hasFlag(flags, COVER.POSITION) ? ['cover-position' as const, 'cover-position-favorite' as const] : []),
-                ...(flags & (COVER.OPEN_TILT | COVER.CLOSE_TILT | COVER.STOP_TILT) ? ['cover-tilt' as const] : []),
-                ...(hasFlag(flags, COVER.TILT_POSITION) ? ['cover-tilt-position' as const, 'cover-tilt-favorite' as const] : []),
+                //...(flags & (COVER.OPEN_TILT | COVER.CLOSE_TILT | COVER.STOP_TILT) ? ['cover-tilt' as const] : []),
+                //...(hasFlag(flags, COVER.TILT_POSITION) ? ['cover-tilt-position' as const, 'cover-tilt-favorite' as const] : []),
             ];
         case 'sensor':
             if (!isNumericSensor(state)) return [];
             // A percentage unit affects HA's recommendation, not the gauge's availability.
-            return ['trend-graph', 'bar-gauge'];
+            return ['trend-graph'];
         case 'climate':
             return [
                 ...(hasStringList(attributes, 'hvac_modes') ? ['climate-hvac-modes' as const] : []),
@@ -144,13 +150,14 @@ export function getAvailableTileFeatureTypes(entityId: string, state?: IHassStat
             ];
         case 'fan':
             return [
+        		'toggle',
                 ...(hasFlag(flags, FAN.SPEED) ? ['fan-speed' as const] : []),
                 ...(hasFlag(flags, FAN.PRESET) && hasStringList(attributes, 'preset_modes') ? ['fan-preset-modes' as const] : []),
                 ...(hasFlag(flags, FAN.DIRECTION) ? ['fan-direction' as const] : []),
                 ...(hasFlag(flags, FAN.OSCILLATE) ? ['fan-oscillate' as const] : []),
             ];
         default:
-            // binary_sensor, event and siren currently have only the base Tile.
+            // binary_sensor and event currently have only the base Tile.
             return [];
     }
 }
@@ -162,8 +169,7 @@ export function getSupportedTileFeatures(entityId: string, state: IHassStateEntr
 
 /** Keep unsupported UI controls out of the preview until a renderer is added. */
 export function getRenderableTileFeatures(entityId: string, state: IHassStateEntry | undefined, features: IHassScreenConfigFeature[] = []) {
-    return getSupportedTileFeatures(entityId, state, features)
-        .filter((feature) => RENDERABLE_TILE_FEATURE_TYPES.has(feature.type as THassTileFeatureType));
+    return getSupportedTileFeatures(entityId, state, features).filter((feature) => RENDERABLE_TILE_FEATURE_TYPES.has(feature.type as THassTileFeatureType));
 }
 
 export function supportsTileFeature(entityId: string, state: IHassStateEntry | undefined, type: THassTileFeatureType) {
@@ -172,14 +178,14 @@ export function supportsTileFeature(entityId: string, state: IHassStateEntry | u
 
 export function getEditableTileFeatureDefinitions(entityId: string, state?: IHassStateEntry): TTileFeatureEditorDefinition[] {
     const available = new Set(getAvailableTileFeatureTypes(entityId, state));
-    return FEATURE_EDITORS.filter(({ type }) => available.has(type) && RENDERABLE_TILE_FEATURE_TYPES.has(type));
+    return (Object.keys(TILE_FEATURE_DEFINITIONS) as THassTileFeatureType[])
+        .filter((type) => available.has(type) && RENDERABLE_TILE_FEATURE_TYPES.has(type))
+        .map((type) => ({ type, labelKey: getTileFeatureLabelKey(type) ?? type, editor: 'checkbox' }));
 }
 
 export function getTileFeatureSuggestions(entityId: string, state?: IHassStateEntry): ITileFeatureSuggestion[] {
     return [
         { id: 'tile', features: [] },
-        ...getEditableTileFeatureDefinitions(entityId, state)
-            .map(({ type, labelKey }) => ({ id: type, labelKey, features: [{ type, data: {} }] })),
+        ...getEditableTileFeatureDefinitions(entityId, state).map(({ type, labelKey }) => ({ id: type, labelKey, features: [{ type, data: {} }] })),
     ];
 }
-

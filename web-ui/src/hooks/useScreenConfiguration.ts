@@ -61,6 +61,10 @@ function toScreenActionItem(action: TActionSelection) {
     return resolvedAction ? { action: resolvedAction } : undefined;
 }
 
+export function getDefaultScreenEntityFullWidth(rotation: number): boolean {
+    return rotation !== 90;
+}
+
 export function addEntityToScreen(screenIndex: number, mode: TEntityPickerMode, entity: IHassRegistryTreeEntity, features: IHassScreenConfigFeature[] = []) {
     if (mode === 'badge') {
         addScreenBadge(screenIndex, {
@@ -73,7 +77,7 @@ export function addEntityToScreen(screenIndex: number, mode: TEntityPickerMode, 
         type: 'tile',
         data: {
             entity: entity.id,
-            full_width: get(deviceStore).screenRotation.rotation !== 90,
+            full_width: getDefaultScreenEntityFullWidth(get(deviceStore).screenRotation.rotation),
             actionConfig: createDefaultScreenActionConfig(),
             ...(features.length ? { features } : {}),
         },

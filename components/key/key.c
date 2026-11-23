@@ -1,271 +1,277 @@
-/* SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+/* SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "freertos/FreeRTOS.h"
-#include "driver/gpio.h"
-#include "esp_timer.h"
-#include "esp_log.h"
 #include "key.h"
-#include "sdkconfig.h"
 
-enum
-{
-    KEY_STATE_NONE = 0,        /* initially idle stateless */
-    KEY_STATE_DEBOUNCING,      /* key debiting */
-    PRESS_DOWN_CHECK,          /* detection by pressing the button */
-    PRESS_UP_CHECK,            /* button pop up detection */
-    PRESS_REPEAT_DOWN_CHECK,   /* press the button double click to detect */
-    PRESS_LONG_PRESS_UP_CHECK, /* Press and hold the button for 10s to bounce up and detect */
-};
+#include "button_gpio.h"
+#include "iot_button.h"
 
-/**
- * @brief Structs to record individual key parameters
- *
- */
-typedef struct button_dev_t
-{
-    uint32_t ticks;
-    uint8_t repeat;
-    uint8_t state : 3;
-    uint8_t last_level : 1;
-    uint8_t curr_level : 1;
-    int count[2];
-} button_dev_t;
+#include "driver/gpio.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
 
-#define TICKS_INTERVAL CONFIG_BUTTON_PERIOD_TIME_MS                      /* ticks */
-#define DEBOUNCE_TICKS CONFIG_BUTTON_DEBOUNCE_TICKS                      /* debounce ticks */
-#define SHORT_TICKS (CONFIG_BUTTON_SHORT_PRESS_TIME_MS / TICKS_INTERVAL) /* click timeout duration */
-#define REPEAT_TIMES (20) /* the duration of the double click interval timeout */
-
-#define LONG_TICKS (CONFIG_BUTTON_LONG_PRESS_TIME_MS / TICKS_INTERVAL) /* press and hold the button for a long time */
+#define KEY_FACTORY_RESET_HOLD_TIME_MS 10000U
+#define KEY_LONG_PRESS_EVENT_TIME_MS    10050U
+#define KEY_MULTI_CLICK_INTERVAL_MS      500U
 
 static const char *TAG = "key";
 
-/* define the event group */
 ESP_EVENT_DEFINE_BASE(KEY_EVENT);
 
-/* define button handle */
-static button_dev_t g_button_handle = {0};
+static button_handle_t s_button;
+static portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
+static struct {
+    int64_t pressed_at_us;
+    bool pressed;
+    bool factory_reset_triggered;
+    bool wait_for_release;
+    bool ignore_current_cycle;
+} s_state;
 
-/* key timer handle */
-static esp_timer_handle_t g_button_timer_handle = NULL;
-/* whether the key timer runs the flag bit */
-static bool g_is_timer_running = false;
-
-/**
- * @brief Button scanning callback function triggered periodically by esp_timer
- *
- * This function implements a state machine for debounced GPIO button input. It is called
- * at a fixed interval (defined by TICKS_INTERVAL) to poll the current state of the button
- * and determine whether the user has performed a single-click, double-click, or long-press.
- *
- * The button states are transitioned based on GPIO level, debounce timing, and press duration.
- *
- * Events such as single click, double click, and long press start are posted to the
- * specified event loop (device_loop) for application handling.
- *
- * @param[in] args Unused (reserved for esp_timer compatibility)
- */
-static void button_cb(void *args)
+static void key_clear_state_locked(void)
 {
-    /* gets the current level status of the key */
-    g_button_handle.curr_level = gpio_get_level(BUTTON_IO_NUM);
+    s_state.pressed_at_us = 0;
+    s_state.pressed = false;
+    s_state.factory_reset_triggered = false;
+}
 
-    /** State machine */
-    switch (g_button_handle.state) {
-    case KEY_STATE_NONE:
-        if (g_button_handle.curr_level != g_button_handle.last_level) {
-            g_button_handle.ticks = 0;
-            g_button_handle.repeat = 0;
-            g_button_handle.state = KEY_STATE_DEBOUNCING;
-        }
-        break;
+static esp_err_t key_post_event(key_event_id_t event_id,
+                                const key_factory_reset_event_data_t *event_data)
+{
+    size_t event_data_size = event_data ? sizeof(*event_data) : 0;
+    return esp_event_post(KEY_EVENT,
+                          event_id,
+                          event_data,
+                          event_data_size,
+                          0);
+}
 
-    case KEY_STATE_DEBOUNCING:
-        g_button_handle.ticks++;
-        /* key debiting */
-        if (g_button_handle.curr_level != g_button_handle.last_level) {
-            if (g_button_handle.ticks >= DEBOUNCE_TICKS) {
-                g_button_handle.last_level = g_button_handle.curr_level;
-                g_button_handle.state = PRESS_DOWN_CHECK;
-            }
-        }
-        else {
-            g_button_handle.state = KEY_STATE_NONE;
-        }
-        break;
+static void key_press_down_cb(void *button_handle, void *user_data)
+{
+    (void)button_handle;
+    (void)user_data;
 
-    case PRESS_DOWN_CHECK:
-        if (g_button_handle.curr_level == BUTTON_ACTIVE_LEVEL) {
-            g_button_handle.state = PRESS_UP_CHECK;
-        }
-        else {
-            g_button_handle.state = KEY_STATE_NONE;
-        }
-        g_button_handle.ticks = 0;
-        break;
+    int64_t now_us = esp_timer_get_time();
+    taskENTER_CRITICAL(&s_state_lock);
+    if (!s_state.wait_for_release && !s_state.ignore_current_cycle) {
+        s_state.pressed_at_us = now_us;
+        s_state.pressed = true;
+        s_state.factory_reset_triggered = false;
+    }
+    taskEXIT_CRITICAL(&s_state_lock);
+}
 
-    case PRESS_UP_CHECK:
-        g_button_handle.ticks++;
-        /* determine whether to press and hold it */
-        if (g_button_handle.ticks >= LONG_TICKS) {
-            g_button_handle.state = PRESS_LONG_PRESS_UP_CHECK;
-            /* send a long press for 10s event */
-            esp_event_post(KEY_EVENT, BUTTON_LONG_PRESS_START, NULL, 0, portMAX_DELAY);
-            break;
-        }
+static void key_press_up_cb(void *button_handle, void *user_data)
+{
+    (void)button_handle;
+    (void)user_data;
 
-        if (g_button_handle.curr_level != BUTTON_ACTIVE_LEVEL) {
-            g_button_handle.last_level = g_button_handle.curr_level;
-            /* determine whether the click timed out */
-            if (g_button_handle.ticks < SHORT_TICKS) {
-                g_button_handle.ticks = 0;
-                g_button_handle.repeat++;
-                g_button_handle.state = PRESS_REPEAT_DOWN_CHECK;
-            }
-            else /* click timeout to cancel the button*/
-            {
-                g_button_handle.state = KEY_STATE_NONE;
-            }
-        }
-        break;
+    taskENTER_CRITICAL(&s_state_lock);
+    key_clear_state_locked();
+    s_state.wait_for_release = false;
+    taskEXIT_CRITICAL(&s_state_lock);
+}
 
-    case PRESS_REPEAT_DOWN_CHECK:
-        g_button_handle.ticks++;
-        /* Determine whether there are still keys pressed before the double-click timeout */
-        if (g_button_handle.ticks > REPEAT_TIMES) {
-            if (g_button_handle.repeat == 1) {
-                esp_event_post(KEY_EVENT, BUTTON_SINGLE_CLICK, NULL, 0, portMAX_DELAY);
-            }
-            else if (g_button_handle.repeat == 2) {
-                esp_event_post(KEY_EVENT, BUTTON_DOUBLE_CLICK, NULL, 0, portMAX_DELAY);
-            }
-            else {
-            }
-            g_button_handle.state = KEY_STATE_NONE;
-        }
-        else {
-            if (g_button_handle.curr_level != g_button_handle.last_level) {
-                if (g_button_handle.curr_level == BUTTON_ACTIVE_LEVEL) {
-                    g_button_handle.state = KEY_STATE_DEBOUNCING;
-                }
-            }
-        }
-        break;
+static void key_single_click_cb(void *button_handle, void *user_data)
+{
+    (void)button_handle;
+    (void)user_data;
 
-    case PRESS_LONG_PRESS_UP_CHECK:
-        if (g_button_handle.curr_level != g_button_handle.last_level) {
-            /* release */
-            if (g_button_handle.curr_level != BUTTON_ACTIVE_LEVEL) {
-                g_button_handle.state = KEY_STATE_NONE;
-            }
-        }
-        break;
-    default:
-        ESP_LOGI(TAG, "state error");
+    taskENTER_CRITICAL(&s_state_lock);
+    bool ignore = s_state.ignore_current_cycle;
+    taskEXIT_CRITICAL(&s_state_lock);
+    if (!ignore) {
+        key_post_event(KEY_EVENT_SINGLE_CLICK, NULL);
     }
 }
 
-/**
- * @brief Initialize the button driver and start the polling timer
- *
- * This function sets up the internal button state and creates a periodic timer using
- * the ESP timer service to poll the GPIO pin. The button logic is implemented through
- * a software state machine, and events will be dispatched based on user interactions
- * such as short press, double click, and long press.
- *
- * This function should be called once during initialization.
- *
- * @return
- *      - ESP_OK: Initialization successful
- *      - Other error codes are not returned in current implementation
- */
-esp_err_t key_iot_button_create(void)
+static void key_double_click_cb(void *button_handle, void *user_data)
 {
-    g_button_handle.state = KEY_STATE_NONE;
-    g_button_handle.last_level = gpio_get_level(BUTTON_IO_NUM);
+    (void)button_handle;
+    (void)user_data;
 
-    if (!g_button_timer_handle) {
-        esp_timer_create_args_t button_timer = {0};
-        button_timer.arg = NULL;
-        button_timer.callback = button_cb;
-        button_timer.dispatch_method = ESP_TIMER_TASK;
-        button_timer.name = "button_timer";
-        esp_timer_create(&button_timer, &g_button_timer_handle);
+    taskENTER_CRITICAL(&s_state_lock);
+    bool ignore = s_state.ignore_current_cycle;
+    taskEXIT_CRITICAL(&s_state_lock);
+    if (!ignore) {
+        key_post_event(KEY_EVENT_DOUBLE_CLICK, NULL);
+    }
+}
+
+static void key_press_end_cb(void *button_handle, void *user_data)
+{
+    (void)button_handle;
+    (void)user_data;
+
+    taskENTER_CRITICAL(&s_state_lock);
+    key_clear_state_locked();
+    s_state.ignore_current_cycle = false;
+    taskEXIT_CRITICAL(&s_state_lock);
+}
+
+static void key_long_press_start_cb(void *button_handle, void *user_data)
+{
+    (void)button_handle;
+    (void)user_data;
+
+    int64_t now_us = esp_timer_get_time();
+    int gpio_level = gpio_get_level(KEY_BUTTON_GPIO);
+    bool triggered = false;
+    bool pressed = false;
+    int64_t pressed_at_us = 0;
+
+    taskENTER_CRITICAL(&s_state_lock);
+    pressed = s_state.pressed;
+    pressed_at_us = s_state.pressed_at_us;
+    if (pressed &&
+        !s_state.ignore_current_cycle &&
+        !s_state.factory_reset_triggered &&
+        pressed_at_us > 0 &&
+        now_us - pressed_at_us >= (int64_t)KEY_FACTORY_RESET_HOLD_TIME_MS * 1000 &&
+        gpio_level == KEY_BUTTON_ACTIVE_LEVEL) {
+        s_state.factory_reset_triggered = true;
+        triggered = true;
+    }
+    taskEXIT_CRITICAL(&s_state_lock);
+
+    if (!triggered) {
+        return;
     }
 
-    if (!g_is_timer_running) {
-        esp_timer_start_periodic(g_button_timer_handle, TICKS_INTERVAL * 1000U);
-        g_is_timer_running = true;
+    key_factory_reset_event_data_t event_data = {
+        .pressed_duration_ms = (uint32_t)((now_us - pressed_at_us) / 1000),
+        .gpio_level = gpio_level,
+    };
+    if (key_post_event(KEY_EVENT_FACTORY_RESET_TRIGGERED, &event_data) != ESP_OK) {
+        taskENTER_CRITICAL(&s_state_lock);
+        s_state.factory_reset_triggered = false;
+        taskEXIT_CRITICAL(&s_state_lock);
+    }
+}
+
+static esp_err_t key_register_callbacks(button_handle_t button)
+{
+    esp_err_t err = iot_button_register_cb(button, BUTTON_PRESS_DOWN, NULL, key_press_down_cb, NULL);
+    if (err != ESP_OK) return err;
+
+    err = iot_button_register_cb(button, BUTTON_PRESS_UP, NULL, key_press_up_cb, NULL);
+    if (err != ESP_OK) return err;
+
+    err = iot_button_register_cb(button, BUTTON_SINGLE_CLICK, NULL, key_single_click_cb, NULL);
+    if (err != ESP_OK) return err;
+
+    err = iot_button_register_cb(button, BUTTON_DOUBLE_CLICK, NULL, key_double_click_cb, NULL);
+    if (err != ESP_OK) return err;
+
+    err = iot_button_register_cb(button, BUTTON_PRESS_END, NULL, key_press_end_cb, NULL);
+    if (err != ESP_OK) return err;
+
+    button_event_args_t long_press_args = {
+        /* The official component and our monotonic safety clock are sampled at
+         * slightly different instants. A small margin guarantees that the
+         * independent safety check has observed the full ten seconds. */
+        .long_press.press_time = KEY_LONG_PRESS_EVENT_TIME_MS,
+    };
+    err = iot_button_register_cb(button,
+                                 BUTTON_LONG_PRESS_START,
+                                 &long_press_args,
+                                 key_long_press_start_cb,
+                                 NULL);
+    return err;
+}
+
+esp_err_t key_init(void)
+{
+    if (s_button) return ESP_ERR_INVALID_STATE;
+
+    button_config_t button_config = {
+        .long_press_time = KEY_LONG_PRESS_EVENT_TIME_MS,
+        /* The previous implementation allowed about 20 x 25 ms between
+         * clicks. In the official component this field is the repeat/click
+         * decision interval, not the maximum physical press duration. */
+        .short_press_time = KEY_MULTI_CLICK_INTERVAL_MS,
+    };
+    button_gpio_config_t gpio_config = {
+        .gpio_num = KEY_BUTTON_GPIO,
+        .active_level = KEY_BUTTON_ACTIVE_LEVEL,
+        .enable_power_save = false,
+        .disable_pull = false,
+    };
+
+    button_handle_t button = NULL;
+    esp_err_t err = iot_button_new_gpio_device(&button_config, &gpio_config, &button);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create GPIO button: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    bool wait_for_release =
+        gpio_get_level(KEY_BUTTON_GPIO) == KEY_BUTTON_ACTIVE_LEVEL;
+    taskENTER_CRITICAL(&s_state_lock);
+    key_clear_state_locked();
+    s_state.wait_for_release = wait_for_release;
+    s_state.ignore_current_cycle = wait_for_release;
+    taskEXIT_CRITICAL(&s_state_lock);
+
+    err = key_register_callbacks(button);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register button callbacks: %s", esp_err_to_name(err));
+        iot_button_delete(button);
+        taskENTER_CRITICAL(&s_state_lock);
+        key_clear_state_locked();
+        s_state.wait_for_release = false;
+        s_state.ignore_current_cycle = false;
+        taskEXIT_CRITICAL(&s_state_lock);
+        return err;
+    }
+
+    /* The button may have been released while callbacks were being installed.
+     * Do not leave the startup gate latched if the raw pin is already inactive. */
+    if (wait_for_release &&
+        gpio_get_level(KEY_BUTTON_GPIO) != KEY_BUTTON_ACTIVE_LEVEL) {
+        wait_for_release = false;
+        taskENTER_CRITICAL(&s_state_lock);
+        s_state.wait_for_release = false;
+        s_state.ignore_current_cycle = false;
+        taskEXIT_CRITICAL(&s_state_lock);
+    }
+
+    taskENTER_CRITICAL(&s_state_lock);
+    s_button = button;
+    taskEXIT_CRITICAL(&s_state_lock);
+
+    ESP_LOGI(TAG,
+             "BOOT button initialized: gpio=%d active_level=%d factory_reset_hold=%u ms",
+             KEY_BUTTON_GPIO,
+             KEY_BUTTON_ACTIVE_LEVEL,
+             KEY_FACTORY_RESET_HOLD_TIME_MS);
+    if (wait_for_release) {
+        ESP_LOGW(TAG,
+                 "BOOT button is held during initialization; waiting for release before accepting presses");
     }
     return ESP_OK;
 }
 
-/**
- * @brief Stop the button polling timer and release resources
- *
- * This function stops the periodic polling timer used to detect button states,
- * and deletes the timer to free system resources. It should be called when the
- * button is no longer needed or before system shutdown to avoid memory leaks.
- *
- * @return
- *      - ESP_OK: De-initialization successful
- *      - Other error codes are not returned in current implementation
- */
-static esp_err_t iot_button_delete(void)
+esp_err_t key_de_init(void)
 {
-    esp_timer_stop(g_button_timer_handle);
-    esp_timer_delete(g_button_timer_handle);
-    g_button_timer_handle = NULL;
-    g_is_timer_running = false;
+    taskENTER_CRITICAL(&s_state_lock);
+    button_handle_t button = s_button;
+    s_button = NULL;
+    key_clear_state_locked();
+    s_state.wait_for_release = false;
+    s_state.ignore_current_cycle = false;
+    taskEXIT_CRITICAL(&s_state_lock);
+
+    if (!button) return ESP_ERR_INVALID_STATE;
+
+    esp_err_t err = iot_button_delete(button);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to delete button: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    ESP_LOGI(TAG, "BOOT button deinitialized");
     return ESP_OK;
-}
-
-/**
- * @brief Initialize button hardware and logic
- *
- * This function configures the GPIO pin used for button input and starts the
- * internal software button handler by creating a periodic timer.
- * It sets up pull-up configuration and disables GPIO interrupts, relying instead
- * on polling for state changes.
- */
-void key_init(void)
-{
-    gpio_config_t gpio_conf = {
-        .pin_bit_mask = 1ULL << BUTTON_IO_NUM,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = 1,
-        .pull_down_en = 0,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&gpio_conf);
-
-    key_iot_button_create();
-}
-
-/**
- * @brief De-initialize button logic and clean up resources
- *
- * This function stops the internal polling timer and deletes it. It also resets the
- * GPIO configuration to a known state. Use this function before shutdown or when the
- * button is no longer needed to free resources.
- */
-void key_de_init(void)
-{
-    esp_err_t ret = iot_button_delete();
-    if (ESP_OK == ret) {
-        ESP_LOGI(TAG, "Button deleted successfully");
-    }
-    else {
-        ESP_LOGE(TAG, "Button delete failed");
-    }
-    gpio_config_t gpio_conf = {
-        .pin_bit_mask = 1ULL << BUTTON_IO_NUM,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = 0,
-        .pull_down_en = 0,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&gpio_conf);
 }
